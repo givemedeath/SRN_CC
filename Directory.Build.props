@@ -1,4 +1,6 @@
 <Project>
+  <Import Project="$(MSBuildThisFileDirectory)eng\Versions.props" />
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>14.0</LangVersion>
@@ -6,10 +8,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
+    <RuntimeIdentifier Condition="'$(SRNCCVerificationRuntimeIdentifier)' != ''">$(SRNCCVerificationRuntimeIdentifier)</RuntimeIdentifier>
 
     <!-- NuGet Package Lock File Policy -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
+    <DisableImplicitLibraryPacksFolder>true</DisableImplicitLibraryPacksFolder>
 
     <!-- Vulnerability Audit Settings -->
     <NuGetAudit>true</NuGetAudit>

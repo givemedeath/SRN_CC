@@ -23,6 +23,7 @@ public sealed class HakReader
     {
         ArgumentNullException.ThrowIfNull(stream);
         if (!stream.CanRead) throw new ArgumentException("Stream must be readable.", nameof(stream));
+        if (!stream.CanSeek) throw new ArgumentException("Stream must be seekable.", nameof(stream));
 
         long streamLength = stream.Length;
         if (streamLength < 160)
@@ -32,8 +33,13 @@ public sealed class HakReader
 
         using BinaryReader reader = new(stream, Encoding.ASCII, leaveOpen: true);
 
-        FileType = new string(reader.ReadChars(4));
-        Version = new string(reader.ReadChars(4));
+        FileType = Encoding.ASCII.GetString(ReadExactly(reader, 4));
+        Version = Encoding.ASCII.GetString(ReadExactly(reader, 4));
+
+        if (FileType != "HAK ")
+        {
+            throw new InvalidDataException($"Unsupported ERF file type '{FileType}'; expected 'HAK '.");
+        }
 
         if (Version != "V1.0")
         {
@@ -51,8 +57,24 @@ public sealed class HakReader
         DescriptionStrRef = reader.ReadUInt32();
 
         // Validate table offsets and bounds
-        long keyListSize = (long)EntryCount * 24; // 16 resref + 4 resId + 2 resType + 2 unused
-        long resourceListSize = (long)EntryCount * 8; // 4 offset + 4 size
+        long keyListSize = checked((long)EntryCount * 24); // 16 resref + 4 resId + 2 resType + 2 unused
+        long resourceListSize = checked((long)EntryCount * 8); // 4 offset + 4 size
+
+        if (EntryCount > int.MaxValue)
+        {
+            throw new InvalidDataException("HAK entry count exceeds the supported in-memory table size.");
+        }
+
+        if (OffsetToKeyList < 160 || OffsetToResourceList < 160)
+        {
+            throw new InvalidDataException("HAK table offsets overlap the fixed header.");
+        }
+
+        if (LocalizedStringSize > 0 &&
+            (OffsetToLocalizedString < 160 || checked((long)OffsetToLocalizedString + LocalizedStringSize) > streamLength))
+        {
+            throw new InvalidDataException("HAK localized-string data extends past the file bounds.");
+        }
 
         if (OffsetToKeyList + keyListSize > streamLength)
         {
@@ -66,10 +88,11 @@ public sealed class HakReader
 
         // Read KeyList and ResourceList
         stream.Position = OffsetToKeyList;
-        var keyRecords = new (byte[] Resref, uint ResId, ushort ResType)[EntryCount];
+        int entryCount = checked((int)EntryCount);
+        var keyRecords = new (byte[] Resref, uint ResId, ushort ResType)[entryCount];
         for (int i = 0; i < EntryCount; i++)
         {
-            byte[] resref = reader.ReadBytes(16);
+            byte[] resref = ReadExactly(reader, 16);
             uint resId = reader.ReadUInt32();
             ushort resType = reader.ReadUInt16();
             reader.ReadUInt16(); // Unused padding
@@ -78,6 +101,7 @@ public sealed class HakReader
         }
 
         stream.Position = OffsetToResourceList;
+        var resourceRecords = new (uint Offset, uint Size)[entryCount];
         for (int i = 0; i < EntryCount; i++)
         {
             uint offset = reader.ReadUInt32();
@@ -88,16 +112,46 @@ public sealed class HakReader
                 throw new InvalidDataException($"Resource entry {i} payload extends past file length.");
             }
 
-            var keyRecord = keyRecords[i];
-            HakFormatKey key = new(keyRecord.Resref, keyRecord.ResType);
-            _entries.Add(new HakEntry(key, keyRecord.ResId, offset, size));
+            resourceRecords[i] = (offset, size);
         }
+
+        foreach (var keyRecord in keyRecords)
+        {
+            if (keyRecord.ResId >= EntryCount)
+            {
+                throw new InvalidDataException($"HAK key references invalid resource index {keyRecord.ResId} for {EntryCount} resources.");
+            }
+
+            var resource = resourceRecords[checked((int)keyRecord.ResId)];
+            HakFormatKey key = new(keyRecord.Resref, keyRecord.ResType);
+            _entries.Add(new HakEntry(key, keyRecord.ResId, resource.Offset, resource.Size));
+        }
+    }
+
+    private static byte[] ReadExactly(BinaryReader reader, int count)
+    {
+        byte[] bytes = reader.ReadBytes(count);
+        if (bytes.Length != count)
+        {
+            throw new EndOfStreamException($"Expected {count} bytes but only read {bytes.Length}.");
+        }
+
+        return bytes;
     }
 
     public static Stream OpenPayloadStream(HakEntry entry, Stream sourceStream)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(sourceStream);
+        if (!sourceStream.CanRead || !sourceStream.CanSeek)
+        {
+            throw new ArgumentException("Payload source streams must be readable and seekable.", nameof(sourceStream));
+        }
+
+        if (checked((long)entry.OffsetToResource + entry.ResourceSize) > sourceStream.Length)
+        {
+            throw new InvalidDataException("The payload range extends past the source stream.");
+        }
 
         return new BoundedSubStream(sourceStream, entry.OffsetToResource, entry.ResourceSize);
     }

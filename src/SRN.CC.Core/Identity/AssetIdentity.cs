@@ -9,6 +9,8 @@ namespace SRN.CC.Core.Identity;
 public sealed class AssetIdentity : IEquatable<AssetIdentity>
 {
     private static readonly Encoding Windows1252;
+    private readonly byte[] _canonicalResrefBytes;
+    private readonly byte[] _originalResrefBytes;
 
     static AssetIdentity()
     {
@@ -18,7 +20,8 @@ public sealed class AssetIdentity : IEquatable<AssetIdentity>
 
     public string OriginalName { get; }
     public ushort ResourceType { get; }
-    public byte[] CanonicalResrefBytes { get; }
+    public ReadOnlyMemory<byte> CanonicalResrefBytes => _canonicalResrefBytes;
+    public ReadOnlyMemory<byte> OriginalResrefBytes => _originalResrefBytes;
 
     public AssetIdentity(string resref, ushort resourceType)
     {
@@ -37,13 +40,15 @@ public sealed class AssetIdentity : IEquatable<AssetIdentity>
             throw new ArgumentException($"Resref '{resref}' contains characters unencodable in CP1252.", nameof(resref), ex);
         }
 
-        CanonicalResrefBytes = ValidateAndCanonicalize(rawBytes);
+        _originalResrefBytes = rawBytes.ToArray();
+        _canonicalResrefBytes = ValidateAndCanonicalize(rawBytes);
     }
 
     public AssetIdentity(ReadOnlySpan<byte> resrefBytes, ushort resourceType)
     {
         ResourceType = resourceType;
-        CanonicalResrefBytes = ValidateAndCanonicalize(resrefBytes);
+        _originalResrefBytes = resrefBytes.ToArray();
+        _canonicalResrefBytes = ValidateAndCanonicalize(resrefBytes);
 
         try
         {
@@ -57,20 +62,13 @@ public sealed class AssetIdentity : IEquatable<AssetIdentity>
 
     private static byte[] ValidateAndCanonicalize(ReadOnlySpan<byte> input)
     {
-        // Trim trailing NULs or whitespace if present, but require 1..16 length
-        int length = input.Length;
-        while (length > 0 && input[length - 1] == 0)
+        if (input.Length is < 1 or > 16)
         {
-            length--;
+            throw new ArgumentException($"Resref byte length must be between 1 and 16 bytes. Got {input.Length}.", nameof(input));
         }
 
-        if (length is < 1 or > 16)
-        {
-            throw new ArgumentException($"Resref byte length must be between 1 and 16 bytes. Got {length}.", nameof(input));
-        }
-
-        byte[] canonical = new byte[length];
-        for (int i = 0; i < length; i++)
+        byte[] canonical = new byte[input.Length];
+        for (int i = 0; i < input.Length; i++)
         {
             byte b = input[i];
             if (b is 0 or (byte)'/' or (byte)'\\')
@@ -95,7 +93,7 @@ public sealed class AssetIdentity : IEquatable<AssetIdentity>
         if (other is null) return false;
         if (ReferenceEquals(this, other)) return true;
         if (ResourceType != other.ResourceType) return false;
-        return CanonicalResrefBytes.AsSpan().SequenceEqual(other.CanonicalResrefBytes);
+        return _canonicalResrefBytes.AsSpan().SequenceEqual(other._canonicalResrefBytes);
     }
 
     public override bool Equals(object? obj) => Equals(obj as AssetIdentity);
@@ -104,7 +102,7 @@ public sealed class AssetIdentity : IEquatable<AssetIdentity>
     {
         HashCode hc = new();
         hc.Add(ResourceType);
-        hc.AddBytes(CanonicalResrefBytes);
+        hc.AddBytes(_canonicalResrefBytes);
         return hc.ToHashCode();
     }
 

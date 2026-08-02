@@ -4,12 +4,19 @@ namespace SRN.CC.Formats.Hak;
 
 public sealed class HakWriter
 {
+    public const long LegacySingleHakLimit = 2L * 1024 * 1024 * 1024;
+
     public record WriteItem(HakFormatKey Key, Stream PayloadStream, uint PayloadSize);
 
     public static void Write(Stream outputStream, IEnumerable<WriteItem> items)
     {
         ArgumentNullException.ThrowIfNull(outputStream);
         ArgumentNullException.ThrowIfNull(items);
+        if (!outputStream.CanWrite) throw new ArgumentException("Output stream must be writable.", nameof(outputStream));
+        if (outputStream.CanSeek && outputStream.Position != 0)
+        {
+            throw new ArgumentException("HAK output streams must be positioned at the beginning.", nameof(outputStream));
+        }
 
         var itemList = items.ToList();
 
@@ -17,9 +24,16 @@ public sealed class HakWriter
         HashSet<HakFormatKey> seenKeys = new();
         foreach (var item in itemList)
         {
+            ArgumentNullException.ThrowIfNull(item.PayloadStream);
+            if (!item.PayloadStream.CanRead)
+            {
+                throw new ArgumentException("Every HAK payload stream must be readable.", nameof(items));
+            }
+
+            ValidateKeyForWrite(item.Key);
             if (!seenKeys.Add(item.Key))
             {
-                throw new InvalidOperationException($"Duplicate resource key found in HAK writer input: {Encoding.ASCII.GetString(item.Key.ResrefBytes)}.{item.Key.ResourceType}");
+                throw new InvalidOperationException($"Duplicate resource key found in HAK writer input: {Convert.ToHexString(item.Key.ResrefBytes.Span)}.{item.Key.ResourceType}");
             }
         }
 
@@ -28,20 +42,26 @@ public sealed class HakWriter
         {
             int typeComp = a.Key.ResourceType.CompareTo(b.Key.ResourceType);
             if (typeComp != 0) return typeComp;
-            return a.Key.ResrefBytes.AsSpan().SequenceCompareTo(b.Key.ResrefBytes.AsSpan());
+            return a.Key.CanonicalResrefBytes.Span.SequenceCompareTo(b.Key.CanonicalResrefBytes.Span);
         });
 
-        uint entryCount = (uint)itemList.Count;
-        uint headerSize = 160;
-        uint keyListOffset = headerSize;
-        uint keyListSize = entryCount * 24;
-        uint resourceListOffset = keyListOffset + keyListSize;
-        uint resourceListSize = entryCount * 8;
-        uint payloadStartOffset = resourceListOffset + resourceListSize;
+        long entryCount = itemList.Count;
+        const long headerSize = 160;
+        long keyListOffset = headerSize;
+        long keyListSize = checked(entryCount * 24);
+        long resourceListOffset = checked(keyListOffset + keyListSize);
+        long resourceListSize = checked(entryCount * 8);
+        long payloadStartOffset = checked(resourceListOffset + resourceListSize);
 
         // Verify size limits
-        long totalEstimatedPayload = itemList.Sum(i => (long)i.PayloadSize);
-        if (payloadStartOffset + totalEstimatedPayload > int.MaxValue)
+        long totalEstimatedPayload = 0;
+        foreach (var item in itemList)
+        {
+            totalEstimatedPayload = checked(totalEstimatedPayload + item.PayloadSize);
+        }
+
+        long outputSize = checked(payloadStartOffset + totalEstimatedPayload);
+        if (outputSize >= LegacySingleHakLimit)
         {
             throw new InvalidOperationException("HAK size exceeds single-HAK limit.");
         }
@@ -53,10 +73,10 @@ public sealed class HakWriter
         writer.Write(Encoding.ASCII.GetBytes("V1.0"));
         writer.Write((uint)0); // LanguageCount = 0
         writer.Write((uint)0); // LocalizedStringSize = 0
-        writer.Write(entryCount);
+        writer.Write(checked((uint)entryCount));
         writer.Write((uint)0); // OffsetToLocalizedString
-        writer.Write(keyListOffset);
-        writer.Write(resourceListOffset);
+        writer.Write(checked((uint)keyListOffset));
+        writer.Write(checked((uint)resourceListOffset));
         writer.Write((uint)0); // BuildYear
         writer.Write((uint)0); // BuildDay
         writer.Write((uint)0); // DescriptionStrRef
@@ -65,12 +85,12 @@ public sealed class HakWriter
         writer.Write(new byte[116]);
 
         // Write KeyList
-        uint currentPayloadOffset = payloadStartOffset;
+        long currentPayloadOffset = payloadStartOffset;
         for (int i = 0; i < entryCount; i++)
         {
             var item = itemList[i];
             byte[] resref16 = new byte[16];
-            Array.Copy(item.Key.ResrefBytes, resref16, Math.Min(16, item.Key.ResrefBytes.Length));
+            item.Key.ResrefBytes.Span.CopyTo(resref16);
 
             writer.Write(resref16);
             writer.Write((uint)i); // ResourceId
@@ -82,9 +102,9 @@ public sealed class HakWriter
         for (int i = 0; i < entryCount; i++)
         {
             var item = itemList[i];
-            writer.Write(currentPayloadOffset);
+            writer.Write(checked((uint)currentPayloadOffset));
             writer.Write(item.PayloadSize);
-            currentPayloadOffset += item.PayloadSize;
+            currentPayloadOffset = checked(currentPayloadOffset + item.PayloadSize);
         }
 
         // Write Payloads
@@ -99,6 +119,22 @@ public sealed class HakWriter
                 if (read == 0) throw new EndOfStreamException("Payload stream ended unexpectedly.");
                 writer.Write(buffer, 0, read);
                 remaining -= read;
+            }
+        }
+    }
+
+    private static void ValidateKeyForWrite(HakFormatKey key)
+    {
+        if (key.ResrefBytes.Length is < 1 or > 16)
+        {
+            throw new ArgumentException("HAK writer keys must contain 1-16 resref bytes.", nameof(key));
+        }
+
+        foreach (byte value in key.ResrefBytes.Span)
+        {
+            if (value is 0 or (byte)'/' or (byte)'\\')
+            {
+                throw new ArgumentException($"HAK writer key contains invalid byte 0x{value:X2}.", nameof(key));
             }
         }
     }

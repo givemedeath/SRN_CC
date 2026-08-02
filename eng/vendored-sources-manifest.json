@@ -1,5 +1,11 @@
 ﻿{
     "repositoryUrl":  "https://github.com/givemedeath/SWLOR_NWN",
+    "excludedTrees":  [
+                          {
+                              "upstreamPath":  "SWLOR.NWN.Formats.Corpus.Tests/",
+                              "reason":  "Licensed-corpus integration tests are opt-in local evidence and are not portable Milestone 1 dependencies."
+                          }
+                      ],
     "entries":  [
                     {
                         "status":  "verbatim",

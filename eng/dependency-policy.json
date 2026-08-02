@@ -1,77 +1,676 @@
 {
-  "policyVersion": "1.0",
+  "policyVersion": "2.0",
+  "allowedPackageSources": [
+    "https://api.nuget.org/v3/index.json"
+  ],
   "approvedPackages": [
     {
       "id": "Avalonia",
       "version": "12.1.0",
       "scope": "runtime",
-      "spdxLicense": "MIT",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
       "reviewDate": "2026-08-02",
-      "mustShipNotice": true
+      "mustShipNotice": true,
+      "contentHash": "an4ugAy2q6GTdaFl635V8W/LKrWNL+mnSFUprbgyf8m1Zzf9WgoGaF5ajGv5i4gXefMZrzsUPV1QU+kKrgwCWg=="
+    },
+    {
+      "id": "Avalonia.Angle.Windows.Natives",
+      "version": "2.1.27548.20260419",
+      "scope": "runtime",
+      "license": {
+        "type": "file",
+        "file": "LICENSE",
+        "spdx": "BSD-3-Clause",
+        "sha256": "54aff7276217df9f6b5181613999d208c9e40d2b1d51bf55217837e6871a4a63"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/angle/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "l17nI3XVDN3oMnpjf2pnmJg0YTwK4m6NLsn/itAjDMdObTFxN77D5F1M9sRMSfViSY3KKcse1ROczwgoWLJsnA=="
+    },
+    {
+      "id": "Avalonia.BuildServices",
+      "version": "11.3.2",
+      "scope": "development",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia.BuildServices",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "qHDToxto1e3hci5YqbG9n0Ty8mlp3zBUN5wT66wKqaDVzXyQ0do3EnRILd4Ke9jpvsktaPpgE0YjEk7hornryQ=="
     },
     {
       "id": "Avalonia.Desktop",
       "version": "12.1.0",
       "scope": "runtime",
-      "spdxLicense": "MIT",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
       "reviewDate": "2026-08-02",
-      "mustShipNotice": true
+      "mustShipNotice": true,
+      "contentHash": "mxhz50At61IBQbB/bCo5JGp53rPi3GerGO9mFo/v93uBHa4J3cz3NSSqnVWSyQXKbPCwQhrogfEFWbKBgecy1w=="
     },
     {
-      "id": "Avalonia.Themes.Fluent",
+      "id": "Avalonia.Fonts.Inter",
+      "version": "12.1.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "2mK5Rv6aMWgXfQ2JZOq1Wo2bTNAfiidg2GO4b3MgLRN89ezfvfsSfp4P5Pl4ssRcWWwdV0jGzIw8n0xc9B26VA=="
+    },
+    {
+      "id": "Avalonia.FreeDesktop",
       "version": "12.1.0",
       "scope": "runtime",
-      "spdxLicense": "MIT",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
       "reviewDate": "2026-08-02",
-      "mustShipNotice": true
+      "mustShipNotice": true,
+      "contentHash": "89mrS7dSYtisJrjQufCOomHeAynlVVKZ+dq4leKtzHXXKVoWsE0Nb2ymiNYPMlirwzwpemflGj+K34opwyLeJQ=="
+    },
+    {
+      "id": "Avalonia.FreeDesktop.AtSpi",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "WWahMjzKtDl2PGHa8mS6NHIVMT+JNKVIeT5xMLp9SBTMvjHNpEbXTX3PNbbIQ7hRMSETAJ/PAnvgOzatGktEKQ=="
+    },
+    {
+      "id": "Avalonia.HarfBuzz",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "uWPa/kg+fmqhrUR5GzFC2ZL2MPszxcEy14hTSwu3VhjwTnaVarUozoPmggQjZG4A4s6w2bcGepsYYaCM/eOoMA=="
+    },
+    {
+      "id": "Avalonia.Headless",
+      "version": "12.1.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "wyRPmeYuQrdcgZg5hgbxXbU8+zSvIDH9J2Dk4QmxStHcqrEKhhyGqVvDzAKo99SmTNFUbTBlO7Ql5HMMxqRyeA=="
     },
     {
       "id": "Avalonia.Headless.NUnit",
       "version": "12.1.0",
       "scope": "test",
-      "spdxLicense": "MIT",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
       "reviewDate": "2026-08-02",
-      "mustShipNotice": false
+      "mustShipNotice": false,
+      "contentHash": "t29LdiOlb66TSIlkzHqSI5a7811Rpa3k7IqUCYTUSa/qNg1nrVho0imhh20snbebOVWuHIQKnSKqv6mdOAim3A=="
+    },
+    {
+      "id": "Avalonia.Native",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "mfNMtGP7rEVWSZoii0l40mlNhgNR6ZISTvHP7OAMn5YQHiK66EjfN26SL/kLnz1buy2VtMIiGVBbIttL8FYCZg=="
+    },
+    {
+      "id": "Avalonia.Remote.Protocol",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "p6OKt6O7vOub4TS2pAjaeW0Y13oxrPs4uixeVZpJByiSQKKk+LyApN5yRy2JerpfTMtI86Y5pNwugyKTHZJnAw=="
+    },
+    {
+      "id": "Avalonia.Skia",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "K63pwExQkcjVbsYJOiOq0hYAO4G5d7T42yK8MGNrvwBKv/bJVlV14jGvV4wXcsuYAU8IWlOHgqq5sMUiDfj4vw=="
+    },
+    {
+      "id": "Avalonia.Themes.Fluent",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "MVi5L9HymnNm+gP2aNXNcyrP2iKGJWFubQ5Bv8/Przflxca1aIT9QBpTUV6c3olA9rLYFY7MJRR/C/BZaUhemQ=="
+    },
+    {
+      "id": "Avalonia.Win32",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "D0xxPtFeOK8cKK991ul92rlFtDO3II0E44dHM0ix4/8LVc9+1LaMdbf1eMnp1RclFwX2bt7HPhbySnrG5uArxA=="
+    },
+    {
+      "id": "Avalonia.X11",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/AvaloniaUI/Avalonia/",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "6+YHVGf44ictmGj88diMCw9pC9tiwnMlUgosDi0VDmyUQFuy/mJIa4J0rZu6G+UMbjGuyLDQLmtvU4tTOhLMPg=="
     },
     {
       "id": "CommunityToolkit.Mvvm",
       "version": "8.4.2",
       "scope": "runtime",
-      "spdxLicense": "MIT",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/CommunityToolkit/dotnet",
       "reviewDate": "2026-08-02",
-      "mustShipNotice": true
+      "mustShipNotice": true,
+      "contentHash": "WadCzGEc2U+3e20avRLng4qNtt4zoOGWrdUISqJWrHe3/FSnrYjuM5Sb4yQb09LhkBXrrI4Zt3dLKgRMbItsrg=="
     },
     {
       "id": "FluentAssertions",
       "version": "7.2.2",
       "scope": "test",
-      "spdxLicense": "Apache-2.0",
+      "license": {
+        "type": "expression",
+        "value": "Apache-2.0"
+      },
+      "repositoryUrl": "https://github.com/fluentassertions/fluentassertions",
       "reviewDate": "2026-08-02",
-      "mustShipNotice": false
+      "mustShipNotice": false,
+      "contentHash": "B6FJmtTadaqtLXH5qfn9hlYF5ruNOAdtjA9+1V3fuYp/MZzj7lB3Ys5cdgy72uv7w1GE5Y9PEX369UD3N1sfHg=="
     },
     {
-      "id": "NUnit",
-      "version": "4.6.1",
-      "scope": "test",
-      "spdxLicense": "MIT",
+      "id": "HarfBuzzSharp",
+      "version": "8.3.1.3",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
       "reviewDate": "2026-08-02",
-      "mustShipNotice": false
+      "mustShipNotice": true,
+      "contentHash": "NGZ2+ZVNPM+NdHB/asW0/ykWngyHWwcqjrbN2nDeH1B/aptPGlCUl8wkQ2cSJxw5fdWgdmIPmNuTPWpLwNVXWg=="
     },
     {
-      "id": "NUnit3TestAdapter",
-      "version": "6.2.0",
-      "scope": "test",
-      "spdxLicense": "MIT",
+      "id": "HarfBuzzSharp.NativeAssets.Linux",
+      "version": "8.3.1.3",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
       "reviewDate": "2026-08-02",
-      "mustShipNotice": false
+      "mustShipNotice": true,
+      "contentHash": "RI6A1LgmooU30+4QIyFt5rmBCzP0VzTR+587IJSGvYIsHHWlahFufihYxtraLfsIhW7I8dn6+xX+DZGygOPKWQ=="
+    },
+    {
+      "id": "HarfBuzzSharp.NativeAssets.macOS",
+      "version": "8.3.1.3",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "KPTq0xnslkI6nAo0jh3ptcQPJvZZr7MWYXa2jUe4SnHc9q+JlHElmNXp0sfFoiTgoCX7WOYpYsurypuH9Gehxw=="
+    },
+    {
+      "id": "HarfBuzzSharp.NativeAssets.WebAssembly",
+      "version": "8.3.1.3",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "w2QfdNm9Uz/sUa0B5D+OnVQhyq3G/fBq6ibQMdWBlQqqwh0g0/5j3RFvYqZAmRZ5+RzvjVe8o8SFFnWYUSkuxA=="
+    },
+    {
+      "id": "HarfBuzzSharp.NativeAssets.Win32",
+      "version": "8.3.1.3",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "bx8CE8Js+XGX8PUxAHCBDEORt5aaBYtMN4Hr9QFs57Xithh6yjUyYqksizH6eRDhJkwsGI+SXWmPmMm8lZC9Pw=="
+    },
+    {
+      "id": "MicroCom.Runtime",
+      "version": "0.11.6",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/kekekeks/MicroCom",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "NdNWGDiZ6eS/Mf/9+QHR91cj1K7Hy+PX9yrHI/zM7xFYuj9IWT2uxtB6sCHjrnxAeLV9fut1R6zHDUGKX6f9lQ=="
+    },
+    {
+      "id": "Microsoft.ApplicationInsights",
+      "version": "2.23.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/Microsoft/ApplicationInsights-dotnet",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "nWArUZTdU7iqZLycLKWe0TDms48KKGE6pONH2terYNa8REXiqixrMOkf1sk5DHGMaUTqONU2YkS4SAXBhLStgw=="
+    },
+    {
+      "id": "Microsoft.CodeCoverage",
+      "version": "18.8.1",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/microsoft/vstest",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "Eclse/ZZjr4lmWzZFNN9h/OluhKL+SK/QbUyKUewgX139aGeyMEO/DkMPwuFs2MixvanTnz6891rF8UHDg+W4Q=="
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyModel",
+      "version": "8.0.2",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/runtime",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "mUBDZZRgZrSyFOsJ2qJJ9fXfqd/kXJwf3AiDoqLD9m6TjY5OO/vLNOb9fb4juC0487eq4hcGN/M2Rh/CKS7QYw=="
     },
     {
       "id": "Microsoft.NET.Test.Sdk",
       "version": "18.8.1",
       "scope": "test",
-      "spdxLicense": "MIT",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/microsoft/vstest",
       "reviewDate": "2026-08-02",
-      "mustShipNotice": false
+      "mustShipNotice": false,
+      "contentHash": "dknJL3/9Y3t4XuCBqnc0PevPxgLsUMmVhjwup/b1HNovA8zWcj3XsfIf7c6p05363DWcqL7X/YhDL9B+Zymv1w=="
+    },
+    {
+      "id": "Microsoft.Testing.Extensions.Telemetry",
+      "version": "2.1.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/microsoft/testfx",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "5TwgTx2u7k9Al/xbZ18QXq4Hdy2xewkVTI6K3sk+jY2ykqUkIKNuj7rFu3GOV5KnEUkevhw6eZcyZs77STHJIA=="
+    },
+    {
+      "id": "Microsoft.Testing.Extensions.TrxReport.Abstractions",
+      "version": "2.1.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/microsoft/testfx",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "D8xmIJYQFJ6D49Rx5/vPrkZZxb338Jkew+eSqZLBfBiWKw4QZKy3i1BOXiLfz0lOmaNErwDz/YWRojCdNl+B9Q=="
+    },
+    {
+      "id": "Microsoft.Testing.Extensions.VSTestBridge",
+      "version": "2.1.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/microsoft/testfx",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "bNRIEA2YoGr+Y+7LHdA7i1U80+7BAdf4K4Qh4Kx6eKkoBK/NV7QpoMg+GWPP0/eqAFzuUmUOIPVZ87Oo0Vyxmw=="
+    },
+    {
+      "id": "Microsoft.Testing.Platform",
+      "version": "2.1.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/microsoft/testfx",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "aHkjNTGIA+Zbdw6RJgSFrbDrCjO0CgqpElqYcvkRSeUhBv2bKarnvU3ep786U7UqrPlArT/B7VmImRibJD0Zrg=="
+    },
+    {
+      "id": "Microsoft.Testing.Platform.MSBuild",
+      "version": "2.1.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/microsoft/testfx",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "UpfPebXQtHGrWz21+YLHmJSm+5zsuPE9U9pfdCtoB+67g75fDmWlNgpkH2ZmdVhSwkjNIed9Icg8Iu63z2ei5Q=="
+    },
+    {
+      "id": "Microsoft.TestPlatform.ObjectModel",
+      "version": "18.8.1",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/microsoft/vstest",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "qLbktNB1+b1XZLNJBTzaWVVJAd6PEzD7cgD406geMb6PcFZhp3EDNa1tctWx1+mtMU6MP/6ozVvFPC9vs2a9rw=="
+    },
+    {
+      "id": "Microsoft.TestPlatform.TestHost",
+      "version": "18.8.1",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/microsoft/vstest",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "FaQHPDTUOcE+SFTjssNPfrub2lT9Zyon4J2W/KLHt/efLJACb1TCeWXyOgh0D/4Q1e4n+S3E6mOKud+9nLZlEA=="
+    },
+    {
+      "id": "Microsoft.Win32.SystemEvents",
+      "version": "6.0.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/runtime",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "hqTM5628jSsQiv+HGpiq3WKBl2c8v1KZfby2J6Pr7pEPlK9waPdgEO6b8A/+/xn/yZ9ulv8HuqK71ONy2tg67A=="
+    },
+    {
+      "id": "NUnit",
+      "version": "4.6.1",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/nunit/nunit",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "xS4+YaBFUv1r8bcAbjitSfYaRZGfMwUiMdiaRziBXZpKgVxKDSHhjUn0mV5mObHGZRZq6eNa+WFWr3g8grj66A=="
+    },
+    {
+      "id": "NUnit3TestAdapter",
+      "version": "6.2.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/nunit/nunit3-vs-adapter",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "8PMJB8za2u8S0ey/nEtvh9BHjLhv5yzUEMCmA0+VIPLKSeOAZ3TEHWDyAp0+iPQb3jnBH1o8k0PoU2FgzXLRnQ=="
+    },
+    {
+      "id": "SkiaSharp",
+      "version": "3.119.4",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "53NOSUZ1Us+91Sm0uCkIivh/k7jOowRErZT2sIWwPFN9mLUvdxnE6rS4sWo4255+Rd2MWUSF+j0NMZHD6Cke+Q=="
+    },
+    {
+      "id": "SkiaSharp.NativeAssets.Linux",
+      "version": "3.119.4",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "UAyVzbqNfZsZbKbzj68zXLyUyF/SbTKmzTfOO6qDu++dtIUMMTzPBe8oOuzU/DiewpfKoUUlOSsJmqWc6blxBw=="
+    },
+    {
+      "id": "SkiaSharp.NativeAssets.macOS",
+      "version": "3.119.4",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "fgBOWEqbY012x7gMfJU4ezgz6dfhJb30Z6YdW35h85Zoe39+a8YNbAAwL29ihPfWoppg5AjvyKNzD1oCvlqWwA=="
+    },
+    {
+      "id": "SkiaSharp.NativeAssets.WebAssembly",
+      "version": "3.119.4",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "S1HOxtBbD4bYDtA2e9WH5TX+lxqRrTPvKjrjttRhxnHNNu7YY8VFo/LeCP7tNqoTA6PV+8vsvNbmRUEC2ip8RQ=="
+    },
+    {
+      "id": "SkiaSharp.NativeAssets.Win32",
+      "version": "3.119.4",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "XOpbx/4CReO2wYsq2s6rbvdauc6dntG4Zv499sHGTJ87bwZaFXszFkwql3+FIZMc8kUPeaj3Mx2ezIJmo8a1Kg=="
+    },
+    {
+      "id": "System.Configuration.ConfigurationManager",
+      "version": "6.0.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/runtime",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "7T+m0kDSlIPTHIkPMIu6m6tV6qsMqJpvQWW2jIc2qi7sn40qxFo0q+7mEQAhMPXZHMKnWrnv47ntGlM/ejvw3g=="
+    },
+    {
+      "id": "System.Drawing.Common",
+      "version": "6.0.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/runtime",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "NfuoKUiP2nUWwKZN6twGqXioIe1zVD0RIj2t976A+czLHr2nY454RwwXs6JU9Htc6mwqL6Dn/nEL3dpVf2jOhg=="
+    },
+    {
+      "id": "System.Security.Cryptography.ProtectedData",
+      "version": "6.0.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/runtime",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "rp1gMNEZpvx9vP0JW0oHLxlf8oSiQgtno77Y4PLUBjSiDYoD77Y8uXHr1Ea5XG4/pIKhqAdxZ8v8OTUtqo9PeQ=="
+    },
+    {
+      "id": "System.Security.Permissions",
+      "version": "6.0.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/runtime",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "T/uuc7AklkDoxmcJ7LGkyX1CcSviZuLCa4jg3PekfJ7SU0niF0IVTXwUiNVP9DSpzou2PpxJ+eNY2IfDM90ZCg=="
+    },
+    {
+      "id": "System.Windows.Extensions",
+      "version": "6.0.0",
+      "scope": "test",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/runtime",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false,
+      "contentHash": "IXoJOXIqc39AIe+CIR7koBtRGMiCt/LPM3lI+PELtDIy9XdyeSrwXFdWV9dzJ2Awl0paLWUaknLxFQ5HpHZUog=="
+    },
+    {
+      "id": "Tmds.DBus.Protocol",
+      "version": "0.94.1",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/tmds/Tmds.DBus.git",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "11YMr7FnAbL83bQmVxlhbIKHvSLxjO81D12Ej0QMSGXMDTxNA9MTOa4MQxx43nv5el/efuPHwzyrj6a5ha2gug=="
     }
-  ]
+  ],
+  "approvedProjectReferences": {
+    "src/SRN.CC.App/SRN.CC.App.csproj": [
+      "src/SRN.CC.Core/SRN.CC.Core.csproj",
+      "src/SRN.CC.Infrastructure/SRN.CC.Infrastructure.csproj",
+      "src/SRN.CC.Preview/SRN.CC.Preview.csproj"
+    ],
+    "src/SRN.CC.Core/SRN.CC.Core.csproj": [],
+    "src/SRN.CC.Formats/SRN.CC.Formats.csproj": [],
+    "src/SRN.CC.Infrastructure/SRN.CC.Infrastructure.csproj": [
+      "src/SRN.CC.Core/SRN.CC.Core.csproj",
+      "src/SRN.CC.Formats/SRN.CC.Formats.csproj"
+    ],
+    "src/SRN.CC.Preview/SRN.CC.Preview.csproj": [
+      "src/SRN.CC.Core/SRN.CC.Core.csproj",
+      "src/SRN.CC.Formats/SRN.CC.Formats.csproj"
+    ],
+    "tests/SRN.CC.CorpusTests/SRN.CC.CorpusTests.csproj": [
+      "src/SRN.CC.App/SRN.CC.App.csproj",
+      "src/SRN.CC.Core/SRN.CC.Core.csproj",
+      "src/SRN.CC.Formats/SRN.CC.Formats.csproj"
+    ],
+    "tests/SRN.CC.Tests/SRN.CC.Tests.csproj": [
+      "src/SRN.CC.App/SRN.CC.App.csproj",
+      "src/SRN.CC.Core/SRN.CC.Core.csproj",
+      "src/SRN.CC.Formats/SRN.CC.Formats.csproj",
+      "src/SRN.CC.Infrastructure/SRN.CC.Infrastructure.csproj",
+      "src/SRN.CC.Preview/SRN.CC.Preview.csproj"
+    ]
+  }
 }

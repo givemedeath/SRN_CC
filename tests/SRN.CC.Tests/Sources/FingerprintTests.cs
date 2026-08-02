@@ -66,4 +66,18 @@ public class FingerprintTests
         fp1.Should().Be(fp2);
         fp1.Equals(fp2).Should().BeTrue();
     }
+
+    [Test]
+    public async Task GetFingerprintAsync_CanceledToken_ThrowsOperationCanceledException()
+    {
+        AssetSource source = AssetSource.CreateFolder(_tempDir);
+        FolderAssetSourceReader reader = new(_typeRegistry);
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+
+        Func<Task> act = () => reader.GetFingerprintAsync(source, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
 }
+

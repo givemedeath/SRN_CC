@@ -31,13 +31,15 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
             throw new ArgumentException($"FolderAssetSourceReader cannot index source kind '{source.Kind}'.", nameof(source));
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         DirectoryInfo rootDir = new(source.FullPath);
         if (!rootDir.Exists)
         {
             throw new DirectoryNotFoundException($"Folder source root not found at '{source.FullPath}'.");
         }
 
-        var files = EnumerateRegularFiles(rootDir);
+        var files = EnumerateRegularFiles(rootDir, cancellationToken);
         files.Sort((a, b) => string.Compare(a.RelativePath, b.RelativePath, StringComparison.Ordinal));
 
         using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -48,6 +50,8 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
 
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             byte[] relPathBytes = Encoding.UTF8.GetBytes(file.RelativePath);
             byte[] lenBytes = BitConverter.GetBytes(relPathBytes.Length);
             hasher.AppendData(lenBytes);
@@ -110,13 +114,13 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
         {
             fingerprint = await GetFingerprintAsync(source, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             AssetDiagnosticRecord diag = new(DiagnosticCode.RootInaccessible, $"Inaccessible folder root: {ex.Message}", targetPath: source.FullPath);
             return CreateUnavailableSnapshot(source, diag, sw.Elapsed);
         }
 
-        var files = EnumerateRegularFiles(rootDir);
+        var files = EnumerateRegularFiles(rootDir, cancellationToken);
         files.Sort((a, b) => string.Compare(a.RelativePath, b.RelativePath, StringComparison.Ordinal));
 
         List<IndexedAssetRecord> records = new();
@@ -247,16 +251,22 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
 
     private sealed record FolderFileItem(string RelativePath, string FullPath, long Length, long LastWriteUtcTicks);
 
-    private static List<FolderFileItem> EnumerateRegularFiles(DirectoryInfo rootDir)
+    private static List<FolderFileItem> EnumerateRegularFiles(DirectoryInfo rootDir, CancellationToken cancellationToken)
     {
         List<FolderFileItem> result = new();
         int rootLength = rootDir.FullName.TrimEnd('\\', '/').Length + 1;
-        EnumerateDirectoryRecursive(rootDir, rootLength, result);
+        EnumerateDirectoryRecursive(rootDir, rootLength, result, cancellationToken);
         return result;
     }
 
-    private static void EnumerateDirectoryRecursive(DirectoryInfo dir, int rootLength, List<FolderFileItem> result)
+    private static void EnumerateDirectoryRecursive(
+        DirectoryInfo dir,
+        int rootLength,
+        List<FolderFileItem> result,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (dir.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
             return; // Skip reparse points / symlinks / junctions
@@ -266,6 +276,8 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
         {
             foreach (FileInfo file in dir.GetFiles())
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (file.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 {
                     continue;
@@ -277,11 +289,13 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
 
             foreach (DirectoryInfo subDir in dir.GetDirectories())
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (subDir.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 {
                     continue;
                 }
-                EnumerateDirectoryRecursive(subDir, rootLength, result);
+                EnumerateDirectoryRecursive(subDir, rootLength, result, cancellationToken);
             }
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or DirectoryNotFoundException)
@@ -306,3 +320,4 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
             scanStatistics: stats);
     }
 }
+

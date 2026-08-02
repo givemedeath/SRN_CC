@@ -35,7 +35,7 @@ public sealed class AssetIndexService : IAssetIndexService
         {
             fingerprint = await reader.GetFingerprintAsync(source, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Fallback directly to index scan which produces an unavailable snapshot record
             return await reader.IndexAsync(source, progress, cancellationToken).ConfigureAwait(false);
@@ -64,3 +64,4 @@ public sealed class AssetIndexService : IAssetIndexService
         return freshSnapshot;
     }
 }
+

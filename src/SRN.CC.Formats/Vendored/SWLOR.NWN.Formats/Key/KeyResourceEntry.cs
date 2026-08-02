@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 namespace SWLOR.NWN.Formats.Key;
 
 /// <summary>
@@ -7,13 +5,14 @@ namespace SWLOR.NWN.Formats.Key;
 /// </summary>
 public sealed class KeyResourceEntry
 {
-    internal KeyResourceEntry(string resRef, ushort resourceType, uint resourceId)
+    internal KeyResourceEntry(string resRef, ushort resourceType, uint resourceId, byte[]? rawResRef = null)
     {
         ResRef = resRef;
         ResourceType = resourceType;
         ResourceId = resourceId;
         BifIndex = checked((int)(resourceId >> 20));
         VariableTableIndex = checked((int)(resourceId & 0x000F_FFFF));
+        RawResRef = rawResRef ?? System.Text.Encoding.ASCII.GetBytes(resRef);
     }
 
     public string ResRef { get; }
@@ -25,4 +24,6 @@ public sealed class KeyResourceEntry
     public int BifIndex { get; }
 
     public int VariableTableIndex { get; }
+
+    public byte[] RawResRef { get; }
 }

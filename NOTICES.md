@@ -25,7 +25,9 @@ upstream license is distributed as
 | CommunityToolkit.Mvvm | 8.4.2 | MIT | .NET Foundation and contributors; `COMMUNITYTOOLKIT-LICENSE.md` and `COMMUNITYTOOLKIT-THIRD-PARTY-NOTICES.txt` |
 | HarfBuzzSharp and Win32 native assets | 8.3.1.3 | MIT | Microsoft and contributors; `THIRD-PARTY-LICENSES/HARFBUZZSHARP-LICENSE.txt` |
 | MicroCom.Runtime | 0.11.6 | MIT | MicroCom contributors; https://github.com/kekekeks/MicroCom |
+| Microsoft.Data.Sqlite and Core | 10.0.10 | MIT | Microsoft and contributors; https://github.com/dotnet/dotnet |
 | SkiaSharp and Win32 native assets | 3.119.4 | MIT | Microsoft and contributors; `THIRD-PARTY-LICENSES/SKIASHARP-LICENSE.txt` |
+| SQLitePCLRaw family | 2.1.12 | Apache-2.0 | Eric Sink and contributors; https://github.com/ericsink/SQLitePCL.raw |
 | Tmds.DBus.Protocol | 0.94.1 | MIT | Tmds.DBus contributors; https://github.com/tmds/Tmds.DBus |
 | .NET runtime pack, win-x64 | 10.0.10 | MIT and component-specific terms | Microsoft and contributors; `DOTNET-LICENSE.txt` and `DOTNET-THIRD-PARTY-NOTICES.txt` |
 

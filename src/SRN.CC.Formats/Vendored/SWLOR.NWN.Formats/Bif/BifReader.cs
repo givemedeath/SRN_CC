@@ -87,6 +87,23 @@ public static class BifReader
         return entries;
     }
 
+    public static Stream OpenPayloadStream(BifResourceEntry entry, string bifPath)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentException.ThrowIfNullOrWhiteSpace(bifPath);
+
+        var fileStream = new FileStream(bifPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        try
+        {
+            return new SRN.CC.Formats.Hak.OwnedBoundedStream(fileStream, entry.Offset, entry.Size, ownsStream: true);
+        }
+        catch
+        {
+            fileStream.Dispose();
+            throw;
+        }
+    }
+
     private static void ValidateRange(long offset, long count, long length, string context)
     {
         if (offset < 0 || count < 0 || offset > length || count > length - offset)

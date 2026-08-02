@@ -87,10 +87,11 @@ public static class KeyReader
         for (var index = 0; index < resourceCount; index++)
         {
             var offset = resourceTableOffset + (long)index * ResourceEntrySize;
+            var rawResRef = reader.Slice(offset, 16, $"KEY ResRef {index}").ToArray();
             var resRef = reader.ReadAscii(offset, 16, $"KEY ResRef {index}", trimNull: true);
             var resourceType = reader.ReadUInt16(offset + 16);
             var resourceId = reader.ReadUInt32(offset + 18);
-            var entry = new KeyResourceEntry(resRef, resourceType, resourceId);
+            var entry = new KeyResourceEntry(resRef, resourceType, resourceId, rawResRef);
             if (entry.BifIndex >= bifs.Count)
                 throw new NwnFormatException($"KEY resource {index} references missing BIF index {entry.BifIndex}.");
             resources.Add(entry);

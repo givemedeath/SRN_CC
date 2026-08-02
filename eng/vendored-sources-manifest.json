@@ -1,4 +1,4 @@
-﻿{
+{
     "repositoryUrl":  "https://github.com/givemedeath/SWLOR_NWN",
     "excludedTrees":  [
                           {
@@ -77,8 +77,10 @@
                         "upstreamPath":  "SWLOR.NWN.Formats/Bif/BifFile.cs"
                     },
                     {
-                        "status":  "verbatim",
-                        "sha256":  "64bd5dbb2a0bedb6c54b403f41e38ddcff1b9107f2e23626379208e59f8c346c",
+                        "status":  "adapted",
+                        "sha256":  "42a8c1163f81f2a7a00d04bbbaeebdbb85de8be1db50ca768d50360b66181ef9",
+                        "adaptationReason":  "Milestone 2 bounded resource stream opening",
+                        "reviewReference":  "Milestone 2 design spec",
                         "gitBlobSha1":  "90b78a4a264532fbab49ff134a3aee2d66c5147c",
                         "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Bif/BifReader.cs",
                         "upstreamPath":  "SWLOR.NWN.Formats/Bif/BifReader.cs"
@@ -97,8 +99,10 @@
                         "upstreamPath":  "SWLOR.NWN.Formats/Common/ModuleWriteLock.cs"
                     },
                     {
-                        "status":  "verbatim",
-                        "sha256":  "2296d4dc29fa8097a075d5bd27050dd6e3af69443750d17f52cfe425ee89a109",
+                        "status":  "adapted",
+                        "sha256":  "47133a16e3c468c8fdf3047d4e2e9d41833f8cc6c451b5edbca2f769d43234a0",
+                        "adaptationReason":  "Milestone 2 resource-type registry and decimal extension support",
+                        "reviewReference":  "Milestone 2 design spec",
                         "gitBlobSha1":  "7cf33acefae2bee198e956e20134ba32ca23dfeb",
                         "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Common/ResourceTypes.cs",
                         "upstreamPath":  "SWLOR.NWN.Formats/Common/ResourceTypes.cs"
@@ -195,15 +199,19 @@
                         "upstreamPath":  "SWLOR.NWN.Formats/Key/KeyFile.cs"
                     },
                     {
-                        "status":  "verbatim",
-                        "sha256":  "b0e5b3e05ac4fc6219563863984208b542a045e6ad0d1182a6990c493b274d31",
+                        "status":  "adapted",
+                        "sha256":  "d2a1097dfcd28c325312b00d6ad756962b1e767c3bb0a1ae78e0be7834c18745",
+                        "adaptationReason":  "Milestone 2 raw CP1252 resref preservation",
+                        "reviewReference":  "Milestone 2 design spec",
                         "gitBlobSha1":  "f363f68ba24f022850eed3db97bfd994fbcef5bc",
                         "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Key/KeyReader.cs",
                         "upstreamPath":  "SWLOR.NWN.Formats/Key/KeyReader.cs"
                     },
                     {
-                        "status":  "verbatim",
-                        "sha256":  "7dd7f441848afd90ecf919a4232d7fd6158c7cff0f30588dd1e7bafe63b1aad5",
+                        "status":  "adapted",
+                        "sha256":  "2944c596ca214d3c225ed6611be37b7692c1eb19b4b1a1650ac9e5ee96774bc9",
+                        "adaptationReason":  "Milestone 2 raw CP1252 resref preservation",
+                        "reviewReference":  "Milestone 2 design spec",
                         "gitBlobSha1":  "9e5b71cb1508f58c3ec1189d77bacce9d42d6121",
                         "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Key/KeyResourceEntry.cs",
                         "upstreamPath":  "SWLOR.NWN.Formats/Key/KeyResourceEntry.cs"

@@ -101,6 +101,26 @@ public class SqliteCacheTests
         hit2.Should().NotBeNull("Snap2 should remain in cache");
     }
 
+    [Test]
+    public async Task EnforceLruEviction_NewSnapshotExceedsLimit_RetainsNewSnapshot()
+    {
+        using SqliteCacheService cacheService = new(_tempDbPath, maxLogicalBytes: 500);
+
+        byte[] oldDigest = new byte[32]; Array.Fill(oldDigest, (byte)3);
+        SourceFingerprint oldFingerprint = new(AssetSourceKind.Folder, 1, oldDigest);
+        AssetSource oldSource = AssetSource.CreateFolder(@"C:\Test\old", id: Guid.NewGuid());
+        await cacheService.SaveSnapshotAsync(CreateTestSnapshot(oldSource, oldFingerprint, logicalBytes: 100));
+
+        byte[] newDigest = new byte[32]; Array.Fill(newDigest, (byte)4);
+        SourceFingerprint newFingerprint = new(AssetSourceKind.Folder, 1, newDigest);
+        AssetSource newSource = AssetSource.CreateFolder(@"C:\Test\oversized", id: Guid.NewGuid());
+        await cacheService.SaveSnapshotAsync(CreateTestSnapshot(newSource, newFingerprint, logicalBytes: 600));
+
+        (await cacheService.TryGetSnapshotAsync(oldSource, oldFingerprint)).Should().BeNull();
+        (await cacheService.TryGetSnapshotAsync(newSource, newFingerprint)).Should().NotBeNull(
+            "the snapshot being saved must survive eviction even when it alone exceeds the limit");
+    }
+
     private static SourceIndexSnapshot CreateTestSnapshot(AssetSource source, SourceFingerprint fingerprint, long logicalBytes)
     {
         AssetOccurrence occ = new(
@@ -127,3 +147,4 @@ public static class SqliteCacheServiceExtensions
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
     }
 }
+

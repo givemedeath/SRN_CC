@@ -1,6 +1,9 @@
 using System.Runtime.Versioning;
+using System.Text;
 using FluentAssertions;
 using NUnit.Framework;
+using SRN.CC.Core.Identity;
+using SRN.CC.Infrastructure.Catalog;
 using SRN.CC.Infrastructure.Install;
 
 namespace SRN.CC.Tests.Catalog;
@@ -40,4 +43,44 @@ public class BaseGameCatalogTests
         location.InstallRoot.Should().BeNull();
         location.Diagnostics.Should().ContainSingle(d => d.Code == SRN.CC.Core.Diagnostics.DiagnosticCode.InvalidInstallRoot);
     }
+
+    [Test]
+    public void BaseGameCatalog_PaddedKeyResref_IsIndexed()
+    {
+        string dataDir = Path.Combine(_tempDir, "data");
+        Directory.CreateDirectory(dataDir);
+        File.WriteAllBytes(Path.Combine(dataDir, "nwn_base.key"), BuildKey());
+
+        BaseGameResourceCatalog catalog = new(_tempDir);
+
+        catalog.Contains(new AssetIdentity("sample", 2002)).Should().BeTrue();
+    }
+
+    private static byte[] BuildKey()
+    {
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write("KEY "u8);
+        writer.Write("V1  "u8);
+        writer.Write(1u);
+        writer.Write(1u);
+        writer.Write(64u);
+        writer.Write(76u);
+        writer.Write(126u);
+        writer.Write(1u);
+        writer.Write(new byte[32]);
+
+        const string filename = @"data\sample.bif";
+        writer.Write(40u);
+        writer.Write(98u);
+        writer.Write((ushort)filename.Length);
+        writer.Write((ushort)1);
+        writer.Write(Encoding.ASCII.GetBytes("sample"));
+        writer.Write(new byte[10]);
+        writer.Write((ushort)2002);
+        writer.Write(0u);
+        writer.Write(Encoding.ASCII.GetBytes(filename));
+        return stream.ToArray();
+    }
 }
+

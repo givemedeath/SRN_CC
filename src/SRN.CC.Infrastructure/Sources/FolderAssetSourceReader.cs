@@ -39,7 +39,7 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
             throw new DirectoryNotFoundException($"Folder source root not found at '{source.FullPath}'.");
         }
 
-        var files = EnumerateRegularFiles(rootDir, cancellationToken);
+        List<FolderFileItem> files = EnumerateRegularFiles(rootDir, cancellationToken);
         files.Sort((a, b) => string.Compare(a.RelativePath, b.RelativePath, StringComparison.Ordinal));
 
         using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -120,7 +120,16 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
             return CreateUnavailableSnapshot(source, diag, sw.Elapsed);
         }
 
-        var files = EnumerateRegularFiles(rootDir, cancellationToken);
+        List<FolderFileItem> files;
+        try
+        {
+            files = EnumerateRegularFiles(rootDir, cancellationToken);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            AssetDiagnosticRecord diag = new(DiagnosticCode.RootInaccessible, $"Inaccessible folder root: {ex.Message}", targetPath: source.FullPath);
+            return CreateUnavailableSnapshot(source, diag, sw.Elapsed);
+        }
         files.Sort((a, b) => string.Compare(a.RelativePath, b.RelativePath, StringComparison.Ordinal));
 
         List<IndexedAssetRecord> records = new();
@@ -197,7 +206,16 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
         }
 
         // Verify folder inventory did not change during scan
-        SourceFingerprint fingerprintAfter = await GetFingerprintAsync(source, cancellationToken).ConfigureAwait(false);
+        SourceFingerprint fingerprintAfter;
+        try
+        {
+            fingerprintAfter = await GetFingerprintAsync(source, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            AssetDiagnosticRecord diag = new(DiagnosticCode.RootInaccessible, $"Inaccessible folder root: {ex.Message}", targetPath: source.FullPath);
+            return CreateUnavailableSnapshot(source, diag, sw.Elapsed);
+        }
         if (!fingerprintAfter.Equals(fingerprint))
         {
             return null; // Drift detected
@@ -272,35 +290,28 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
             return; // Skip reparse points / symlinks / junctions
         }
 
-        try
+        foreach (FileInfo file in dir.GetFiles())
         {
-            foreach (FileInfo file in dir.GetFiles())
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (file.Attributes.HasFlag(FileAttributes.ReparsePoint))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (file.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    continue;
-                }
-
-                string relativePath = file.FullName[rootLength..].Replace('\\', '/');
-                result.Add(new FolderFileItem(relativePath, file.FullName, file.Length, file.LastWriteTimeUtc.Ticks));
+                continue;
             }
 
-            foreach (DirectoryInfo subDir in dir.GetDirectories())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (subDir.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    continue;
-                }
-                EnumerateDirectoryRecursive(subDir, rootLength, result, cancellationToken);
-            }
+            string relativePath = file.FullName[rootLength..].Replace('\\', '/');
+            result.Add(new FolderFileItem(relativePath, file.FullName, file.Length, file.LastWriteTimeUtc.Ticks));
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or DirectoryNotFoundException)
+
+        foreach (DirectoryInfo subDir in dir.GetDirectories())
         {
-            // Ignore inaccessible subdirectories during enumeration
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (subDir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                continue;
+            }
+            EnumerateDirectoryRecursive(subDir, rootLength, result, cancellationToken);
         }
     }
 

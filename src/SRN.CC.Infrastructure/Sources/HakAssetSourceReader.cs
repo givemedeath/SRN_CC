@@ -95,6 +95,11 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
         {
             fingerprint = await GetFingerprintAsync(source, cancellationToken).ConfigureAwait(false);
         }
+        catch (ArgumentException ex)
+        {
+            AssetDiagnosticRecord diag = new(DiagnosticCode.InvalidResref, $"Invalid HAK resref: {ex.Message}", targetPath: source.FullPath);
+            return CreateUnavailableSnapshot(source, diag, sw.Elapsed);
+        }
         catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
         {
             AssetDiagnosticRecord diag = new(DiagnosticCode.InvalidHeader, $"Structurally invalid HAK file: {ex.Message}", targetPath: source.FullPath);
@@ -224,3 +229,4 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
             scanStatistics: stats);
     }
 }
+

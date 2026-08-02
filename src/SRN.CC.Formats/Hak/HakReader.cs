@@ -188,25 +188,38 @@ public sealed class HakReader
             _entries.Add(new HakEntry(key, keyRecord.ResId, resource.Offset, resource.Size));
         }
 
-        // Validate payload partial overlaps
-        for (int i = 0; i < _entries.Count; i++)
+        // Validate payload partial overlaps in O(n log n). Exact shared ranges are allowed.
+        var payloadRanges = _entries
+            .Select((entry, index) => (Entry: entry, Index: index))
+            .Where(item => item.Entry.ResourceSize > 0)
+            .OrderBy(item => item.Entry.OffsetToResource)
+            .ThenBy(item => item.Entry.ResourceSize)
+            .ToList();
+
+        if (payloadRanges.Count > 0)
         {
-            var e1 = _entries[i];
-            if (e1.ResourceSize == 0) continue;
+            var active = payloadRanges[0];
+            long activeEnd = checked((long)active.Entry.OffsetToResource + active.Entry.ResourceSize);
 
-            for (int j = i + 1; j < _entries.Count; j++)
+            for (int i = 1; i < payloadRanges.Count; i++)
             {
-                var e2 = _entries[j];
-                if (e2.ResourceSize == 0) continue;
-
-                if (RangesOverlap(e1.OffsetToResource, e1.ResourceSize, e2.OffsetToResource, e2.ResourceSize))
+                var current = payloadRanges[i];
+                if (current.Entry.OffsetToResource < activeEnd)
                 {
-                    // Exact shared ranges are allowed, partial overlaps are invalid
-                    if (!(e1.OffsetToResource == e2.OffsetToResource && e1.ResourceSize == e2.ResourceSize))
+                    bool exactSharedRange =
+                        current.Entry.OffsetToResource == active.Entry.OffsetToResource &&
+                        current.Entry.ResourceSize == active.Entry.ResourceSize;
+
+                    if (!exactSharedRange)
                     {
-                        throw new InvalidDataException($"Payload entry {i} partially overlaps payload entry {j}.");
+                        throw new InvalidDataException($"Payload entry {active.Index} partially overlaps payload entry {current.Index}.");
                     }
+
+                    continue;
                 }
+
+                active = current;
+                activeEnd = checked((long)active.Entry.OffsetToResource + active.Entry.ResourceSize);
             }
         }
     }
@@ -262,3 +275,4 @@ public sealed class HakReader
         return new OwnedBoundedStream(sourceStream, entry.OffsetToResource, entry.ResourceSize, ownsStream: false);
     }
 }
+

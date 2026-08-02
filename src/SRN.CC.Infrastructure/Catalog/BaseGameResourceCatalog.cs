@@ -34,7 +34,14 @@ public sealed class BaseGameResourceCatalog : IBaseGameResourceCatalog
         {
             try
             {
-                AssetIdentity identity = new(entry.RawResRef, entry.ResourceType);
+                ReadOnlySpan<byte> resref = entry.RawResRef;
+                int length = resref.Length;
+                while (length > 0 && resref[length - 1] == 0)
+                {
+                    length--;
+                }
+
+                AssetIdentity identity = new(resref[..length], entry.ResourceType);
                 _identityIndex.TryAdd(identity, entry);
             }
             catch (ArgumentException)
@@ -89,3 +96,4 @@ public sealed class BaseGameResourceCatalog : IBaseGameResourceCatalog
         return Task.FromResult(stream);
     }
 }
+

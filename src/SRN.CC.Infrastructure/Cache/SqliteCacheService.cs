@@ -432,7 +432,7 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
             }
 
             // Perform LRU eviction if logical bytes exceed threshold
-            await EnforceLruEvictionAsync(cancellationToken).ConfigureAwait(false);
+            await EnforceLruEvictionAsync(fpBytes, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -440,7 +440,7 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         }
     }
 
-    private async Task EnforceLruEvictionAsync(CancellationToken cancellationToken)
+    private async Task EnforceLruEvictionAsync(byte[] protectedFingerprint, CancellationToken cancellationToken)
     {
         using SqliteConnection conn = CreateConnection();
         using SqliteCommand sumCmd = conn.CreateCommand();
@@ -451,7 +451,13 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         if (currentTotal <= _maxLogicalBytes) return;
 
         using SqliteCommand selectLruCmd = conn.CreateCommand();
-        selectLruCmd.CommandText = "SELECT fingerprint, logical_bytes FROM source_snapshots ORDER BY last_access_utc ASC;";
+        selectLruCmd.CommandText = @"
+            SELECT fingerprint, logical_bytes
+            FROM source_snapshots
+            WHERE fingerprint <> @protected_fp
+            ORDER BY last_access_utc ASC;
+        ";
+        selectLruCmd.Parameters.AddWithValue("@protected_fp", protectedFingerprint);
         List<(byte[] Fingerprint, long Bytes)> lruEntries = new();
         using (SqliteDataReader reader = await selectLruCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -511,3 +517,4 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         }
     }
 }
+

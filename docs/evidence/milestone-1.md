@@ -5,7 +5,7 @@
 - **SWLOR pin:** `8202faa203eddd6f4972104d22ea5740e23f20f7`
 - **Owner licensing decision:** MIT, `Copyright (c) 2026 SRN.CC Authors`, as recorded in the root `LICENSE`
 - **Local verification entry point:** `powershell -File tools/VerifyBuild.ps1`
-- **Successful local run:** `20260802T215625Z-18844`
+- **Successful local run:** `20260802T220442Z-25700`
 
 ## Acceptance matrix results
 

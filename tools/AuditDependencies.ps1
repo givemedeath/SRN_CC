@@ -68,6 +68,27 @@ if ($signatureMode -ne "require") {
     Add-Violation "NuGet.Config must set signatureValidationMode=require."
 }
 
+$requiredNuGetRepositoryFingerprints = @(
+    "0E5F38F57DC1BCC806D8494F4F90FBCEDD988B46760709CBEEC6F4219AA6157D",
+    "5A2901D6ADA3D18260B9C6DFE2133C95D74B9EEF6AE0E5DC334C8454D1477DF4",
+    "1F4B311D9ACC115C8DC8018B5A49E00FCE6DA8E2855F9F014CA6F34570BC482D"
+)
+$trustedSignerNodes = @($nugetConfig.configuration.trustedSigners.ChildNodes | Where-Object { $_.NodeType -eq [System.Xml.XmlNodeType]::Element })
+$nugetRepositorySigner = @($trustedSignerNodes | Where-Object { $_.LocalName -eq "repository" -and $_.serviceIndex -eq "https://api.nuget.org/v3/index.json" })
+if ($trustedSignerNodes.Count -ne 1 -or $nugetRepositorySigner.Count -ne 1) {
+    Add-Violation "NuGet.Config must trust only the reviewed nuget.org repository signer."
+} else {
+    $actualFingerprints = @($nugetRepositorySigner[0].certificate | ForEach-Object { [string]$_.fingerprint } | Sort-Object -Unique)
+    if (Compare-Object ($requiredNuGetRepositoryFingerprints | Sort-Object) $actualFingerprints) {
+        Add-Violation "NuGet.Config does not contain the complete reviewed nuget.org repository certificate set."
+    }
+    foreach ($certificate in $nugetRepositorySigner[0].certificate) {
+        if ($certificate.hashAlgorithm -ne "SHA256" -or $certificate.allowUntrustedRoot -ne "false") {
+            Add-Violation "The nuget.org repository signer must use SHA256 fingerprints with allowUntrustedRoot=false."
+        }
+    }
+}
+
 $lockFiles = @(
     Get-ChildItem -Path (Join-Path $repoRoot "src"), (Join-Path $repoRoot "tests") -Filter "packages.lock.json" -Recurse
 )

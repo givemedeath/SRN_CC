@@ -236,7 +236,8 @@ project references are not evidence that a package graph has been restored or
 audited.
 
 `NuGet.Config` must clear inherited package sources, add only the NuGet v3 source,
-require signed packages, and configure the same source for vulnerability audit data.
+require signed packages, trust the reviewed NuGet.org repository signer certificate
+set, and configure the same source for vulnerability audit data.
 Never suppress an advisory without a package-specific, dated review entry.
 
 **Gate:** unlocked bootstrap restore creates all lock files; a second locked restore

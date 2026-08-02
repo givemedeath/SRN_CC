@@ -149,7 +149,7 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
                 identity: identity,
                 sourceId: source.Id,
                 locator: locator,
-                originalName: entry.Key.ToString() ?? identity.OriginalName,
+                originalName: identity.OriginalName,
                 size: entry.ResourceSize,
                 validationState: vState,
                 extensionMetadata: null,
@@ -204,6 +204,12 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
         }
 
         var entry = hakReader.Entries[hakLocator.EntryIndex];
+        if (entry.Key.ResourceType != occurrence.Identity.ResourceType ||
+            !entry.Key.CanonicalResrefBytes.Span.SequenceEqual(occurrence.Identity.CanonicalResrefBytes.Span))
+        {
+            throw new InvalidDataException("HAK entry identity no longer matches the indexed occurrence.");
+        }
+
         if (entry.ResourceSize != occurrence.Size)
         {
             throw new InvalidDataException($"HAK entry size mismatch. Expected {occurrence.Size}, found {entry.ResourceSize}.");

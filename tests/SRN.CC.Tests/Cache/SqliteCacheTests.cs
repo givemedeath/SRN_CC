@@ -121,14 +121,34 @@ public class SqliteCacheTests
             "the snapshot being saved must survive eviction even when it alone exceeds the limit");
     }
 
-    private static SourceIndexSnapshot CreateTestSnapshot(AssetSource source, SourceFingerprint fingerprint, long logicalBytes)
+    [Test]
+    public async Task TryGetSnapshot_RestoresSavedLogicalByteStatistics()
+    {
+        using SqliteCacheService cacheService = new(_tempDbPath);
+        byte[] digest = new byte[32];
+        Array.Fill(digest, (byte)5);
+        SourceFingerprint fingerprint = new(AssetSourceKind.Hak, 1, digest);
+        AssetSource source = AssetSource.CreateHak(@"C:\Test\stats.hak", id: Guid.NewGuid());
+        SourceIndexSnapshot snapshot = CreateTestSnapshot(source, fingerprint, logicalBytes: 1_000, occurrenceBytes: 10);
+
+        await cacheService.SaveSnapshotAsync(snapshot);
+
+        SourceIndexSnapshot? restored = await cacheService.TryGetSnapshotAsync(source, fingerprint);
+        restored!.ScanStatistics.TotalLogicalBytes.Should().Be(1_000);
+    }
+
+    private static SourceIndexSnapshot CreateTestSnapshot(
+        AssetSource source,
+        SourceFingerprint fingerprint,
+        long logicalBytes,
+        long? occurrenceBytes = null)
     {
         AssetOccurrence occ = new(
             identity: new SRN.CC.Core.Identity.AssetIdentity("file", 2009),
             sourceId: source.Id,
             locator: new FolderFileLocator("file.nss"),
             originalName: "file.nss",
-            size: logicalBytes);
+            size: occurrenceBytes ?? logicalBytes);
 
         return new SourceIndexSnapshot(
             source: source with { Fingerprint = fingerprint },

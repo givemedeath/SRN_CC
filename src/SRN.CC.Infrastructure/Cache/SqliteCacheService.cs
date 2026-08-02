@@ -224,12 +224,17 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         checkCmd.CommandText = "SELECT record_count, logical_bytes FROM source_snapshots WHERE fingerprint = @fp;";
         checkCmd.Parameters.AddWithValue("@fp", fpBytes);
 
+        int recordCount;
+        long totalLogicalBytes;
         using (SqliteDataReader reader = await checkCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 return null; // Cache miss
             }
+
+            recordCount = reader.GetInt32(0);
+            totalLogicalBytes = reader.GetInt64(1);
         }
 
         // Touch LRU last_access_utc
@@ -243,8 +248,6 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
 
         List<IndexedAssetRecord> records = new();
         List<AssetDiagnosticRecord> diagnostics = new();
-        long totalBytes = 0;
-
         using (SqliteCommand selectCmd = conn.CreateCommand())
         {
             selectCmd.CommandText = @"
@@ -269,8 +272,6 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
                     ValidationState vState = reader.IsDBNull(7) ? ValidationState.Valid : (ValidationState)reader.GetInt32(7);
                     int diagCodeInt = reader.IsDBNull(8) ? -1 : reader.GetInt32(8);
                     string diagMsg = reader.IsDBNull(9) ? "" : reader.GetString(9);
-
-                    totalBytes += size;
 
                     if (diagCodeInt >= 0)
                     {
@@ -302,7 +303,7 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
             }
         }
 
-        SourceScanStatistics stats = new(records.Count, totalBytes, TimeSpan.Zero);
+        SourceScanStatistics stats = new(recordCount, totalLogicalBytes, TimeSpan.Zero);
         AssetSource sourceWithFingerprint = source with { Fingerprint = fingerprint };
 
         return new SourceIndexSnapshot(

@@ -151,6 +151,14 @@ public sealed class HakWriter
                     await outputStream.WriteAsync(poolBuffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                     remaining -= read;
                 }
+
+                int trailingByteCount = await item.PayloadStream
+                    .ReadAsync(poolBuffer.AsMemory(0, 1), cancellationToken)
+                    .ConfigureAwait(false);
+                if (trailingByteCount != 0)
+                {
+                    throw new InvalidDataException($"Payload stream for key {item.Key} exceeds declared size {item.PayloadSize}.");
+                }
             }
         }
         finally
@@ -175,3 +183,4 @@ public sealed class HakWriter
         }
     }
 }
+

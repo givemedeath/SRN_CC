@@ -20,16 +20,8 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
           persist-credentials: false
-
-      - name: Fetch pull request base and head
-        env:
-          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          git fetch --no-tags origin \
-            "$PR_BASE_REF" \
-            "+refs/pull/$PR_NUMBER/head"
 
       - name: Run Codex review
         id: codex

@@ -1,0 +1,68 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SRN.CC.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="SRN.CC.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding Title}"
+        Width="1024" Height="768">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*">
+        <Border Grid.Row="0" Background="#1E1E1E" Padding="12">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <TextBlock Text="SRN.CC Curation Grid Probe" FontWeight="Bold" FontSize="16" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding Items.Count, StringFormat='Rows: {0:N0}'}" VerticalAlignment="Center" Foreground="#AAAAAA"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Virtualized TableView -->
+        <TableView Name="MainTableView"
+                   Grid.Row="1"
+                   ItemsSource="{Binding Items}"
+                   SelectionMode="Multiple">
+            <TableView.Columns>
+                <TableViewColumn Header="ID" Width="80">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowItem">
+                            <TextBlock Text="{Binding Id}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Resref" Width="160">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowItem">
+                            <TextBlock Text="{Binding Resref}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Type" Width="140">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowItem">
+                            <TextBlock Text="{Binding ResourceType}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Source HAK" Width="200">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowItem">
+                            <TextBlock Text="{Binding SourceHak}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Size (Bytes)" Width="120">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowItem">
+                            <TextBlock Text="{Binding SizeBytes}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+            </TableView.Columns>
+        </TableView>
+    </Grid>
+</Window>

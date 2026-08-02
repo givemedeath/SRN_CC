@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SRN.CC.Core\SRN.CC.Core.csproj" />
+    <ProjectReference Include="..\..\src\SRN.CC.Formats\SRN.CC.Formats.csproj" />
+    <ProjectReference Include="..\..\src\SRN.CC.Infrastructure\SRN.CC.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\SRN.CC.Preview\SRN.CC.Preview.csproj" />
+    <ProjectReference Include="..\..\src\SRN.CC.App\SRN.CC.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless.NUnit" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <MicrosoftNETCoreAppRuntimeVersion>10.0.0</MicrosoftNETCoreAppRuntimeVersion>
+    <TargetRuntimeIdentifier>win-x64</TargetRuntimeIdentifier>
+  </PropertyGroup>
+</Project>

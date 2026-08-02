@@ -1,0 +1,381 @@
+﻿{
+    "repositoryUrl":  "https://github.com/givemedeath/SWLOR_NWN",
+    "entries":  [
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "da9aab5b359b4164f16967cbea006a2cd38c227bfccf9070bbc4b6cbc2affb14",
+                        "gitBlobSha1":  "3be599642b1c5eb63d0a8e05f19e1f9aa41dd3a1",
+                        "destinationPath":  "tests/SRN.CC.Tests/Vendored/SWLOR.NWN.Formats.Tests/GffReaderTests.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats.Tests/GffReaderTests.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "9525df5b697898cb279493c0a404733d6e2fb7c790b7e12caab45fa26b99936a",
+                        "gitBlobSha1":  "8fb0ead174004a5c8d23202bfe42f5a4b1c25f1e",
+                        "destinationPath":  "tests/SRN.CC.Tests/Vendored/SWLOR.NWN.Formats.Tests/KeyBifReaderTests.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats.Tests/KeyBifReaderTests.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "2272e920805e252c1f657bb610b5fa1730e83caacfe3b77ca7c57a214e2bd16a",
+                        "gitBlobSha1":  "e2d88c642faf71ea22804b71e658c1b07e5b50a9",
+                        "destinationPath":  "tests/SRN.CC.Tests/Vendored/SWLOR.NWN.Formats.Tests/MdlReaderTests.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats.Tests/MdlReaderTests.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "0e3c96dba0b34706f1af4971494565f06537b8eb8e329c8d696a477f7ce05874",
+                        "gitBlobSha1":  "3d937961c72e01665119c1a5f5ade42a84b62819",
+                        "destinationPath":  "tests/SRN.CC.Tests/Vendored/SWLOR.NWN.Formats.Tests/PltReaderTests.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats.Tests/PltReaderTests.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "d1071c610a135e15dc64d0a74531b20c18324d0d542ec5e61959e535520837bd",
+                        "gitBlobSha1":  "8e367cc1ca1980fe076fdf0340f1682d65571a24",
+                        "destinationPath":  "tests/SRN.CC.Tests/Vendored/SWLOR.NWN.Formats.Tests/ResourceTypesTests.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats.Tests/ResourceTypesTests.cs"
+                    },
+                    {
+                        "status":  "excluded",
+                        "gitBlobSha1":  "2cbe0107d80ce0fd34db174fb37a5b388e2c8b82",
+                        "exclusionReason":  "Replaced with SRN.CC Central Package Management project file.",
+                        "upstreamPath":  "SWLOR.NWN.Formats.Tests/SWLOR.NWN.Formats.Tests.csproj"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "498eea745ac81e5909ecd13a92ad13bc20597ae37a831b79357383fa3a4fabe7",
+                        "gitBlobSha1":  "fe40f18be1e53daf624539f1b65b0f8ed1092276",
+                        "destinationPath":  "tests/SRN.CC.Tests/Vendored/SWLOR.NWN.Formats.Tests/TgaReaderTests.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats.Tests/TgaReaderTests.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "ea9b7103848bcb1d91c29b3881a8442349e7b50da39e8527e011cfa9a9180a57",
+                        "gitBlobSha1":  "1b2e6be8c57511f937fe867aaca52d342a190d45",
+                        "destinationPath":  "tests/SRN.CC.Tests/Vendored/SWLOR.NWN.Formats.Tests/TlkReaderTests.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats.Tests/TlkReaderTests.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "ba4ad73c1c0c6328883022065b86b67bc7c79eba41cd96ee2dc25b9c34ac1684",
+                        "gitBlobSha1":  "19975aa43334caa5e122feecdcf70fed409de6b2",
+                        "destinationPath":  "tests/SRN.CC.Tests/Vendored/SWLOR.NWN.Formats.Tests/TwoDAReaderTests.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats.Tests/TwoDAReaderTests.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "74fdfff405743715e6f8803d572ab307ba9cfc3c42984edd3d70cc0d0b221338",
+                        "gitBlobSha1":  "188d68f9facb9c259fa5a3068bc6639d78e8c390",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Bif/BifFile.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Bif/BifFile.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "64bd5dbb2a0bedb6c54b403f41e38ddcff1b9107f2e23626379208e59f8c346c",
+                        "gitBlobSha1":  "90b78a4a264532fbab49ff134a3aee2d66c5147c",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Bif/BifReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Bif/BifReader.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "c2fa54222e2170ecbec360e1b875f0a70d22c1fc11b175f16408cf0cdcb05842",
+                        "gitBlobSha1":  "7af11c740edcba9f1724caf365becbf18423eddd",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Bif/BifResourceEntry.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Bif/BifResourceEntry.cs"
+                    },
+                    {
+                        "status":  "excluded",
+                        "gitBlobSha1":  "2bdfabba7b3b525d4fd1367a48976a7f6e3d93c1",
+                        "exclusionReason":  "Module mutation coordination outside format reader scope.",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Common/ModuleWriteLock.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "2296d4dc29fa8097a075d5bd27050dd6e3af69443750d17f52cfe425ee89a109",
+                        "gitBlobSha1":  "7cf33acefae2bee198e956e20134ba32ca23dfeb",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Common/ResourceTypes.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Common/ResourceTypes.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "a4c1a278eef9ae8dcf39279915aa1e10b5e5c75c223d75c988cc2a68444fde98",
+                        "gitBlobSha1":  "ee44d36c4771c5882866091456a782ae2f95df45",
+                        "destinationPath":  "docs/compliance/FORMAT-PROVENANCE.md",
+                        "upstreamPath":  "SWLOR.NWN.Formats/FORMAT-PROVENANCE.md"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "763ddb53b87de861faf4cebdc44e0e889f9eb2d5f3fd6eacb4b22e540cdccd26",
+                        "gitBlobSha1":  "8b45d83d1c36898a608b79c976db42a48def9dd4",
+                        "destinationPath":  "docs/compliance/FORMAT-REVIEW-ATTESTATION.md",
+                        "upstreamPath":  "SWLOR.NWN.Formats/FORMAT-REVIEW-ATTESTATION.md"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "d89d9696e2802bffd7bbbcde169c5d3bcdc6541a5cdf6c28f62be2e182127266",
+                        "gitBlobSha1":  "11a6880190cc35bb7823b915d8070f18da1f903a",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Gff/CExoLocString.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Gff/CExoLocString.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "207d2c1d1dded140d9cbf2fdcf2ad305acde977f8abf278f29318906d8b539f6",
+                        "gitBlobSha1":  "b28b493bf2ce997199daea54323ae59c92ced7fb",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Gff/GffField.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Gff/GffField.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "b78b052384714fc6a76a04c8c4a30a16fc108c21e0442ca2af1f2b844d9d7a33",
+                        "gitBlobSha1":  "2f4789cfb98b9c14e8e427aaeb01e301501271d8",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Gff/GffFile.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Gff/GffFile.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "5dff46c4d523b3d7a22a169aa5956986e3bc5708b3b342ba6c9045658fa1f4f4",
+                        "gitBlobSha1":  "37930cde96f80c643b1c21c6da49e5063fdd0d04",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Gff/GffList.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Gff/GffList.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "76acc3b474ad29f05f1cd7939976d2c42002e24acbdc7bd803079a328f266c1c",
+                        "gitBlobSha1":  "3b503d96c0fe99f394f038ea0045b059381380b0",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Gff/GffReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Gff/GffReader.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "e1f6c0d350ff54d6ce1c436fcee0f66a9e019cb60ca5fbfb63cc4295bfa9c7bf",
+                        "gitBlobSha1":  "728ffa49c3e882c32238474fc1d187879c0396dd",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Gff/GffStruct.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Gff/GffStruct.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "0f53c297ca5faa8c3a646299e4be1902cd7c8d3cdaa3ebacc42c3d6440eb8dbb",
+                        "gitBlobSha1":  "450efb397e8dd59cd93a361dc9c5154e96a768e5",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Internal/AllocationBudget.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Internal/AllocationBudget.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "d7d10af82393f70cb62dcfb84b728fc55929f0fd15b419b0682b08d3a54c6365",
+                        "gitBlobSha1":  "683ac6218e3348143710eedb1978f558863b17b7",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Internal/GuardedBinaryReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Internal/GuardedBinaryReader.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "eb4c9e5f09a01cf8cb0d39392fc51551c4b01c40218d11c936f4a1cd226d615c",
+                        "gitBlobSha1":  "608e24465b2735481df9c78a9f73dbfec01f7511",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Internal/NwnTextEncoding.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Internal/NwnTextEncoding.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "fc4d727e2efad876e5a8f007a85385e3e5483f280da3a8513ab8e2769e9effa2",
+                        "gitBlobSha1":  "76896c92d26e86cb190eb5c395943c05f35d2f10",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Key/KeyBifEntry.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Key/KeyBifEntry.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "5e98995d2c723f66b8e1b714b483b4bf0ab6ce1d33d986ff1def283a2be29b7d",
+                        "gitBlobSha1":  "b0ed025785f64911fdf614a015d503a0e8267598",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Key/KeyFile.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Key/KeyFile.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "b0e5b3e05ac4fc6219563863984208b542a045e6ad0d1182a6990c493b274d31",
+                        "gitBlobSha1":  "f363f68ba24f022850eed3db97bfd994fbcef5bc",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Key/KeyReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Key/KeyReader.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "7dd7f441848afd90ecf919a4232d7fd6158c7cff0f30588dd1e7bafe63b1aad5",
+                        "gitBlobSha1":  "9e5b71cb1508f58c3ec1189d77bacce9d42d6121",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Key/KeyResourceEntry.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Key/KeyResourceEntry.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "194b23e61924fa23135cc219d399fce738c6ab14faff3a8404910514656efabe",
+                        "gitBlobSha1":  "1afb1496be45a132f3211a5a544245a4e4746482",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/AsciiMdlReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/AsciiMdlReader.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "1b7d2e9c7b5bd8124540729ce1b13c0b02b03d90c8d149aaa12c2355398f06fd",
+                        "gitBlobSha1":  "b933845ce17042b417c3206c71c474884d5f4215",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlAnimation.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlAnimation.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "f762ef9aab77a4a3b7755873d80f038221b38e3af71aa13b47ef0f8cff416505",
+                        "gitBlobSha1":  "7f898e384ec0804f1ef34fa874ea71e9c5e9a864",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlBoneIndices.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlBoneIndices.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "dac05631cc7fcba29d2d0c87cdc2690166fbac68a390b9b26afcc659d28c54ff",
+                        "gitBlobSha1":  "edd9d01b04ba11d360277af7136b52a9997a42a4",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlEmitterNode.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlEmitterNode.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "c96eff8f66f8124ee8e3cd8a57af2a222827520ea9b5fb32b09ecb925b87d5b8",
+                        "gitBlobSha1":  "8d6d94bc88a230ba8d67f25272932dfb765ec6af",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlFace.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlFace.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "3fbd4b5d4274390cad8f77bfc9f79a2cdd06e9064396f312c946ca496725592a",
+                        "gitBlobSha1":  "a87d64d823a326fbe61d81538c2b3df9b98e7f60",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlModel.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlModel.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "9649143322aee020d2d4c7f8b103a013ab7c5329f88c0896f3c8a373cbac3dda",
+                        "gitBlobSha1":  "c4bf2d780705a310f08072e75fc201b10fdd7dc2",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlNode.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlNode.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "6e4f0413498d0e4bf6f0fb5b8c6da9167e9288fd84354af62e7f9b63cb87dcab",
+                        "gitBlobSha1":  "4164226832eaa324d6c365f86162031647e458c3",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlReader.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "eff7ea820d1004355790352a968c1b0566b15ee188d454e25be3322de744eaeb",
+                        "gitBlobSha1":  "f666e89e9bc55e8ba7d5362a417d5a365de85acf",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlSkinInfluence.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlSkinInfluence.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "6a61cffca4c59f1b9effd24da7c20cc325f3088384d8278e668251f40fe749d3",
+                        "gitBlobSha1":  "10bcb87cfaa07c52ccc0b144518a772f44a748f4",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlSkinmeshNode.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlSkinmeshNode.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "8e1ad23ef684eb83f477583db004519f0c75fe10eb6fe96257be13c8bdc53e8c",
+                        "gitBlobSha1":  "a10fa45bc49f096b3e8b0fee4e088c081d96035e",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Mdl/MdlTrimeshNode.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Mdl/MdlTrimeshNode.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "7a085d9cf8e5cb4ee48126ee872aca7b7341f1dd2a8bbb8df1d3af54843bdd17",
+                        "gitBlobSha1":  "2f80fa138bf59be888c4652a3e306199976fcb6c",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/NwnFormatException.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/NwnFormatException.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "0c19e56dbeb6d2a09f0bd6061749af89fb87b95218c01a2bc0441a73c386b6a1",
+                        "gitBlobSha1":  "a3e6a612fb21083b94db0bc6efe152e74996f831",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Plt/PltFile.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Plt/PltFile.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "ad68af3fa6adef93ac0fa89983901c32c70e6ec02ab50f5a941a8d06179bba30",
+                        "gitBlobSha1":  "86338072785f47c06d7e7cee8d1b09720b3c9040",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Plt/PltLayers.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Plt/PltLayers.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "aa51a14a81ad2aa7a40a92b81c0a4e687d2901f219b3d885d7cdf8209e0b58d4",
+                        "gitBlobSha1":  "222207b855bc36e808ad2bd00ffe5137afd4edcd",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Plt/PltPixel.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Plt/PltPixel.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "e3a09dad87122c8f3b26680879e03da337afd95d41eaa1c11506df5e91384a67",
+                        "gitBlobSha1":  "688961d9a86297adf8ae564463933befcfbae572",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Plt/PltReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Plt/PltReader.cs"
+                    },
+                    {
+                        "status":  "excluded",
+                        "gitBlobSha1":  "900de72c2a2b92b99300efa7e13865e38cc87e6b",
+                        "exclusionReason":  "Replaced with SRN.CC Central Package Management project file.",
+                        "upstreamPath":  "SWLOR.NWN.Formats/SWLOR.NWN.Formats.csproj"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "ee3e1c4221b8022fb38f591e2561c387fb86dfd37dac0a572bbacc1f5f750c26",
+                        "gitBlobSha1":  "90de5212af85b0303281819883b7fe50ced467ca",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Tga/TgaImage.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Tga/TgaImage.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "7251dfac38a1a13ad9598317e6089142d601604198af24df1a983952d723399a",
+                        "gitBlobSha1":  "31cf8f136a3b19751f763048e67bc93700ee731b",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Tga/TgaReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Tga/TgaReader.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "dc72e3f3a1390b062bf55292a7c16bbf3a0d5fefc92c90641784a0dba75e02ad",
+                        "gitBlobSha1":  "cfed6bb4fda2619717c02d5add337d0835a6e692",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Tlk/TlkEntry.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Tlk/TlkEntry.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "2659a394e2a8c2f7e1e4ccecdc3bc453a67b21ccff055e69ce8da56bd5bc1100",
+                        "gitBlobSha1":  "6285c66c8cdef5ccba2f321f1e0a5be6ed003eaa",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Tlk/TlkFile.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Tlk/TlkFile.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "bf9966dee28fc308fb659264b0101f56e2244d30b1b0d8403f49868f622ad846",
+                        "gitBlobSha1":  "efb0d241acf850a44b994b788d0e26a176e6f52b",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/Tlk/TlkReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/Tlk/TlkReader.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "b2fb0b6b2da0747d9a00058bde56daa96245098728fa06ba0be456678e358c39",
+                        "gitBlobSha1":  "ed7f97f707b0c75a4c47f59e01d41b9a31ba3bee",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/TwoDA/TwoDAFile.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/TwoDA/TwoDAFile.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "4d5c8f0cbbf99a57d56910851d51a383708265faf43e071ddb7b3fbd7bf2e2ae",
+                        "gitBlobSha1":  "54d4b2550c99a3301c28169858f77d40a09a7589",
+                        "destinationPath":  "src/SRN.CC.Formats/Vendored/SWLOR.NWN.Formats/TwoDA/TwoDAReader.cs",
+                        "upstreamPath":  "SWLOR.NWN.Formats/TwoDA/TwoDAReader.cs"
+                    },
+                    {
+                        "status":  "verbatim",
+                        "sha256":  "c11d52b4b9527eca95fe3c330c3ed103eef03d8abce194c323cda981a19320b5",
+                        "gitBlobSha1":  "4a03ad6551f47b9567329fa4148510b5368bb764",
+                        "destinationPath":  "docs/compliance/THIRD-PARTY-LICENSES/SWLOR-LICENSE.txt",
+                        "upstreamPath":  "LICENSE.txt"
+                    }
+                ],
+    "commit":  "8202faa203eddd6f4972104d22ea5740e23f20f7"
+}

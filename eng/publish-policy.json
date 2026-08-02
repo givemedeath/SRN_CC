@@ -1,0 +1,23 @@
+{
+  "targetRID": "win-x64",
+  "requiredFiles": [
+    "SRN.CC.App.exe",
+    "NOTICES.md"
+  ],
+  "forbiddenExtensions": [
+    ".hak",
+    ".erf",
+    ".mod",
+    ".pdb",
+    ".sqlite",
+    ".trx"
+  ],
+  "forbiddenAssemblies": [
+    "SRN.CC.Tests.dll",
+    "SRN.CC.CorpusTests.dll",
+    "Avalonia.Diagnostics.dll",
+    "FluentAssertions.dll",
+    "nunit.framework.dll",
+    "NUnit3.TestAdapter.dll"
+  ]
+}

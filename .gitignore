@@ -1,0 +1,31 @@
+# Build and output artifacts
+/artifacts/
+**/bin/
+**/obj/
+
+# Local tools and local content
+/content/
+/tools/local_only/
+
+# IDE and editor files
+.vs/
+.idea/
+.vscode/
+*.user
+*.userossc
+*.suo
+*.userprefs
+
+# Test and coverage results
+TestResults/
+*.trx
+*.coverage
+
+# OS and temporary files
+Thumbs.db
+[Dd]esktop.ini
+*.log
+*.tmp
+
+# Original planning documents
+PLAN.md.original

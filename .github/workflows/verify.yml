@@ -1,0 +1,27 @@
+name: Verification Workflow
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-windows:
+    runs-on: windows-2025
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@3958718d4875e925d588f2d50451a7005400d7d3 # v4.3.0
+        with:
+          dotnet-version: '10.0.302'
+
+      - name: Run Master Verification Pass
+        shell: powershell
+        run: |
+          .\tools\VerifyBuild.ps1

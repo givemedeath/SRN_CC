@@ -1,0 +1,77 @@
+{
+  "policyVersion": "1.0",
+  "approvedPackages": [
+    {
+      "id": "Avalonia",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "spdxLicense": "MIT",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true
+    },
+    {
+      "id": "Avalonia.Desktop",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "spdxLicense": "MIT",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true
+    },
+    {
+      "id": "Avalonia.Themes.Fluent",
+      "version": "12.1.0",
+      "scope": "runtime",
+      "spdxLicense": "MIT",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true
+    },
+    {
+      "id": "Avalonia.Headless.NUnit",
+      "version": "12.1.0",
+      "scope": "test",
+      "spdxLicense": "MIT",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false
+    },
+    {
+      "id": "CommunityToolkit.Mvvm",
+      "version": "8.4.2",
+      "scope": "runtime",
+      "spdxLicense": "MIT",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true
+    },
+    {
+      "id": "FluentAssertions",
+      "version": "7.2.2",
+      "scope": "test",
+      "spdxLicense": "Apache-2.0",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false
+    },
+    {
+      "id": "NUnit",
+      "version": "4.6.1",
+      "scope": "test",
+      "spdxLicense": "MIT",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false
+    },
+    {
+      "id": "NUnit3TestAdapter",
+      "version": "6.2.0",
+      "scope": "test",
+      "spdxLicense": "MIT",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false
+    },
+    {
+      "id": "Microsoft.NET.Test.Sdk",
+      "version": "18.8.1",
+      "scope": "test",
+      "spdxLicense": "MIT",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": false
+    }
+  ]
+}

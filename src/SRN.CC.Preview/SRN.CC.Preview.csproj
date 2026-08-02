@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SRN.CC.Core\SRN.CC.Core.csproj" />
+    <ProjectReference Include="..\SRN.CC.Formats\SRN.CC.Formats.csproj" />
+  </ItemGroup>
+</Project>

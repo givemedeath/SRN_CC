@@ -1,6 +1,8 @@
 <Project>
   <PropertyGroup>
-    <MicrosoftNETCoreAppRuntimeVersion>10.0.0</MicrosoftNETCoreAppRuntimeVersion>
+    <!-- Match the runtime pack selected by .NET SDK 10.0.302. -->
+    <RuntimeFrameworkVersion>10.0.10</RuntimeFrameworkVersion>
+    <TargetLatestRuntimePatch>false</TargetLatestRuntimePatch>
     <TargetRuntimeIdentifier>win-x64</TargetRuntimeIdentifier>
   </PropertyGroup>
 </Project>

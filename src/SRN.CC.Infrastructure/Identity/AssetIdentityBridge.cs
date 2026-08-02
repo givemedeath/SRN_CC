@@ -7,6 +7,6 @@ public static class AssetIdentityBridge
 {
     public static AssetIdentity ToAssetIdentity(HakFormatKey formatKey)
     {
-        return new AssetIdentity(formatKey.ResrefBytes, formatKey.ResourceType);
+        return new AssetIdentity(formatKey.ResrefBytes.Span, formatKey.ResourceType);
     }
 }

@@ -13,7 +13,7 @@ public class AssetIdentityTests
         var identity = new AssetIdentity("My_ResRef_01", 2000);
         identity.ResourceType.Should().Be(2000);
         identity.OriginalName.Should().Be("My_ResRef_01");
-        identity.CanonicalResrefBytes.Should().Equal("my_resref_01"u8.ToArray());
+        identity.CanonicalResrefBytes.ToArray().Should().Equal("my_resref_01"u8.ToArray());
     }
 
     [Test]
@@ -31,7 +31,7 @@ public class AssetIdentityTests
     {
         // 'é' in CP1252 is 0xE9
         var identity = new AssetIdentity("café", 2000);
-        identity.CanonicalResrefBytes.Should().Equal(new byte[] { (byte)'c', (byte)'a', (byte)'f', 0xE9 });
+        identity.CanonicalResrefBytes.ToArray().Should().Equal(new byte[] { (byte)'c', (byte)'a', (byte)'f', 0xE9 });
     }
 
     [Test]
@@ -45,13 +45,61 @@ public class AssetIdentityTests
     }
 
     [Test]
+    public void ResrefLength_OneAndSixteenBytes_ShouldSucceed()
+    {
+        new AssetIdentity("a", 0).CanonicalResrefBytes.Length.Should().Be(1);
+        new AssetIdentity("1234567890123456", ushort.MaxValue).CanonicalResrefBytes.Length.Should().Be(16);
+    }
+
+    [Test]
     public void InvalidCharacters_ShouldThrow()
     {
         Action withSlash = () => _ = new AssetIdentity("test/item", 2000);
         Action withBackslash = () => _ = new AssetIdentity("test\\item", 2000);
+        Action withNul = () => _ = new AssetIdentity("test\0item", 2000);
 
         withSlash.Should().Throw<ArgumentException>();
         withBackslash.Should().Throw<ArgumentException>();
+        withNul.Should().Throw<ArgumentException>();
+    }
+
+    [Test]
+    public void UnencodableUnicode_ShouldThrowWithoutReplacement()
+    {
+        Action act = () => _ = new AssetIdentity("emoji_😀", 2000);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*unencodable in CP1252*");
+    }
+
+    [Test]
+    public void Punctuation_ShouldRemainPartOfIdentity()
+    {
+        var dotted = new AssetIdentity("item.name", 2000);
+        var dashed = new AssetIdentity("item-name", 2000);
+
+        dotted.Should().NotBe(dashed);
+    }
+
+    [Test]
+    public void ByteConstructor_ShouldPreserveOriginalOccurrenceBytes()
+    {
+        byte[] original = [(byte)'N', 0xE9];
+        var identity = new AssetIdentity(original, ushort.MaxValue);
+        original[0] = (byte)'x';
+
+        identity.OriginalResrefBytes.ToArray().Should().Equal((byte)'N', 0xE9);
+        identity.CanonicalResrefBytes.ToArray().Should().Equal((byte)'n', 0xE9);
+        identity.ResourceType.Should().Be(ushort.MaxValue);
+    }
+
+    [Test]
+    public void ByteConstructor_ShouldRejectPaddedOrEmbeddedNul()
+    {
+        Action padded = () => _ = new AssetIdentity(new byte[] { (byte)'a', 0 }, 0);
+        Action embedded = () => _ = new AssetIdentity(new byte[] { (byte)'a', 0, (byte)'b' }, 0);
+
+        padded.Should().Throw<ArgumentException>();
+        embedded.Should().Throw<ArgumentException>();
     }
 
     [Test]
@@ -61,5 +109,12 @@ public class AssetIdentityTests
         var id2 = new AssetIdentity("test", 2001);
 
         id1.Should().NotBe(id2);
+    }
+
+    [Test]
+    public void ResourceTypeBoundaries_ShouldRemainDistinct()
+    {
+        new AssetIdentity("test", ushort.MinValue)
+            .Should().NotBe(new AssetIdentity("test", ushort.MaxValue));
     }
 }

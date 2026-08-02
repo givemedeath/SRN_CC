@@ -1,8 +1,22 @@
 {
   "targetRID": "win-x64",
+  "runtimeFrameworkVersion": "10.0.10",
+  "depsFile": "SRN.CC.App.deps.json",
   "requiredFiles": [
     "SRN.CC.App.exe",
-    "NOTICES.md"
+    "SRN.CC.App.dll",
+    "SRN.CC.App.deps.json",
+    "SRN.CC.App.runtimeconfig.json",
+    "LICENSE.txt",
+    "NOTICES.md",
+    "THIRD-PARTY-LICENSES/SWLOR-LICENSE.txt",
+    "THIRD-PARTY-LICENSES/DOTNET-LICENSE.txt",
+    "THIRD-PARTY-LICENSES/DOTNET-THIRD-PARTY-NOTICES.txt",
+    "THIRD-PARTY-LICENSES/ANGLE-LICENSE.txt",
+    "THIRD-PARTY-LICENSES/SKIASHARP-LICENSE.txt",
+    "THIRD-PARTY-LICENSES/HARFBUZZSHARP-LICENSE.txt",
+    "THIRD-PARTY-LICENSES/COMMUNITYTOOLKIT-LICENSE.md",
+    "THIRD-PARTY-LICENSES/COMMUNITYTOOLKIT-THIRD-PARTY-NOTICES.txt"
   ],
   "forbiddenExtensions": [
     ".hak",
@@ -10,6 +24,7 @@
     ".mod",
     ".pdb",
     ".sqlite",
+    ".db",
     ".trx"
   ],
   "forbiddenAssemblies": [
@@ -18,6 +33,30 @@
     "Avalonia.Diagnostics.dll",
     "FluentAssertions.dll",
     "nunit.framework.dll",
-    "NUnit3.TestAdapter.dll"
-  ]
+    "NUnit3.TestAdapter.dll",
+    "testhost.dll"
+  ],
+  "forbiddenPathFragments": [
+    "tools/local_only",
+    "\\tools\\local_only\\",
+    "/content/",
+    "\\content\\",
+    ".srncc-cache",
+    ".srncc-project"
+  ],
+  "specialOrigins": {
+    "SRN.CC.App.exe": "apphost:Microsoft.NETCore.App.Host.win-x64@10.0.10",
+    "SRN.CC.App.deps.json": "build:deps-manifest",
+    "SRN.CC.App.runtimeconfig.json": "build:runtime-config",
+    "LICENSE.txt": "license:first-party",
+    "NOTICES.md": "notice:resolved-runtime-graph",
+    "THIRD-PARTY-LICENSES/SWLOR-LICENSE.txt": "license:SWLOR.NWN.Formats",
+    "THIRD-PARTY-LICENSES/DOTNET-LICENSE.txt": "license:runtimepack.Microsoft.NETCore.App.Runtime.win-x64@10.0.10",
+    "THIRD-PARTY-LICENSES/DOTNET-THIRD-PARTY-NOTICES.txt": "notice:runtimepack.Microsoft.NETCore.App.Runtime.win-x64@10.0.10",
+    "THIRD-PARTY-LICENSES/ANGLE-LICENSE.txt": "license:Avalonia.Angle.Windows.Natives@2.1.27548.20260419",
+    "THIRD-PARTY-LICENSES/SKIASHARP-LICENSE.txt": "license:SkiaSharp@3.119.4",
+    "THIRD-PARTY-LICENSES/HARFBUZZSHARP-LICENSE.txt": "license:HarfBuzzSharp@8.3.1.3",
+    "THIRD-PARTY-LICENSES/COMMUNITYTOOLKIT-LICENSE.md": "license:CommunityToolkit.Mvvm@8.4.2",
+    "THIRD-PARTY-LICENSES/COMMUNITYTOOLKIT-THIRD-PARTY-NOTICES.txt": "notice:CommunityToolkit.Mvvm@8.4.2"
+  }
 }

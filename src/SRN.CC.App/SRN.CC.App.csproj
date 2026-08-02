@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>$(TargetRuntimeIdentifier)</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>

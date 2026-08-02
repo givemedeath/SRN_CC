@@ -84,7 +84,8 @@ authorize choosing the license for new first-party code.
 ### Fixed technical decisions
 
 - Initial branch: `main`; no remote is required for Milestone 1.
-- Initial target: `net10.0`, `win-x64`, self-contained, non-single-file.
+- Initial target: `net10.0`, `win-x64`, self-contained, non-single-file; runtime
+  framework `10.0.10` selected by SDK `10.0.302`.
 - SDK: exactly `10.0.302`; C# exactly `14.0`.
 - UI: Avalonia `TableView`, not TreeDataGrid.
 - SWLOR source pin: exactly `8202faa203eddd6f4972104d22ea5740e23f20f7`.
@@ -387,9 +388,11 @@ Split verification into:
    report median and worst values. Establish the first accepted reference-machine
    baseline; later runs fail on an explicitly approved regression tolerance rather
    than a universal `<100 ms` claim.
-3. **Manual Windows smoke check:** verify continuous scrolling, keyboard navigation,
-   range/toggle selection, and resize behavior in a Release build. Record the result
-   and machine in `docs/evidence/milestone-1.md`.
+3. **Windows Release smoke:** the master verifier launches the audited self-contained
+   executable, while the headless interaction test exercises middle/end scrolling,
+   multiple selection, and resize. Record the measured reference-machine baseline in
+   `docs/evidence/milestone-1.md`. A human visual pass remains useful release UX
+   evidence but is not the sole automated gate.
 
 No test should allocate preview payloads, images, or per-row controls for all rows.
 
@@ -465,17 +468,20 @@ authorized machine with the licensed corpus.
 failed process. In order it:
 
 1. proves SDK `10.0.302` was selected;
-2. runs solution restore in locked mode;
-3. restores the App for `win-x64` in locked mode if RID-specific restore is required;
+2. runs the complete seven-project solution restore in locked `win-x64` mode, using
+   the same project-level RID property later used by build and test;
+3. verifies ignore rules and that no corpus, local-tool, or artifact path is tracked;
 4. runs dependency/license/vulnerability and vendored-source audits;
 5. builds the solution Release with `--no-restore`;
 6. runs portable and headless functional tests with `--no-build` while excluding
    Corpus and Performance categories;
 7. publishes App Release, `win-x64`, self-contained, non-single-file, with
-   `--no-restore` to a clean `artifacts/publish/win-x64` directory;
+   `--no-restore` to the current unique verification-run directory and adds the
+   reviewed license/notice set;
 8. runs the publish inventory/audit;
-9. verifies lock files and generated source files did not change;
-10. writes a machine-readable summary beneath `artifacts/verification/`.
+9. verifies lock files and vendored source files did not change;
+10. writes a machine-readable summary and complete evidence beneath a unique
+   `artifacts/verification-runs/<run-id>/` directory.
 
 The script must preserve the previous artifact directory until a new verification is
 successful, or use a unique run directory, so a failed run does not masquerade as a

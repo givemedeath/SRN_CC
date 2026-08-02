@@ -46,4 +46,10 @@ public partial class MainWindowViewModel : ObservableObject
         }
         Items = new ObservableCollection<AssetRowItem>(list);
     }
+
+    public IReadOnlyList<AssetRowItem> SortByResref() =>
+        Items.OrderBy(item => item.Resref, StringComparer.Ordinal).ToArray();
+
+    public IReadOnlyList<AssetRowItem> FilterByResourceType(string resourceType) =>
+        Items.Where(item => string.Equals(item.ResourceType, resourceType, StringComparison.Ordinal)).ToArray();
 }

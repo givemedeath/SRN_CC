@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "timestampUtc": "2026-08-02T21:52:59.9886413Z",
+  "rowCount": 187943,
+  "measuredIterations": 5,
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "dotnet": "10.0.10",
+    "cpu": "Intel64 Family 6 Model 167 Stepping 1, GenuineIntel",
+    "logicalProcessorCount": 12,
+    "configuration": "Release"
+  },
+  "median": {
+    "constructionMs": 57.3164,
+    "allocatedBytes": 57277360,
+    "firstLayoutMs": 62.4853,
+    "scrollLayoutMs": 118.3689,
+    "realizedRowHighWater": 19,
+    "sortMs": 39.9997,
+    "filterMs": 5.4978,
+    "privateWorkingSetBytes": 171044864
+  },
+  "worst": {
+    "constructionMs": 58.1321,
+    "allocatedBytes": 58674840,
+    "firstLayoutMs": 387.6509,
+    "scrollLayoutMs": 144.4735,
+    "realizedRowHighWater": 19,
+    "sortMs": 44.3127,
+    "filterMs": 7.1604,
+    "privateWorkingSetBytes": 250920960
+  },
+  "measurements": [
+    {
+      "Iteration": 1,
+      "ConstructionMs": 58.1321,
+      "AllocatedBytes": 58674840,
+      "FirstLayoutMs": 387.6509,
+      "ScrollLayoutMs": 144.4735,
+      "RealizedRowHighWater": 19,
+      "SortMs": 40.247,
+      "FilterMs": 5.4978,
+      "PrivateWorkingSetBytes": 89755648
+    },
+    {
+      "Iteration": 2,
+      "ConstructionMs": 51.6154,
+      "AllocatedBytes": 57277360,
+      "FirstLayoutMs": 58.4013,
+      "ScrollLayoutMs": 134.123,
+      "RealizedRowHighWater": 19,
+      "SortMs": 44.3127,
+      "FilterMs": 4.3323,
+      "PrivateWorkingSetBytes": 127778816
+    },
+    {
+      "Iteration": 3,
+      "ConstructionMs": 57.3164,
+      "AllocatedBytes": 57164936,
+      "FirstLayoutMs": 59.9389,
+      "ScrollLayoutMs": 104.1666,
+      "RealizedRowHighWater": 19,
+      "SortMs": 36.9119,
+      "FilterMs": 3.887,
+      "PrivateWorkingSetBytes": 171044864
+    },
+    {
+      "Iteration": 4,
+      "ConstructionMs": 57.6547,
+      "AllocatedBytes": 57390504,
+      "FirstLayoutMs": 64.0117,
+      "ScrollLayoutMs": 112.2511,
+      "RealizedRowHighWater": 19,
+      "SortMs": 39.9997,
+      "FilterMs": 7.1604,
+      "PrivateWorkingSetBytes": 211513344
+    },
+    {
+      "Iteration": 5,
+      "ConstructionMs": 55.9269,
+      "AllocatedBytes": 57156688,
+      "FirstLayoutMs": 62.4853,
+      "ScrollLayoutMs": 118.3689,
+      "RealizedRowHighWater": 19,
+      "SortMs": 37.8135,
+      "FilterMs": 7.0116,
+      "PrivateWorkingSetBytes": 250920960
+    }
+  ]
+}

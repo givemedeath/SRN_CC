@@ -13,6 +13,7 @@
     <!-- NuGet Package Lock File Policy -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
+    <DisableImplicitLibraryPacksFolder>true</DisableImplicitLibraryPacksFolder>
 
     <!-- Vulnerability Audit Settings -->
     <NuGetAudit>true</NuGetAudit>

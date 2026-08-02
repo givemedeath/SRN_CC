@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $policyPath = Join-Path $repoRoot "eng/dependency-policy.json"
 $nugetConfigPath = Join-Path $repoRoot "NuGet.Config"
+$buildPropsPath = Join-Path $repoRoot "Directory.Build.props"
 $script:violations = 0
 
 function Add-Violation([string]$Message) {
@@ -66,6 +67,12 @@ foreach ($pkg in $policy.approvedPackages) {
 $signatureMode = $nugetConfig.configuration.config.add | Where-Object { $_.key -eq "signatureValidationMode" } | Select-Object -ExpandProperty value -First 1
 if ($signatureMode -ne "require") {
     Add-Violation "NuGet.Config must set signatureValidationMode=require."
+}
+
+[xml]$buildProps = Get-Content $buildPropsPath -Raw
+$disableImplicitLibraryPacks = $buildProps.Project.PropertyGroup.DisableImplicitLibraryPacksFolder | Select-Object -First 1
+if ([string]$disableImplicitLibraryPacks -ne "true") {
+    Add-Violation "Directory.Build.props must disable the SDK's implicit library-packs restore source."
 }
 
 $requiredNuGetRepositoryFingerprints = @(

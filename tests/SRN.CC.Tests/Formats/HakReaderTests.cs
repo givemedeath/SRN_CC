@@ -179,5 +179,22 @@ public class HakReaderTests
 
         act.Should().Throw<InvalidDataException>().WithMessage("*localized-string*");
     }
+
+    [Test]
+    public void Read_EntryMetadataExceedsAllocationBudget_ThrowsBeforeAllocating()
+    {
+        byte[] bytes = new byte[160];
+        "HAK "u8.CopyTo(bytes);
+        "V1.0"u8.CopyTo(bytes.AsSpan(4));
+        BitConverter.TryWriteBytes(bytes.AsSpan(16, 4), 1_048_577u);
+        BitConverter.TryWriteBytes(bytes.AsSpan(24, 4), 160u);
+        BitConverter.TryWriteBytes(bytes.AsSpan(28, 4), 160u);
+
+        using MemoryStream stream = new(bytes);
+        Action act = () => _ = new HakReader(stream);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*allocation budget*");
+    }
 }
+
 

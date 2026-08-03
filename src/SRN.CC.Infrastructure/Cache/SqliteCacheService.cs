@@ -230,7 +230,9 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         byte[] fpBytes = fingerprint.Digest.ToArray();
 
         using SqliteConnection conn = CreateConnection();
+        using SqliteTransaction readTx = conn.BeginTransaction();
         using SqliteCommand checkCmd = conn.CreateCommand();
+        checkCmd.Transaction = readTx;
         checkCmd.CommandText = "SELECT record_count, logical_bytes FROM source_snapshots WHERE fingerprint = @fp;";
         checkCmd.Parameters.AddWithValue("@fp", fpBytes);
 
@@ -247,19 +249,11 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
             totalLogicalBytes = reader.GetInt64(1);
         }
 
-        // Touch LRU last_access_utc
-        using (SqliteCommand touchCmd = conn.CreateCommand())
-        {
-            touchCmd.CommandText = "UPDATE source_snapshots SET last_access_utc = @now WHERE fingerprint = @fp;";
-            touchCmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("o"));
-            touchCmd.Parameters.AddWithValue("@fp", fpBytes);
-            await touchCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
         List<IndexedAssetRecord> records = new();
         List<AssetDiagnosticRecord> diagnostics = new();
         using (SqliteCommand selectCmd = conn.CreateCommand())
         {
+            selectCmd.Transaction = readTx;
             selectCmd.CommandText = @"
                 SELECT locator_type, entry_index, relative_path, original_name, canonical_resref, resource_type, size, validation_state, diagnostic_code, diagnostic_message
                 FROM asset_records
@@ -311,6 +305,17 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
                     }
                 }
             }
+        }
+
+        readTx.Commit();
+
+        // Touch LRU after releasing the consistent read snapshot.
+        using (SqliteCommand touchCmd = conn.CreateCommand())
+        {
+            touchCmd.CommandText = "UPDATE source_snapshots SET last_access_utc = @now WHERE fingerprint = @fp;";
+            touchCmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("o"));
+            touchCmd.Parameters.AddWithValue("@fp", fpBytes);
+            await touchCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         SourceScanStatistics stats = new(recordCount, totalLogicalBytes, TimeSpan.Zero);
@@ -528,4 +533,5 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         }
     }
 }
+
 

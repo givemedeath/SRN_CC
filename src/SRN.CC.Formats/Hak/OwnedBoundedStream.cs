@@ -1,11 +1,15 @@
+using System.Runtime.CompilerServices;
+
 namespace SRN.CC.Formats.Hak;
 
 public sealed class OwnedBoundedStream : Stream
 {
+    private static readonly ConditionalWeakTable<Stream, SemaphoreSlim> SharedReadLocks = new();
     private readonly Stream _baseStream;
     private readonly long _startOffset;
     private readonly long _length;
     private readonly bool _ownsStream;
+    private readonly SemaphoreSlim? _sharedReadLock;
     private long _position;
 
     public OwnedBoundedStream(Stream baseStream, long startOffset, long length, bool ownsStream = true)
@@ -24,6 +28,7 @@ public sealed class OwnedBoundedStream : Stream
         _startOffset = startOffset;
         _length = length;
         _ownsStream = ownsStream;
+        _sharedReadLock = ownsStream ? null : SharedReadLocks.GetValue(baseStream, _ => new SemaphoreSlim(1, 1));
         _position = 0;
     }
 
@@ -60,12 +65,17 @@ public sealed class OwnedBoundedStream : Stream
         }
         else
         {
-            lock (_baseStream)
+            _sharedReadLock!.Wait();
+            try
             {
                 _baseStream.Position = _startOffset + _position;
                 int read = _baseStream.Read(buffer, offset, bytesToRead);
                 _position += read;
                 return read;
+            }
+            finally
+            {
+                _sharedReadLock.Release();
             }
         }
     }
@@ -84,12 +94,17 @@ public sealed class OwnedBoundedStream : Stream
         }
         else
         {
-            lock (_baseStream)
+            _sharedReadLock!.Wait();
+            try
             {
                 _baseStream.Position = _startOffset + _position;
                 int read = _baseStream.Read(buffer[..bytesToRead]);
                 _position += read;
                 return read;
+            }
+            finally
+            {
+                _sharedReadLock.Release();
             }
         }
     }
@@ -100,10 +115,26 @@ public sealed class OwnedBoundedStream : Stream
         if (_position >= _length) return 0;
         int bytesToRead = (int)Math.Min(count, _length - _position);
 
-        _baseStream.Position = _startOffset + _position;
-        int read = await _baseStream.ReadAsync(buffer.AsMemory(offset, bytesToRead), cancellationToken).ConfigureAwait(false);
-        _position += read;
-        return read;
+        if (_ownsStream)
+        {
+            _baseStream.Position = _startOffset + _position;
+            int read = await _baseStream.ReadAsync(buffer.AsMemory(offset, bytesToRead), cancellationToken).ConfigureAwait(false);
+            _position += read;
+            return read;
+        }
+
+        await _sharedReadLock!.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _baseStream.Position = _startOffset + _position;
+            int read = await _baseStream.ReadAsync(buffer.AsMemory(offset, bytesToRead), cancellationToken).ConfigureAwait(false);
+            _position += read;
+            return read;
+        }
+        finally
+        {
+            _sharedReadLock.Release();
+        }
     }
 
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
@@ -111,10 +142,26 @@ public sealed class OwnedBoundedStream : Stream
         if (_position >= _length) return 0;
         int bytesToRead = (int)Math.Min(buffer.Length, _length - _position);
 
-        _baseStream.Position = _startOffset + _position;
-        int read = await _baseStream.ReadAsync(buffer[..bytesToRead], cancellationToken).ConfigureAwait(false);
-        _position += read;
-        return read;
+        if (_ownsStream)
+        {
+            _baseStream.Position = _startOffset + _position;
+            int read = await _baseStream.ReadAsync(buffer[..bytesToRead], cancellationToken).ConfigureAwait(false);
+            _position += read;
+            return read;
+        }
+
+        await _sharedReadLock!.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _baseStream.Position = _startOffset + _position;
+            int read = await _baseStream.ReadAsync(buffer[..bytesToRead], cancellationToken).ConfigureAwait(false);
+            _position += read;
+            return read;
+        }
+        finally
+        {
+            _sharedReadLock.Release();
+        }
     }
 
     public override long Seek(long offset, SeekOrigin origin)
@@ -152,3 +199,4 @@ public sealed class OwnedBoundedStream : Stream
         await base.DisposeAsync().ConfigureAwait(false);
     }
 }
+

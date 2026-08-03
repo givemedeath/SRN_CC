@@ -4,6 +4,9 @@ namespace SRN.CC.Formats.Hak;
 
 public sealed class HakReader
 {
+    private const long EstimatedMetadataBytesPerEntry = 256;
+    private const long MaxMetadataAllocationBytes = 256L * 1024 * 1024;
+
     public string FileType { get; }
     public string Version { get; }
     public uint LanguageCount { get; }
@@ -59,6 +62,12 @@ public sealed class HakReader
         if (EntryCount > int.MaxValue)
         {
             throw new InvalidDataException("HAK entry count exceeds the supported in-memory table size.");
+        }
+
+        long estimatedMetadataBytes = checked((long)EntryCount * EstimatedMetadataBytesPerEntry);
+        if (estimatedMetadataBytes > MaxMetadataAllocationBytes)
+        {
+            throw new InvalidDataException($"HAK entry metadata exceeds the {MaxMetadataAllocationBytes}-byte allocation budget.");
         }
 
         long keyListSize = checked((long)EntryCount * 24); // 16 resref + 4 resId + 2 resType + 2 unused
@@ -285,4 +294,5 @@ public sealed class HakReader
         return new OwnedBoundedStream(sourceStream, entry.OffsetToResource, entry.ResourceSize, ownsStream: false);
     }
 }
+
 

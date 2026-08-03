@@ -20,6 +20,7 @@
                    Grid.Row="1"
                    ItemsSource="{Binding FilteredRows}"
                    SelectedItem="{Binding SelectedRow}"
+                   SelectedItems="{Binding SelectedRows}"
                    SelectionMode="Multiple">
             <TableView.Columns>
                 <TableViewColumn Header="Select" Width="60">

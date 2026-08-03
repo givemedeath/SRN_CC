@@ -154,7 +154,9 @@ public sealed class ArtifactPublisher : IArtifactPublisher
     private static async Task SaveJournalAsync(string journalPath, PublicationJournal journal, CancellationToken cancellationToken)
     {
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(journal, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllBytesAsync(journalPath, bytes, cancellationToken).ConfigureAwait(false);
+        string tempPath = journalPath + ".tmp";
+        await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken).ConfigureAwait(false);
+        File.Move(tempPath, journalPath, overwrite: true);
     }
 
     private static Task RollbackJournalAsync(PublicationJournal journal, string journalPath)

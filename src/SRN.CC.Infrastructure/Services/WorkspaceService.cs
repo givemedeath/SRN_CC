@@ -45,6 +45,7 @@ public sealed class WorkspaceService : IWorkspaceService
         IReadOnlyList<WinnerPin>? pins = null,
         SelectionState? selectionState = null,
         ProjectPreferences? preferences = null,
+        bool isReadOnly = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sources);
@@ -81,7 +82,7 @@ public sealed class WorkspaceService : IWorkspaceService
                 pins,
                 selectionState,
                 preferences,
-                isReadOnly: false,
+                isReadOnly: isReadOnly,
                 cancellationToken).ConfigureAwait(false);
 
             ChangedInputReport report = CompareStates(initialState, newState);

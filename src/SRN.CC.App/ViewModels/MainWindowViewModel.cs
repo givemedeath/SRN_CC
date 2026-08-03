@@ -113,6 +113,10 @@ public partial class MainWindowViewModel : ObservableObject
         AssetTable.FilteredRows.Select((r, i) => new AssetRowItem(i + 1, r.Resref, r.ResourceTypeName, r.WinnerSourceLabel, r.SizeBytes))
             .Where(item => item.ResourceType.Contains(resourceType, StringComparison.OrdinalIgnoreCase)).ToArray();
 
+    private readonly SemaphoreSlim _selectionLock = new(1, 1);
+
+    public Func<Task<string?>>? OpenFilePickerAsync { get; set; }
+
     [RelayCommand]
     private async Task NewProjectAsync()
     {
@@ -127,16 +131,31 @@ public partial class MainWindowViewModel : ObservableObject
     {
         if (_workspaceService == null || _projectStore == null) return;
 
-        string path = projectPath ?? Path.Combine(Directory.GetCurrentDirectory(), "project.srncc");
+        string? path = projectPath;
+        if (string.IsNullOrEmpty(path) && OpenFilePickerAsync != null)
+        {
+            path = await OpenFilePickerAsync().ConfigureAwait(true);
+            if (string.IsNullOrEmpty(path)) return;
+        }
+
+        if (string.IsNullOrEmpty(path))
+        {
+            path = Path.Combine(Directory.GetCurrentDirectory(), "project.srncc");
+        }
+
         if (!File.Exists(path))
         {
-            OperationLog.AddEntry("WARN", $"Project file not found at '{path}'. Created default empty workspace.");
-            await NewProjectAsync().ConfigureAwait(true);
+            OperationLog.AddEntry("WARN", $"Project file not found at '{path}'.");
             return;
         }
 
         var project = await _projectStore.LoadAsync(path).ConfigureAwait(true);
-        var (state, _) = await _workspaceService.InitializeAsync(project.Sources, project.Pins, project.SelectionState, project.Preferences).ConfigureAwait(true);
+        var (state, _) = await _workspaceService.InitializeAsync(
+            project.Sources,
+            project.Pins,
+            project.SelectionState,
+            project.Preferences,
+            isReadOnly: project.IsReadOnly).ConfigureAwait(true);
         LoadWorkspaceState(state, path);
     }
 
@@ -170,10 +189,19 @@ public partial class MainWindowViewModel : ObservableObject
 
     private async Task OnRowSelectionChangedAsync(AssetRowViewModel row)
     {
-        if (_workspaceState != null && _workspaceService != null)
+        await _selectionLock.WaitAsync().ConfigureAwait(true);
+        try
         {
-            var newSelectionState = _workspaceState.SelectionState.SetOverride(row.Identity, row.IsSelected);
-            _workspaceState = await _workspaceService.UpdateSelectionAsync(newSelectionState).ConfigureAwait(true);
+            if (_workspaceState != null && _workspaceService != null)
+            {
+                var currentSelection = _workspaceService.CurrentState.SelectionState;
+                var newSelectionState = currentSelection.SetOverride(row.Identity, row.IsSelected);
+                _workspaceState = await _workspaceService.UpdateSelectionAsync(newSelectionState).ConfigureAwait(true);
+            }
+        }
+        finally
+        {
+            _selectionLock.Release();
         }
 
         if (_workspaceState == null) return;
@@ -189,15 +217,24 @@ public partial class MainWindowViewModel : ObservableObject
 
     private async Task OnBatchSelectionChangedAsync(IEnumerable<AssetRowViewModel> rows, bool selected)
     {
-        if (_workspaceState == null || _workspaceService == null) return;
-
-        var currentSelection = _workspaceState.SelectionState;
-        foreach (var r in rows)
+        await _selectionLock.WaitAsync().ConfigureAwait(true);
+        try
         {
-            currentSelection = currentSelection.SetOverride(r.Identity, selected);
-        }
-        _workspaceState = await _workspaceService.UpdateSelectionAsync(currentSelection).ConfigureAwait(true);
+            if (_workspaceState == null || _workspaceService == null) return;
 
+            var currentSelection = _workspaceService.CurrentState.SelectionState;
+            foreach (var r in rows)
+            {
+                currentSelection = currentSelection.SetOverride(r.Identity, selected);
+            }
+            _workspaceState = await _workspaceService.UpdateSelectionAsync(currentSelection).ConfigureAwait(true);
+        }
+        finally
+        {
+            _selectionLock.Release();
+        }
+
+        if (_workspaceState == null) return;
         var selectedRows = AssetTable.FilteredRows.Where(r => r.IsSelected).Select(r => r.CuratedAsset).ToList();
         var sourceMap = _workspaceState.Sources.ToDictionary(s => s.Id);
         await ComparisonPanel.UpdateSelectionAsync(selectedRows, sourceMap).ConfigureAwait(true);
@@ -210,9 +247,12 @@ public partial class MainWindowViewModel : ObservableObject
 
     private async Task OnSelectedRowChangedAsync(AssetRowViewModel? selectedRow)
     {
-        if (_workspaceState == null || selectedRow == null) return;
+        if (_workspaceState == null) return;
         var sourceMap = _workspaceState.Sources.ToDictionary(s => s.Id);
-        await ComparisonPanel.UpdateSelectionAsync(new[] { selectedRow.CuratedAsset }, sourceMap).ConfigureAwait(true);
+        var curatedAssets = AssetTable.SelectedRows.Count > 0
+            ? AssetTable.SelectedRows.Select(r => r.CuratedAsset).ToList()
+            : (selectedRow != null ? new[] { selectedRow.CuratedAsset } : Array.Empty<CuratedAsset>());
+        await ComparisonPanel.UpdateSelectionAsync(curatedAssets, sourceMap).ConfigureAwait(true);
     }
 
     private async Task OnPinRequestedAsync(AssetOccurrence occurrence)

@@ -23,7 +23,7 @@ public partial class AssetTableViewModel : ObservableObject
     private readonly IResourceTypeRegistry _registry;
     private readonly Action<AssetRowViewModel>? _onRowSelectionChanged;
     private readonly Action<IEnumerable<AssetRowViewModel>, bool>? _onBatchSelectionChanged;
-    private readonly Action<AssetRowViewModel?>? _onSelectedRowChanged;
+    private readonly Action<IReadOnlyList<AssetRowViewModel>>? _onSelectedRowsChanged;
     private List<AssetRowViewModel> _allRows = new();
     private bool _isBatchUpdating;
 
@@ -32,6 +32,9 @@ public partial class AssetTableViewModel : ObservableObject
 
     [ObservableProperty]
     private AssetRowViewModel? _selectedRow;
+
+    [ObservableProperty]
+    private ObservableCollection<AssetRowViewModel> _selectedRows = new();
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -51,12 +54,19 @@ public partial class AssetTableViewModel : ObservableObject
         IResourceTypeRegistry registry,
         Action<AssetRowViewModel>? onRowSelectionChanged = null,
         Action<IEnumerable<AssetRowViewModel>, bool>? onBatchSelectionChanged = null,
-        Action<AssetRowViewModel?>? onSelectedRowChanged = null)
+        Action<AssetRowViewModel?>? onSelectedRowChanged = null,
+        Action<IReadOnlyList<AssetRowViewModel>>? onSelectedRowsChanged = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _onRowSelectionChanged = onRowSelectionChanged;
         _onBatchSelectionChanged = onBatchSelectionChanged;
         _onSelectedRowChanged = onSelectedRowChanged;
+        _onSelectedRowsChanged = onSelectedRowsChanged;
+
+        _selectedRows.CollectionChanged += (s, e) =>
+        {
+            _onSelectedRowsChanged?.Invoke(_selectedRows.ToList());
+        };
     }
 
     public void LoadAssets(IEnumerable<CuratedAsset> assets, IDictionary<Guid, string> sourceLabels)

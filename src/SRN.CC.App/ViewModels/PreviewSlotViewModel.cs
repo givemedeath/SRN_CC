@@ -73,6 +73,7 @@ public partial class PreviewSlotViewModel : ObservableObject
         if (occ == null || source == null)
         {
             IsActive = false;
+            IsLoading = false;
             SlotTitle = $"Slot {SlotIndex + 1} [Empty]";
             FormattedContent = "No asset assigned to this slot.";
             ErrorMessage = null;

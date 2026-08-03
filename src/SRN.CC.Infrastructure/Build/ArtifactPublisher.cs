@@ -30,25 +30,29 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         string hakBackupPath = plan.DestinationHakPath + $".{transactionId}.bak";
         string manifestBackupPath = plan.DestinationManifestPath + $".{transactionId}.bak";
 
-        PublicationJournal journal = new()
-        {
-            DestinationHakPath = plan.DestinationHakPath,
-            DestinationManifestPath = plan.DestinationManifestPath,
-            TempHakPath = tempHakPath,
-            TempManifestPath = tempManifestPath,
-            HakBackupPath = hakBackupPath,
-            ManifestBackupPath = manifestBackupPath,
-            State = PublicationState.Prepared,
-            CreatedUtc = DateTime.UtcNow,
-            LastUpdatedUtc = DateTime.UtcNow
-        };
+        PublicationJournal? journal = null;
 
         try
         {
             await using (await AcquirePublicationLockAsync(publicationLockPath, cancellationToken).ConfigureAwait(false))
             {
-                journal.HakExistedBefore = File.Exists(plan.DestinationHakPath);
-                journal.ManifestExistedBefore = File.Exists(plan.DestinationManifestPath);
+                bool hakExisted = File.Exists(plan.DestinationHakPath);
+                bool manifestExisted = File.Exists(plan.DestinationManifestPath);
+
+                journal = new PublicationJournal
+                {
+                    DestinationHakPath = plan.DestinationHakPath,
+                    DestinationManifestPath = plan.DestinationManifestPath,
+                    TempHakPath = tempHakPath,
+                    TempManifestPath = tempManifestPath,
+                    HakBackupPath = hakBackupPath,
+                    ManifestBackupPath = manifestBackupPath,
+                    HakExistedBefore = hakExisted,
+                    ManifestExistedBefore = manifestExisted,
+                    State = PublicationState.Prepared,
+                    CreatedUtc = DateTime.UtcNow,
+                    LastUpdatedUtc = DateTime.UtcNow
+                };
 
                 logs.Add("Writing publication journal (Prepared)...");
                 await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
@@ -119,14 +123,17 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         }
         catch (Exception ex)
         {
-            if (journal.State == PublicationState.Committed)
+            if (journal is { State: PublicationState.Committed })
             {
                 logs.Add($"Publication committed; cleanup will be retried during recovery: {ex.Message}");
                 return new PublicationResult(true, plan.DestinationHakPath, plan.DestinationManifestPath, null, logs);
             }
 
             logs.Add($"Publication error: {ex.Message}. Rolling back transaction...");
-            await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+            if (journal is not null)
+            {
+                await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+            }
 
             return new PublicationResult(
                 IsSuccess: false,

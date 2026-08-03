@@ -34,6 +34,8 @@ query($owner: String!, $name: String!, $pr: Int!) {
 
 ## 2. Resolve Review Threads via GraphQL Mutation
 
+> **IMPORTANT:** Only resolve a review thread after all changes related to the thread are completed, committed, and pushed to the repository. 
+
 To resolve a review thread by its `threadId` (e.g. `PRRT_kw...`):
 
 ```bash

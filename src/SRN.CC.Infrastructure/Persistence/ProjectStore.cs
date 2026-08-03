@@ -69,26 +69,28 @@ public sealed class ProjectStore : IProjectStore
             {
                 if (sourceNode is JsonObject sourceObj)
                 {
-                    Guid id = Guid.Parse(sourceObj["id"]!.GetValue<string>());
-                    string kindStr = sourceObj["kind"]!.GetValue<string>();
-                    AssetSourceKind kind = Enum.Parse<AssetSourceKind>(kindStr, ignoreCase: true);
+                    Guid id = Guid.TryParse(sourceObj["id"]?.GetValue<string>(), out Guid parsedId) ? parsedId : Guid.NewGuid();
+                    string? kindStr = sourceObj["kind"]?.GetValue<string>();
+                    AssetSourceKind kind = Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out AssetSourceKind parsedKind)
+                        ? parsedKind
+                        : AssetSourceKind.Folder;
 
-                    JsonObject pathObj = sourceObj["path"]!.AsObject();
-                    string pathKind = pathObj["kind"]!.GetValue<string>();
-                    string pathVal = pathObj["value"]!.GetValue<string>();
+                    JsonObject? pathObj = sourceObj["path"] as JsonObject;
+                    string pathKind = pathObj?["kind"]?.GetValue<string>() ?? "absolute";
+                    string pathVal = pathObj?["value"]?.GetValue<string>() ?? string.Empty;
 
                     string resolvedPath = pathKind.Equals("relative", StringComparison.OrdinalIgnoreCase)
                         ? Path.GetFullPath(Path.Combine(projectDir, pathVal))
-                        : Path.GetFullPath(pathVal);
+                        : (string.IsNullOrWhiteSpace(pathVal) ? fullProjectPath : Path.GetFullPath(pathVal));
 
                     SourceFingerprint? fingerprint = null;
                     if (sourceObj["fingerprint"] is JsonObject fpObj)
                     {
-                        string fpKindStr = fpObj["kind"]!.GetValue<string>();
-                        AssetSourceKind fpKind = Enum.Parse<AssetSourceKind>(fpKindStr, ignoreCase: true);
-                        int algVer = fpObj["algorithmVersion"]!.GetValue<int>();
-                        string digestHex = fpObj["digest"]!.GetValue<string>();
-                        byte[] digestBytes = Convert.FromHexString(digestHex);
+                        string? fpKindStr = fpObj["kind"]?.GetValue<string>();
+                        AssetSourceKind fpKind = Enum.TryParse<AssetSourceKind>(fpKindStr, ignoreCase: true, out AssetSourceKind parsedFpKind) ? parsedFpKind : kind;
+                        int algVer = fpObj["algorithmVersion"]?.GetValue<int>() ?? 1;
+                        string? digestHex = fpObj["digest"]?.GetValue<string>();
+                        byte[] digestBytes = !string.IsNullOrEmpty(digestHex) ? Convert.FromHexString(digestHex) : Array.Empty<byte>();
                         fingerprint = new SourceFingerprint(fpKind, algVer, digestBytes);
                     }
 
@@ -112,11 +114,14 @@ public sealed class ProjectStore : IProjectStore
                 {
                     if (overrideNode is JsonObject overrideObj)
                     {
-                        string resref = overrideObj["resref"]!.GetValue<string>();
-                        ushort resourceType = (ushort)overrideObj["resourceType"]!.GetValue<int>();
-                        bool selected = overrideObj["selected"]!.GetValue<bool>();
-                        AssetIdentity id = new AssetIdentity(resref, resourceType);
-                        overrides[id] = selected;
+                        string? resref = overrideObj["resref"]?.GetValue<string>();
+                        ushort resourceType = (ushort)(overrideObj["resourceType"]?.GetValue<int>() ?? 0);
+                        bool selected = overrideObj["selected"]?.GetValue<bool>() ?? true;
+                        if (!string.IsNullOrEmpty(resref))
+                        {
+                            AssetIdentity id = new AssetIdentity(resref, resourceType);
+                            overrides[id] = selected;
+                        }
                     }
                 }
             }
@@ -132,20 +137,23 @@ public sealed class ProjectStore : IProjectStore
             {
                 if (pinNode is JsonObject pinObj)
                 {
-                    string resref = pinObj["resref"]!.GetValue<string>();
-                    ushort resourceType = (ushort)pinObj["resourceType"]!.GetValue<int>();
-                    Guid sourceId = Guid.Parse(pinObj["sourceId"]!.GetValue<string>());
-                    string sha256Hex = pinObj["sha256"]!.GetValue<string>();
-                    byte[] pinHash = Convert.FromHexString(sha256Hex);
+                    string? resref = pinObj["resref"]?.GetValue<string>();
+                    ushort resourceType = (ushort)(pinObj["resourceType"]?.GetValue<int>() ?? 0);
+                    Guid sourceId = Guid.TryParse(pinObj["sourceId"]?.GetValue<string>(), out Guid parsedSrcId) ? parsedSrcId : Guid.Empty;
+                    string? sha256Hex = pinObj["sha256"]?.GetValue<string>();
+                    byte[] pinHash = !string.IsNullOrEmpty(sha256Hex) ? Convert.FromHexString(sha256Hex) : new byte[32];
 
-                    JsonObject locObj = pinObj["locator"]!.AsObject();
-                    string locKind = locObj["kind"]!.GetValue<string>();
+                    JsonObject? locObj = pinObj["locator"] as JsonObject;
+                    string locKind = locObj?["kind"]?.GetValue<string>() ?? "folderPath";
                     OccurrenceLocator locator = locKind.Equals("hakEntry", StringComparison.OrdinalIgnoreCase)
-                        ? new HakEntryLocator(locObj["index"]!.GetValue<int>())
-                        : new FolderFileLocator(locObj["relativePath"]!.GetValue<string>());
+                        ? new HakEntryLocator(locObj?["index"]?.GetValue<int>() ?? 0)
+                        : new FolderFileLocator(locObj?["relativePath"]?.GetValue<string>() ?? string.Empty);
 
-                    AssetIdentity identity = new AssetIdentity(resref, resourceType);
-                    pins.Add(new WinnerPin(identity, sourceId, locator, pinHash));
+                    if (!string.IsNullOrEmpty(resref))
+                    {
+                        AssetIdentity identity = new AssetIdentity(resref, resourceType);
+                        pins.Add(new WinnerPin(identity, sourceId, locator, pinHash));
+                    }
                 }
             }
         }

@@ -63,8 +63,14 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
         Dictionary<AssetIdentity, WinnerPin> finalPinsMap = new();
         List<CuratedAsset> curatedAssets = new();
 
+        HashSet<AssetIdentity> allIdentities = identityGroupMap.Keys.ToHashSet();
+        foreach (AssetIdentity pinIdentity in pinLookup.Keys)
+        {
+            allIdentities.Add(pinIdentity);
+        }
+
         // Process each identity deterministically (ordered by identity.ToString())
-        List<AssetIdentity> sortedIdentities = identityGroupMap.Keys
+        List<AssetIdentity> sortedIdentities = allIdentities
             .OrderBy(id => id.OriginalName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(id => id.ResourceType)
             .ToList();
@@ -73,7 +79,7 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            List<AssetOccurrence> allOccurrences = identityGroupMap[identity];
+            List<AssetOccurrence> allOccurrences = identityGroupMap.GetValueOrDefault(identity) ?? new List<AssetOccurrence>();
 
             // Independent diagnostic flags
             HashSet<Guid> distinctSources = allOccurrences.Select(o => o.SourceId).ToHashSet();

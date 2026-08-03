@@ -253,4 +253,34 @@ public class ProjectStoreTests
         string savedJson = await File.ReadAllTextAsync(saveAsPath);
         savedJson.Should().Be(originalJson, "SaveAs on read-only newer schema must preserve original document byte-for-byte");
     }
+
+    [Test]
+    public async Task NewerSchema_WithUnknownEnumKind_ShouldLoadAsReadOnlyWorkspace()
+    {
+        string projectPath = Path.Combine(_tempDir, "unknown_kind.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 2,
+          "sources": [
+            {
+              "id": "11111111-2222-3333-4444-555555555555",
+              "kind": "futureCloudKind",
+              "path": { "kind": "absolute", "value": "c:/test.hak" }
+            }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        WorkspaceState state = await store.LoadAsync(projectPath);
+
+        state.IsReadOnly.Should().BeTrue();
+        state.Sources.Should().HaveCount(1);
+    }
 }

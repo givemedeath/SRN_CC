@@ -134,6 +134,31 @@ public class WinnerPinTests
         asset.HasInvalidPin.Should().BeTrue();
     }
 
+    [Test]
+    public async Task OrphanedPin_ShouldBeIncludedInResolution_AsInvalidPin()
+    {
+        Guid sourceId1 = Guid.NewGuid();
+        AssetSource s1 = new AssetSource(sourceId1, AssetSourceKind.Hak, "c:/source1.hak", priorityOrdinal: 0);
+
+        AssetIdentity identity = new AssetIdentity("orphaned", 2000);
+        WinnerPin orphanedPin = new WinnerPin(identity, Guid.NewGuid(), new HakEntryLocator(0), new byte[32]);
+
+        MockHashService hashService = new();
+        WorkspaceResolver resolver = new(hashService);
+
+        WorkspaceState state = await resolver.ResolveAsync(
+            sources: new[] { s1 },
+            snapshots: new Dictionary<Guid, SourceIndexSnapshot> { [sourceId1] = CreateSnapshot(s1) },
+            pins: new[] { orphanedPin },
+            selectionState: SelectionState.IncludeAll());
+
+        state.CuratedAssets.Should().HaveCount(1);
+        CuratedAsset asset = state.CuratedAssets[0];
+        asset.Identity.Should().Be(identity);
+        asset.Status.Should().Be(ResolutionStatus.InvalidPin);
+        asset.HasInvalidPin.Should().BeTrue();
+    }
+
     private static SourceIndexSnapshot CreateSnapshot(AssetSource source, params AssetOccurrence[] occurrences)
     {
         List<IndexedAssetRecord> records = occurrences.Select(o => new IndexedAssetRecord(o)).ToList();

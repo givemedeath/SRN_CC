@@ -10,6 +10,7 @@ using SRN.CC.Core.Services;
 using SRN.CC.Core.Snapshots;
 using SRN.CC.Core.Sources;
 using SRN.CC.Core.Workspace;
+using SRN.CC.Infrastructure.Services;
 
 namespace SRN.CC.Infrastructure.Persistence;
 
@@ -66,6 +67,11 @@ public sealed class ProjectStore : IProjectStore
         bool isReadOnly = schemaVersion > CurrentSchemaVersion;
 
         // Parse sources
+        if (!isReadOnly && rootObj["sources"] is not JsonArray)
+        {
+            throw new InvalidOperationException($"Project file '{fullProjectPath}' is missing the required 'sources' JSON array.");
+        }
+
         List<AssetSource> sources = new();
         if (rootObj["sources"] is JsonArray sourcesArray)
         {
@@ -79,12 +85,12 @@ public sealed class ProjectStore : IProjectStore
                     if (!isReadOnly)
                     {
                         // Strict validation for schema 1
-                        string? idStr = sourceObj["id"]?.GetValue<string>();
+                        string? idStr = TryGetString(sourceObj["id"]);
                         if (string.IsNullOrEmpty(idStr) || !Guid.TryParse(idStr, out id))
                         {
                             throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source id '{idStr}'.");
                         }
-                        string? kindStr = sourceObj["kind"]?.GetValue<string>();
+                        string? kindStr = TryGetString(sourceObj["kind"]);
                         if (string.IsNullOrEmpty(kindStr) || !Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out kind))
                         {
                             throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source kind '{kindStr}'.");
@@ -93,16 +99,17 @@ public sealed class ProjectStore : IProjectStore
                     else
                     {
                         // Shape-tolerant extraction for newer schema versions
-                        id = Guid.TryParse(sourceObj["id"]?.GetValue<string>(), out Guid parsedId) ? parsedId : Guid.NewGuid();
-                        string? kindStr = sourceObj["kind"]?.GetValue<string>();
+                        string? idStr = TryGetString(sourceObj["id"]);
+                        id = Guid.TryParse(idStr, out Guid parsedId) ? parsedId : Guid.NewGuid();
+                        string? kindStr = TryGetString(sourceObj["kind"]);
                         kind = Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out AssetSourceKind parsedKind)
                             ? parsedKind
                             : AssetSourceKind.Folder;
                     }
 
                     JsonObject? pathObj = sourceObj["path"] as JsonObject;
-                    string pathKind = pathObj?["kind"]?.GetValue<string>() ?? "absolute";
-                    string pathVal = pathObj?["value"]?.GetValue<string>() ?? string.Empty;
+                    string pathKind = TryGetString(pathObj?["kind"]) ?? "absolute";
+                    string pathVal = TryGetString(pathObj?["value"]) ?? string.Empty;
 
                     string resolvedPath = pathKind.Equals("relative", StringComparison.OrdinalIgnoreCase)
                         ? Path.GetFullPath(Path.Combine(projectDir, pathVal))
@@ -111,10 +118,10 @@ public sealed class ProjectStore : IProjectStore
                     SourceFingerprint? fingerprint = null;
                     if (sourceObj["fingerprint"] is JsonObject fpObj)
                     {
-                        string? fpKindStr = fpObj["kind"]?.GetValue<string>();
+                        string? fpKindStr = TryGetString(fpObj["kind"]);
                         AssetSourceKind fpKind = Enum.TryParse<AssetSourceKind>(fpKindStr, ignoreCase: true, out AssetSourceKind parsedFpKind) ? parsedFpKind : kind;
                         int algVer = fpObj["algorithmVersion"]?.GetValue<int>() ?? 1;
-                        string? digestHex = fpObj["digest"]?.GetValue<string>();
+                        string? digestHex = TryGetString(fpObj["digest"]);
                         byte[] digestBytes = !string.IsNullOrEmpty(digestHex) ? Convert.FromHexString(digestHex) : Array.Empty<byte>();
                         fingerprint = new SourceFingerprint(fpKind, algVer, digestBytes);
                     }
@@ -139,7 +146,7 @@ public sealed class ProjectStore : IProjectStore
                 {
                     if (overrideNode is JsonObject overrideObj)
                     {
-                        string? resref = overrideObj["resref"]?.GetValue<string>();
+                        string? resref = TryGetString(overrideObj["resref"]);
                         int rawType = overrideObj["resourceType"]?.GetValue<int>() ?? -1;
                         bool selected = overrideObj["selected"]?.GetValue<bool>() ?? true;
                         if (!string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
@@ -162,17 +169,35 @@ public sealed class ProjectStore : IProjectStore
             {
                 if (pinNode is JsonObject pinObj)
                 {
-                    string? resref = pinObj["resref"]?.GetValue<string>();
+                    string? resref = TryGetString(pinObj["resref"]);
                     int rawType = pinObj["resourceType"]?.GetValue<int>() ?? -1;
-                    Guid sourceId = Guid.TryParse(pinObj["sourceId"]?.GetValue<string>(), out Guid parsedSrcId) ? parsedSrcId : Guid.Empty;
-                    string? sha256Hex = pinObj["sha256"]?.GetValue<string>();
-                    byte[] pinHash = !string.IsNullOrEmpty(sha256Hex) ? Convert.FromHexString(sha256Hex) : new byte[32];
+                    string? sourceIdStr = TryGetString(pinObj["sourceId"]);
+                    string? sha256Hex = TryGetString(pinObj["sha256"]);
+
+                    if (!isReadOnly)
+                    {
+                        if (string.IsNullOrEmpty(resref) || rawType is < 0 or > ushort.MaxValue)
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid pin resref or resourceType.");
+                        }
+                        if (string.IsNullOrEmpty(sourceIdStr) || !Guid.TryParse(sourceIdStr, out _))
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid pin sourceId '{sourceIdStr}'.");
+                        }
+                        if (string.IsNullOrEmpty(sha256Hex) || sha256Hex.Length != 64)
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid pin sha256 hex string.");
+                        }
+                    }
+
+                    Guid sourceId = Guid.TryParse(sourceIdStr, out Guid parsedSrcId) ? parsedSrcId : Guid.Empty;
+                    byte[] pinHash = !string.IsNullOrEmpty(sha256Hex) && sha256Hex.Length == 64 ? Convert.FromHexString(sha256Hex) : new byte[32];
 
                     JsonObject? locObj = pinObj["locator"] as JsonObject;
-                    string locKind = locObj?["kind"]?.GetValue<string>() ?? "folderPath";
+                    string locKind = TryGetString(locObj?["kind"]) ?? "folderPath";
                     OccurrenceLocator locator = locKind.Equals("hakEntry", StringComparison.OrdinalIgnoreCase)
                         ? new HakEntryLocator(locObj?["index"]?.GetValue<int>() ?? 0)
-                        : new FolderFileLocator(locObj?["relativePath"]?.GetValue<string>() ?? string.Empty);
+                        : new FolderFileLocator(TryGetString(locObj?["relativePath"]) ?? string.Empty);
 
                     if (!string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
                     {
@@ -221,6 +246,14 @@ public sealed class ProjectStore : IProjectStore
             {
                 AssetSource unavailable = new AssetSource(s.Id, s.Kind, s.FullPath, s.PriorityOrdinal, isAvailable: false, s.Fingerprint);
                 scannedSources.Add(unavailable);
+            }
+        }
+
+        if (_resolver is WorkspaceResolver resolverWithCache)
+        {
+            foreach (AssetSource s in scannedSources)
+            {
+                resolverWithCache.HashCache.InvalidateSource(s.Id);
             }
         }
 
@@ -521,5 +554,14 @@ public sealed class ProjectStore : IProjectStore
             }
             throw;
         }
+    }
+
+    private static string? TryGetString(JsonNode? node)
+    {
+        if (node is JsonValue val && val.TryGetValue(out string? s))
+        {
+            return s;
+        }
+        return null;
     }
 }

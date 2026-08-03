@@ -370,4 +370,83 @@ public class ProjectStoreTests
         WorkspaceState state = await store.LoadAsync(projectPath);
         state.Should().NotBeNull();
     }
+
+    [Test]
+    public async Task Schema1_MissingSourcesArray_ShouldThrowInvalidOperationException()
+    {
+        string projectPath = Path.Combine(_tempDir, "missing_sources.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 1,
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Schema1_InvalidPinSourceId_ShouldThrowInvalidOperationException()
+    {
+        string projectPath = Path.Combine(_tempDir, "invalid_pin_sourceid.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 1,
+          "sources": [],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": [
+            {
+              "resref": "test",
+              "resourceType": 2000,
+              "sourceId": "invalid-guid",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "locator": { "kind": "folderPath", "relativePath": "test.tda" }
+            }
+          ]
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task NewerSchema_WithObjectAsSourceId_ShouldLoadAsReadOnlyWorkspace()
+    {
+        string projectPath = Path.Combine(_tempDir, "object_source_id.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 2,
+          "sources": [
+            {
+              "id": { "complex": "futureId" },
+              "kind": "hak",
+              "path": { "kind": "absolute", "value": "c:/test.hak" }
+            }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        WorkspaceState state = await store.LoadAsync(projectPath);
+        state.IsReadOnly.Should().BeTrue();
+    }
 }

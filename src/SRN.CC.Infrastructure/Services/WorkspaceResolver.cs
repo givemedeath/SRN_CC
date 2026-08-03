@@ -224,6 +224,7 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
         // Exact locator didn't match hash. Search same source & identity for occurrences with matching hash.
         List<AssetOccurrence> sameSourceOccurrences = occurrences.Where(o => o.SourceId == pin.SourceId).ToList();
         List<(AssetOccurrence Occurrence, byte[] Hash)> matchingHashOccurrences = new();
+        List<byte[]> computedHashes = new();
         bool unreadableEncountered = false;
 
         foreach (AssetOccurrence occ in sameSourceOccurrences)
@@ -235,11 +236,15 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
                 continue;
             }
 
+            computedHashes.Add(hash);
+
             if (hash.AsSpan().SequenceEqual(pin.PinHash))
             {
                 matchingHashOccurrences.Add((occ, hash));
             }
         }
+
+        bool payloadConflict = computedHashes.Count > 1 && computedHashes.Any(h => !h.AsSpan().SequenceEqual(computedHashes[0]));
 
         if (matchingHashOccurrences.Count == 1)
         {
@@ -247,11 +252,11 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
             AssetOccurrence reattachedWinner = matchingHashOccurrences[0].Occurrence;
             byte[] hash = matchingHashOccurrences[0].Hash;
             WinnerPin reattachedPin = new WinnerPin(pin.Identity, pin.SourceId, reattachedWinner.Locator, pin.PinHash);
-            return (reattachedWinner, reattachedPin, ResolutionStatus.Resolved, hash, InvalidPin: false, Unreadable: unreadableEncountered, PayloadConflict: false);
+            return (reattachedWinner, reattachedPin, ResolutionStatus.Resolved, hash, InvalidPin: false, Unreadable: unreadableEncountered, PayloadConflict: payloadConflict);
         }
 
         // 0 or >1 matches -> Invalid Pin
-        return (null, pin, ResolutionStatus.InvalidPin, null, InvalidPin: true, Unreadable: unreadableEncountered, PayloadConflict: matchingHashOccurrences.Count > 1);
+        return (null, pin, ResolutionStatus.InvalidPin, null, InvalidPin: true, Unreadable: unreadableEncountered, PayloadConflict: payloadConflict || matchingHashOccurrences.Count > 1);
     }
 
     private async Task<(AssetOccurrence? Winner, ResolutionStatus Status, byte[]? Hash, bool Unreadable, bool PayloadConflict)>

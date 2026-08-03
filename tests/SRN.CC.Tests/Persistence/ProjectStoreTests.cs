@@ -449,4 +449,70 @@ public class ProjectStoreTests
         WorkspaceState state = await store.LoadAsync(projectPath);
         state.IsReadOnly.Should().BeTrue();
     }
+
+    [Test]
+    public async Task Schema1_PinMissingLocatorKind_ShouldThrowInvalidOperationException()
+    {
+        string projectPath = Path.Combine(_tempDir, "missing_locator_kind.srnccproj");
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": [
+            {
+              "resref": "test",
+              "resourceType": 2000,
+              "sourceId": "{{Guid.NewGuid()}}",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "locator": { "index": 0 }
+            }
+          ]
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task PreserveSourceExtensions_UppercaseGuid_ShouldRetainUnknownFields()
+    {
+        Guid sourceId = Guid.NewGuid();
+        string uppercaseGuidStr = sourceId.ToString().ToUpperInvariant();
+        string projectPath = Path.Combine(_tempDir, "uppercase_guid.srnccproj");
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            {
+              "id": "{{uppercaseGuidStr}}",
+              "kind": "hak",
+              "path": { "kind": "absolute", "value": "c:/test.hak" },
+              "unknownField": "preserved"
+            }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        WorkspaceState state = await store.LoadAsync(projectPath);
+        string savePath = Path.Combine(_tempDir, "saved_uppercase.srnccproj");
+        await store.SaveAsync(state, savePath);
+
+        string savedJson = await File.ReadAllTextAsync(savePath);
+        JsonNode savedNode = JsonNode.Parse(savedJson)!;
+        savedNode["sources"]?[0]?["unknownField"]?.GetValue<string>().Should().Be("preserved");
+    }
 }

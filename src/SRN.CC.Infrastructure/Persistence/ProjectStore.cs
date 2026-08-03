@@ -137,7 +137,7 @@ public sealed class ProjectStore : IProjectStore
         SelectionState selectionState = SelectionState.IncludeAll();
         if (rootObj["selectionState"] is JsonObject selObj)
         {
-            bool defaultSel = selObj["defaultSelected"]?.GetValue<bool>() ?? true;
+            bool defaultSel = TryGetBool(selObj["defaultSelected"]) ?? true;
             Dictionary<AssetIdentity, bool> overrides = new();
 
             if (selObj["overrides"] is JsonArray overridesArray)
@@ -147,8 +147,8 @@ public sealed class ProjectStore : IProjectStore
                     if (overrideNode is JsonObject overrideObj)
                     {
                         string? resref = TryGetString(overrideObj["resref"]);
-                        int rawType = overrideObj["resourceType"]?.GetValue<int>() ?? -1;
-                        bool selected = overrideObj["selected"]?.GetValue<bool>() ?? true;
+                        int rawType = TryGetInt(overrideObj["resourceType"]) ?? -1;
+                        bool selected = TryGetBool(overrideObj["selected"]) ?? true;
                         if (!string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
                         {
                             AssetIdentity id = new AssetIdentity(resref, (ushort)rawType);
@@ -170,7 +170,7 @@ public sealed class ProjectStore : IProjectStore
                 if (pinNode is JsonObject pinObj)
                 {
                     string? resref = TryGetString(pinObj["resref"]);
-                    int rawType = pinObj["resourceType"]?.GetValue<int>() ?? -1;
+                    int rawType = TryGetInt(pinObj["resourceType"]) ?? -1;
                     string? sourceIdStr = TryGetString(pinObj["sourceId"]);
                     string? sha256Hex = TryGetString(pinObj["sha256"]);
 
@@ -194,9 +194,42 @@ public sealed class ProjectStore : IProjectStore
                     byte[] pinHash = !string.IsNullOrEmpty(sha256Hex) && sha256Hex.Length == 64 ? Convert.FromHexString(sha256Hex) : new byte[32];
 
                     JsonObject? locObj = pinObj["locator"] as JsonObject;
+                    if (!isReadOnly)
+                    {
+                        if (locObj is null)
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' pin is missing locator object.");
+                        }
+                        string? locKindStr = TryGetString(locObj["kind"]);
+                        if (string.IsNullOrEmpty(locKindStr))
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' pin locator is missing kind property.");
+                        }
+                        if (locKindStr.Equals("hakEntry", StringComparison.OrdinalIgnoreCase))
+                        {
+                            int? indexVal = TryGetInt(locObj["index"]);
+                            if (!indexVal.HasValue || indexVal.Value < 0)
+                            {
+                                throw new InvalidOperationException($"Project file '{fullProjectPath}' hakEntry pin locator missing or invalid index.");
+                            }
+                        }
+                        else if (locKindStr.Equals("folderPath", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string? relPathStr = TryGetString(locObj["relativePath"]);
+                            if (relPathStr is null)
+                            {
+                                throw new InvalidOperationException($"Project file '{fullProjectPath}' folderPath pin locator missing relativePath.");
+                            }
+                        }
+                        else
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' pin locator has unrecognized kind '{locKindStr}'.");
+                        }
+                    }
+
                     string locKind = TryGetString(locObj?["kind"]) ?? "folderPath";
                     OccurrenceLocator locator = locKind.Equals("hakEntry", StringComparison.OrdinalIgnoreCase)
-                        ? new HakEntryLocator(locObj?["index"]?.GetValue<int>() ?? 0)
+                        ? new HakEntryLocator(TryGetInt(locObj?["index"]) ?? 0)
                         : new FolderFileLocator(TryGetString(locObj?["relativePath"]) ?? string.Empty);
 
                     if (!string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
@@ -316,14 +349,14 @@ public sealed class ProjectStore : IProjectStore
         rootObj["schemaVersion"] = CurrentSchemaVersion;
 
         // Serialize sources overlaying on raw array item nodes
-        Dictionary<string, JsonObject> rawSourceItems = new();
+        Dictionary<Guid, JsonObject> rawSourceItems = new();
         if (rootObj["sources"] is JsonArray existingSourcesArray)
         {
             foreach (JsonNode? item in existingSourcesArray)
             {
-                if (item is JsonObject obj && obj["id"]?.GetValue<string>() is string idStr)
+                if (item is JsonObject obj && TryGetString(obj["id"]) is string idStr && Guid.TryParse(idStr, out Guid parsedId))
                 {
-                    rawSourceItems[idStr] = obj.DeepClone().AsObject();
+                    rawSourceItems[parsedId] = obj.DeepClone().AsObject();
                 }
             }
         }
@@ -331,7 +364,7 @@ public sealed class ProjectStore : IProjectStore
         JsonArray sourcesArray = new JsonArray();
         foreach (AssetSource s in state.Sources)
         {
-            JsonObject sourceObj = rawSourceItems.TryGetValue(s.Id.ToString(), out JsonObject? existingObj)
+            JsonObject sourceObj = rawSourceItems.TryGetValue(s.Id, out JsonObject? existingObj)
                 ? existingObj
                 : new JsonObject();
 
@@ -561,6 +594,24 @@ public sealed class ProjectStore : IProjectStore
         if (node is JsonValue val && val.TryGetValue(out string? s))
         {
             return s;
+        }
+        return null;
+    }
+
+    private static bool? TryGetBool(JsonNode? node)
+    {
+        if (node is JsonValue val && val.TryGetValue(out bool b))
+        {
+            return b;
+        }
+        return null;
+    }
+
+    private static int? TryGetInt(JsonNode? node)
+    {
+        if (node is JsonValue val && val.TryGetValue(out int i))
+        {
+            return i;
         }
         return null;
     }

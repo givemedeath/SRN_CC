@@ -98,6 +98,7 @@ public sealed class WorkspaceService : IWorkspaceService
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            EnsureWritable();
             WorkspaceState previous = _currentState;
             Dictionary<Guid, AssetSource> currentSources = previous.Sources.ToDictionary(s => s.Id);
 
@@ -145,6 +146,7 @@ public sealed class WorkspaceService : IWorkspaceService
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            EnsureWritable();
             WorkspaceState previous = _currentState;
             HashSet<Guid> targetSet = sourceIdsToRescan is null
                 ? previous.Sources.Select(s => s.Id).ToHashSet()
@@ -201,6 +203,7 @@ public sealed class WorkspaceService : IWorkspaceService
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            EnsureWritable();
             WorkspaceState previous = _currentState;
             AssetSource? targetSource = previous.Sources.FirstOrDefault(s => s.Id == sourceId);
             if (targetSource is null)
@@ -252,6 +255,7 @@ public sealed class WorkspaceService : IWorkspaceService
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            EnsureWritable();
             WorkspaceState previous = _currentState;
             List<WinnerPin> updatedPins = previous.Pins.Where(p => !p.Identity.Equals(pin.Identity)).ToList();
             updatedPins.Add(pin);
@@ -281,6 +285,7 @@ public sealed class WorkspaceService : IWorkspaceService
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            EnsureWritable();
             WorkspaceState previous = _currentState;
             List<WinnerPin> updatedPins = previous.Pins.Where(p => !p.Identity.Equals(identity)).ToList();
 
@@ -309,6 +314,7 @@ public sealed class WorkspaceService : IWorkspaceService
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            EnsureWritable();
             WorkspaceState previous = _currentState;
 
             WorkspaceState newState = await _resolver.ResolveAsync(
@@ -342,6 +348,14 @@ public sealed class WorkspaceService : IWorkspaceService
         finally
         {
             _lock.Release();
+        }
+    }
+
+    private void EnsureWritable()
+    {
+        if (_currentState.IsReadOnly)
+        {
+            throw new InvalidOperationException("Workspace state is read-only (newer schema) and cannot be mutated.");
         }
     }
 

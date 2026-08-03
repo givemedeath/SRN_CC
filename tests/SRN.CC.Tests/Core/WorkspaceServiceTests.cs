@@ -111,6 +111,35 @@ public class WorkspaceServiceTests
         report.AvailabilityTransitions.Should().Contain(id1);
     }
 
+    [Test]
+    public async Task Mutations_OnReadOnlyWorkspace_ShouldThrowInvalidOperationException()
+    {
+        MockIndexService indexService = new();
+        AssetHashCache cache = new AssetHashCache();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), cache);
+        WorkspaceService workspaceService = new WorkspaceService(indexService, resolver, cache);
+
+        WorkspaceState readOnlyState = new WorkspaceState(
+            sources: Array.Empty<AssetSource>(),
+            snapshots: new Dictionary<Guid, SourceIndexSnapshot>(),
+            curatedAssets: Array.Empty<CuratedAsset>(),
+            selectionState: SelectionState.IncludeAll(),
+            pins: Array.Empty<WinnerPin>(),
+            isReadOnly: true);
+
+        await workspaceService.LoadProjectStateAsync(readOnlyState);
+
+        Func<Task> pin = async () => await workspaceService.PinAsync(new WinnerPin(new AssetIdentity("a", 1000), Guid.NewGuid(), new HakEntryLocator(0), new byte[32]));
+        Func<Task> reorder = async () => await workspaceService.ReorderSourcesAsync(Array.Empty<Guid>());
+        Func<Task> rescan = async () => await workspaceService.RescanAsync();
+        Func<Task> select = async () => await workspaceService.UpdateSelectionAsync(SelectionState.IncludeAll());
+
+        await pin.Should().ThrowAsync<InvalidOperationException>();
+        await reorder.Should().ThrowAsync<InvalidOperationException>();
+        await rescan.Should().ThrowAsync<InvalidOperationException>();
+        await select.Should().ThrowAsync<InvalidOperationException>();
+    }
+
     private static SourceIndexSnapshot CreateSnapshot(AssetSource source, params AssetOccurrence[] occurrences)
     {
         List<IndexedAssetRecord> records = occurrences.Select(o => new IndexedAssetRecord(o)).ToList();

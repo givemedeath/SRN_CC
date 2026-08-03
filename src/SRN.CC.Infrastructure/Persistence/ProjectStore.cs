@@ -36,7 +36,11 @@ public sealed class ProjectStore : IProjectStore
         }
 
         byte[] rawDocumentBytes = await File.ReadAllBytesAsync(fullProjectPath, cancellationToken).ConfigureAwait(false);
-        string jsonContent = System.Text.Encoding.UTF8.GetString(rawDocumentBytes);
+        string jsonContent;
+        using (StreamReader reader = new StreamReader(new MemoryStream(rawDocumentBytes), detectEncodingFromByteOrderMarks: true))
+        {
+            jsonContent = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        }
         JsonNode rootNode;
         try
         {

@@ -5,13 +5,16 @@ namespace SRN.CC.Core.Resolution;
 
 public sealed record CuratedAsset
 {
+    private readonly byte[]? _resolvedSha256;
+
     public AssetIdentity Identity { get; }
     public IReadOnlyList<AssetOccurrence> AllOccurrences { get; }
     public AssetOccurrence? ResolvedOccurrence { get; }
     public WinnerPin? Pin { get; }
     public ResolutionStatus Status { get; }
     public bool IsSelected { get; }
-    public byte[]? ResolvedSha256 { get; }
+    public byte[]? ResolvedSha256 => _resolvedSha256?.ToArray();
+    public ReadOnlyMemory<byte>? ResolvedSha256Memory => _resolvedSha256;
 
     public bool HasCrossSourceCollision { get; }
     public bool HasSameSourceDuplicate { get; }
@@ -39,12 +42,12 @@ public sealed record CuratedAsset
         ArgumentNullException.ThrowIfNull(allOccurrences);
 
         Identity = identity;
-        AllOccurrences = allOccurrences;
+        AllOccurrences = allOccurrences.ToList().AsReadOnly();
         ResolvedOccurrence = resolvedOccurrence;
         Pin = pin;
         Status = status;
         IsSelected = isSelected;
-        ResolvedSha256 = resolvedSha256;
+        _resolvedSha256 = resolvedSha256?.ToArray();
         HasCrossSourceCollision = hasCrossSourceCollision;
         HasSameSourceDuplicate = hasSameSourceDuplicate;
         HasDifferingPayloads = hasDifferingPayloads;

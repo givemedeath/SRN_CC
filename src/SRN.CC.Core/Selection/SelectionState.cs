@@ -10,18 +10,12 @@ public sealed record SelectionState
     public SelectionState(bool defaultSelected = true, IReadOnlyDictionary<AssetIdentity, bool>? overrides = null)
     {
         DefaultSelected = defaultSelected;
-        if (overrides is null || overrides.Count == 0)
-        {
-            Overrides = EqualityComparerDictionary.CreateEmpty<AssetIdentity, bool>();
-        }
-        else
-        {
-            var dict = new Dictionary<AssetIdentity, bool>(overrides);
-            Overrides = dict;
-        }
+        IReadOnlyDictionary<AssetIdentity, bool> initial = overrides is null || overrides.Count == 0
+            ? new Dictionary<AssetIdentity, bool>()
+            : overrides;
 
-        // Compact redundant overrides on creation
-        Overrides = CompactOverrides(DefaultSelected, Overrides);
+        // Compact redundant overrides on creation and wrap in ReadOnlyDictionary
+        Overrides = CompactOverrides(DefaultSelected, initial);
     }
 
     public bool IsSelected(AssetIdentity identity)
@@ -72,16 +66,15 @@ public sealed record SelectionState
 
     private static IReadOnlyDictionary<AssetIdentity, bool> CompactOverrides(bool defaultSelected, IReadOnlyDictionary<AssetIdentity, bool> overrides)
     {
-        Dictionary<AssetIdentity, bool>? dict = null;
+        var dict = new Dictionary<AssetIdentity, bool>();
         foreach (var kvp in overrides)
         {
-            if (kvp.Value == defaultSelected)
+            if (kvp.Value != defaultSelected)
             {
-                dict ??= new Dictionary<AssetIdentity, bool>(overrides);
-                dict.Remove(kvp.Key);
+                dict[kvp.Key] = kvp.Value;
             }
         }
-        return dict ?? overrides;
+        return new System.Collections.ObjectModel.ReadOnlyDictionary<AssetIdentity, bool>(dict);
     }
 }
 

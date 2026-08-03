@@ -347,4 +347,27 @@ public class ProjectStoreTests
         Func<Task> act = async () => await store.LoadAsync(projectPath);
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
+
+    [Test]
+    public async Task LoadAsync_Utf8WithBom_ShouldDecodeCleanly()
+    {
+        string projectPath = Path.Combine(_tempDir, "utf8_bom.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 1,
+          "sources": [],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        byte[] bytesWithBom = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(json)).ToArray();
+        await File.WriteAllBytesAsync(projectPath, bytesWithBom);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        WorkspaceState state = await store.LoadAsync(projectPath);
+        state.Should().NotBeNull();
+    }
 }

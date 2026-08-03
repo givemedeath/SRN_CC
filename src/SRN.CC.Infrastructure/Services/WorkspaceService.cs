@@ -28,7 +28,7 @@ public sealed class WorkspaceService : IWorkspaceService
     {
         _indexService = indexService ?? throw new ArgumentNullException(nameof(indexService));
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
-        _hashCache = hashCache ?? new AssetHashCache();
+        _hashCache = hashCache ?? (resolver as WorkspaceResolver)?.HashCache ?? new AssetHashCache();
 
         _currentState = new WorkspaceState(
             sources: Array.Empty<AssetSource>(),

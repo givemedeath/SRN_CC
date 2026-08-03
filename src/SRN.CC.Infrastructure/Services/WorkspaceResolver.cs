@@ -16,6 +16,8 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
     private readonly IStreamingHashService _hashService;
     private readonly AssetHashCache _hashCache;
 
+    public AssetHashCache HashCache => _hashCache;
+
     public WorkspaceResolver(IStreamingHashService hashService, AssetHashCache? hashCache = null)
     {
         _hashService = hashService ?? throw new ArgumentNullException(nameof(hashService));

@@ -64,7 +64,13 @@ public sealed class AssetHashCache
         }
 
         var key = new CacheKey(sourceId, identity, locator, size, fingerprint);
-        return _cache.TryGetValue(key, out sha256!);
+        if (_cache.TryGetValue(key, out byte[]? cached))
+        {
+            sha256 = cached.ToArray();
+            return true;
+        }
+        sha256 = Array.Empty<byte>();
+        return false;
     }
 
     public void PutHash(

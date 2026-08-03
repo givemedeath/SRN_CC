@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SRN.CC.App.ViewModels"
+             x:Class="SRN.CC.App.Views.AssetTableView"
+             x:DataType="vm:AssetTableViewModel">
+    <Grid RowDefinitions="Auto,*">
+        <!-- Search and Filter Bar -->
+        <Border Grid.Row="0" Background="#252526" Padding="8">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+                <TextBox Grid.Column="0" Text="{Binding SearchText}" PlaceholderText="Search resref or type..." Margin="0,0,8,0"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding FilterModes}" SelectedItem="{Binding SelectedFilterMode}" Margin="0,0,8,0"/>
+                <Button Grid.Column="2" Command="{Binding IncludeAllFilteredCommand}" Margin="0,0,4,0" ToolTip.Tip="Include All Filtered">Include All</Button>
+                <Button Grid.Column="3" Command="{Binding ExcludeAllFilteredCommand}" Margin="0,0,8,0" ToolTip.Tip="Exclude All Filtered">Exclude All</Button>
+                <TextBlock Grid.Column="4" Text="{Binding SelectedAssetCount, StringFormat='Selected: {0}'}" VerticalAlignment="Center" Foreground="#AAAAAA"/>
+            </Grid>
+        </Border>
+
+        <!-- Virtualized TableView -->
+        <TableView Name="MainTableView"
+                   Grid.Row="1"
+                   ItemsSource="{Binding FilteredRows}"
+                   SelectedItem="{Binding SelectedRow}"
+                   SelectionMode="Multiple">
+            <TableView.Columns>
+                <TableViewColumn Header="Select" Width="60">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowViewModel">
+                            <CheckBox IsChecked="{Binding IsSelected}" HorizontalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Resref" Width="150">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowViewModel">
+                            <TextBlock Text="{Binding Resref}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Type" Width="120">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowViewModel">
+                            <TextBlock Text="{Binding ResourceTypeName}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Winner Source" Width="160">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowViewModel">
+                            <TextBlock Text="{Binding WinnerSourceLabel}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Origin" Width="140">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowViewModel">
+                            <TextBlock Text="{Binding OriginLocator}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Size" Width="90">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowViewModel">
+                            <TextBlock Text="{Binding SizeFormatted}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Hash" Width="90">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowViewModel">
+                            <TextBlock Text="{Binding HashText}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+                <TableViewColumn Header="Diagnostics" Width="140">
+                    <TableViewColumn.CellTemplate>
+                        <DataTemplate x:DataType="vm:AssetRowViewModel">
+                            <Border Background="#333333" CornerRadius="3" Padding="4,2">
+                                <TextBlock Text="{Binding DiagnosticBadges}" FontSize="11" Foreground="#FFCC00" VerticalAlignment="Center"/>
+                            </Border>
+                        </DataTemplate>
+                    </TableViewColumn.CellTemplate>
+                </TableViewColumn>
+            </TableView.Columns>
+        </TableView>
+    </Grid>
+</UserControl>

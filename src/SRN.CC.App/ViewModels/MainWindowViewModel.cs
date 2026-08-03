@@ -1,5 +1,13 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using SRN.CC.Core.Occurrences;
+using SRN.CC.Core.Project;
+using SRN.CC.Core.Resolution;
+using SRN.CC.Core.Services;
+using SRN.CC.Core.Sources;
+using SRN.CC.Core.Workspace;
+using SRN.CC.Preview;
 
 namespace SRN.CC.App.ViewModels;
 
@@ -7,49 +15,201 @@ public record AssetRowItem(int Id, string Resref, string ResourceType, string So
 
 public partial class MainWindowViewModel : ObservableObject
 {
-    [ObservableProperty]
-    private string _title = "SRN.CC Asset Curator — Milestone 1 Validation Shell";
+    private readonly IWorkspaceService? _workspaceService;
+    private readonly IProjectStore? _projectStore;
+    private readonly ISettingsStore? _settingsStore;
+    private readonly IBuildOrchestrator? _buildOrchestrator;
+    private readonly PreviewEngine? _previewEngine;
+    private readonly IResourceTypeRegistry? _registry;
+
+    private WorkspaceState? _workspaceState;
+    private string? _currentProjectPath;
 
     [ObservableProperty]
-    private ObservableCollection<AssetRowItem> _items = new();
+    private string _title = "SRN.CC Asset Curator";
 
+    public SourceStackViewModel SourceStack { get; }
+    public AssetTableViewModel AssetTable { get; }
+    public ComparisonPanelViewModel ComparisonPanel { get; }
+    public OperationLogViewModel OperationLog { get; }
+    public StatusBarViewModel StatusBar { get; }
+
+    public ObservableCollection<AssetRowViewModel> Items => AssetTable.FilteredRows;
+
+    // Parameterless constructor for XAML designer preview & synthetic performance probe
     public MainWindowViewModel()
     {
-        // Populate synthetic items to simulate the 187,943 rows corpus scale
-        GenerateSyntheticRows(187943);
+        OperationLog = new OperationLogViewModel();
+        StatusBar = new StatusBarViewModel();
+        SourceStack = new SourceStackViewModel(OnWorkspaceChangedAsync);
+        AssetTable = new AssetTableViewModel(new FallbackResourceTypeRegistry(), OnRowSelectionChangedAsync);
+        ComparisonPanel = new ComparisonPanelViewModel(
+            new PreviewEngine(new FallbackSourceReaderDispatcher(), new IPreviewProvider[] { }),
+            OnPinRequestedAsync);
+
+        GenerateSyntheticDemoData();
     }
 
-    public void GenerateSyntheticRows(int count)
+    public MainWindowViewModel(
+        IWorkspaceService workspaceService,
+        IProjectStore projectStore,
+        ISettingsStore settingsStore,
+        IBuildOrchestrator buildOrchestrator,
+        PreviewEngine previewEngine,
+        IResourceTypeRegistry registry)
     {
-        var list = new List<AssetRowItem>(count);
-        for (int i = 0; i < count; i++)
-        {
-            list.Add(new AssetRowItem(
-                i + 1,
-                $"resref_{i:D6}",
-                (i % 10) switch
-                {
-                    0 => "2DA (2001)",
-                    1 => "TLK (2002)",
-                    2 => "TXT (2003)",
-                    3 => "TGA (2004)",
-                    4 => "PLT (2005)",
-                    5 => "MDL (2008)",
-                    6 => "NSS (2009)",
-                    7 => "NCU (2010)",
-                    8 => "GFF (2011)",
-                    _ => "GENERIC (2000)"
-                },
-                $"hak_source_{(i % 117):D3}.hak",
-                1024 + (i * 37) % 500000
-            ));
-        }
-        Items = new ObservableCollection<AssetRowItem>(list);
+        _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
+        _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
+        _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
+        _buildOrchestrator = buildOrchestrator ?? throw new ArgumentNullException(nameof(buildOrchestrator));
+        _previewEngine = previewEngine ?? throw new ArgumentNullException(nameof(previewEngine));
+        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+
+        OperationLog = new OperationLogViewModel();
+        StatusBar = new StatusBarViewModel();
+        SourceStack = new SourceStackViewModel(OnWorkspaceChangedAsync);
+        AssetTable = new AssetTableViewModel(_registry, OnRowSelectionChangedAsync);
+
+        ComparisonPanel = new ComparisonPanelViewModel(
+            _previewEngine,
+            OnPinRequestedAsync);
+    }
+
+    public void LoadWorkspaceState(WorkspaceState state, string? projectPath = null)
+    {
+        _workspaceState = state;
+        _currentProjectPath = projectPath;
+        Title = string.IsNullOrEmpty(projectPath)
+            ? "SRN.CC Asset Curator — [Unsaved Project]"
+            : $"SRN.CC Asset Curator — {Path.GetFileName(projectPath)}";
+
+        var sourceVMs = state.Sources.Select(s => new SourceItemViewModel(s));
+        SourceStack.UpdateSources(sourceVMs);
+
+        var sourceLabels = state.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
+        AssetTable.LoadAssets(state.CuratedAssets, sourceLabels);
+
+        OperationLog.AddEntry("INFO", $"Loaded workspace with {state.Sources.Count} sources and {state.CuratedAssets.Count} assets.");
     }
 
     public IReadOnlyList<AssetRowItem> SortByResref() =>
-        Items.OrderBy(item => item.Resref, StringComparer.Ordinal).ToArray();
+        AssetTable.FilteredRows.Select((r, i) => new AssetRowItem(i + 1, r.Resref, r.ResourceTypeName, r.WinnerSourceLabel, r.SizeBytes))
+            .OrderBy(item => item.Resref, StringComparer.Ordinal).ToArray();
 
     public IReadOnlyList<AssetRowItem> FilterByResourceType(string resourceType) =>
-        Items.Where(item => string.Equals(item.ResourceType, resourceType, StringComparison.Ordinal)).ToArray();
+        AssetTable.FilteredRows.Select((r, i) => new AssetRowItem(i + 1, r.Resref, r.ResourceTypeName, r.WinnerSourceLabel, r.SizeBytes))
+            .Where(item => item.ResourceType.Contains(resourceType, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+    private async Task OnWorkspaceChangedAsync()
+    {
+        if (_workspaceService == null || _workspaceState == null) return;
+
+        var sourceOrders = SourceStack.Sources.Select(s => s.Source.Id).ToList();
+        var (newState, _) = await _workspaceService.ReorderSourcesAsync(sourceOrders).ConfigureAwait(true);
+        _workspaceState = newState;
+
+        var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
+        AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+    }
+
+    private async Task OnRowSelectionChangedAsync(AssetRowViewModel row)
+    {
+        if (_workspaceState == null) return;
+        var selectedRows = AssetTable.FilteredRows.Where(r => r.IsSelected).Select(r => r.CuratedAsset).ToList();
+        var sourceMap = _workspaceState.Sources.ToDictionary(s => s.Id);
+        await ComparisonPanel.UpdateSelectionAsync(selectedRows, sourceMap).ConfigureAwait(true);
+    }
+
+    private async Task OnPinRequestedAsync(AssetOccurrence occurrence)
+    {
+        if (_workspaceService == null || _workspaceState == null) return;
+
+        byte[] pinHash = occurrence.Sha256 ?? new byte[32];
+        if (pinHash.Length != 32)
+        {
+            byte[] padded = new byte[32];
+            Array.Copy(pinHash, padded, Math.Min(pinHash.Length, 32));
+            pinHash = padded;
+        }
+
+        var pin = new WinnerPin(occurrence.Identity, occurrence.SourceId, occurrence.Locator, pinHash);
+        _workspaceState = await _workspaceService.PinAsync(pin).ConfigureAwait(true);
+
+        var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
+        AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+        OperationLog.AddEntry("INFO", $"Pinned occurrence {occurrence.Identity.Resref}.{occurrence.Identity.ResourceType} to source {occurrence.SourceId}.");
+    }
+
+    [RelayCommand]
+    private async Task BuildHakAsync()
+    {
+        if (_workspaceState == null || _buildOrchestrator == null)
+        {
+            OperationLog.AddEntry("WARN", "No active workspace loaded for build.");
+            return;
+        }
+
+        string destPath = Path.Combine(Directory.GetCurrentDirectory(), "output.hak");
+
+        var cts = StatusBar.BeginOperation("Building HAK package...");
+        OperationLog.AddEntry("INFO", $"Initiating build target -> {destPath}");
+
+        var progress = new Progress<(string message, double fraction)>(p =>
+        {
+            StatusBar.ReportProgress(p.message, p.fraction);
+            OperationLog.AddEntry("INFO", p.message);
+        });
+
+        try
+        {
+            var result = await _buildOrchestrator.ExecuteBuildAsync(_workspaceState, destPath, progress, cts.Token).ConfigureAwait(true);
+            if (result.IsSuccess)
+            {
+                StatusBar.EndOperation("Build succeeded!");
+                OperationLog.AddEntry("INFO", $"Build and publication succeeded! Output: {result.PublishedHakPath}");
+            }
+            else
+            {
+                StatusBar.EndOperation("Build failed.");
+                OperationLog.AddEntry("ERROR", $"Build failed: {result.ErrorMessage}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            StatusBar.EndOperation("Build canceled.");
+            OperationLog.AddEntry("WARN", "Build operation was canceled by user.");
+        }
+        catch (Exception ex)
+        {
+            StatusBar.EndOperation("Build error.");
+            OperationLog.AddEntry("ERROR", $"Build exception: {ex.Message}");
+        }
+    }
+
+    private void GenerateSyntheticDemoData()
+    {
+        Title = "SRN.CC Asset Curator — Demo Shell";
+        const int count = 187943;
+        var list = new List<AssetRowViewModel>(count);
+        for (int i = 0; i < count; i++)
+        {
+            var identity = new SRN.CC.Core.Identity.AssetIdentity($"resref_{i:D6}", 2000);
+            var source = AssetSource.CreateHak(Path.GetFullPath($"hak_source_{(i % 117):D3}.hak"), 0);
+            var occ = new AssetOccurrence(identity, source.Id, new HakEntryLocator(i), identity.OriginalName, 1024 + (i * 37) % 500000);
+            var asset = new CuratedAsset(identity, new[] { occ }, occ, null, ResolutionStatus.Resolved, true);
+            list.Add(new AssetRowViewModel(asset, "GENERIC (2000)", source.FullPath));
+        }
+        AssetTable.LoadAssets(list.Select(r => r.CuratedAsset), new Dictionary<Guid, string>());
+    }
+
+    private sealed class FallbackResourceTypeRegistry : IResourceTypeRegistry
+    {
+        public bool TryGetExtension(ushort typeId, out string extension) { extension = "2da"; return true; }
+        public bool TryGetType(string extension, out ushort typeId) { typeId = 2000; return true; }
+    }
+
+    private sealed class FallbackSourceReaderDispatcher : ISourceReaderDispatcher
+    {
+        public Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    }
 }

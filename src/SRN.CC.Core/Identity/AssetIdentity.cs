@@ -19,6 +19,7 @@ public sealed class AssetIdentity : IEquatable<AssetIdentity>
     }
 
     public string OriginalName { get; }
+    public string Resref => OriginalName;
     public ushort ResourceType { get; }
     public ReadOnlyMemory<byte> CanonicalResrefBytes => _canonicalResrefBytes;
     public ReadOnlyMemory<byte> OriginalResrefBytes => _originalResrefBytes;

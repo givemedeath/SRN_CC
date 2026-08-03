@@ -1,0 +1,34 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SRN.CC.App.ViewModels"
+             x:Class="SRN.CC.App.Views.SourceStackView"
+             x:DataType="vm:SourceStackViewModel">
+    <Grid RowDefinitions="Auto,*">
+        <!-- Header & Toolbar -->
+        <Border Grid.Row="0" Background="#252526" Padding="8">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Text="Source Priority Stack" FontWeight="Bold" VerticalAlignment="Center" Foreground="#DDDDDD"/>
+                <Button Grid.Column="1" Command="{Binding MoveUpCommand}" Margin="4,0" ToolTip.Tip="Move Source Up">▲</Button>
+                <Button Grid.Column="2" Command="{Binding MoveDownCommand}" ToolTip.Tip="Move Source Down">▼</Button>
+            </Grid>
+        </Border>
+
+        <!-- Source List -->
+        <ListBox Grid.Row="1" ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" Background="#1E1E1E">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:SourceItemViewModel">
+                    <Border Padding="6" Margin="2" Background="#2D2D30" CornerRadius="4">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="{Binding PriorityOrdinal, StringFormat='[{0}]'}" FontWeight="Bold" Foreground="#007ACC" Margin="0,0,8,0"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                                <TextBlock Text="{Binding PathDisplay}" FontSize="11" Foreground="#AAAAAA" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="{Binding KindDisplay}" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+</UserControl>

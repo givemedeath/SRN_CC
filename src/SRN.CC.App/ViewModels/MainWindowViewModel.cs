@@ -118,6 +118,7 @@ public partial class MainWindowViewModel : ObservableObject
 
         var sourceLabels = state.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(state.CuratedAssets, sourceLabels);
+        ComparisonPanel.SetCanPin(!_workspaceState.IsReadOnly);
 
         SaveProjectCommand.NotifyCanExecuteChanged();
         BuildHakCommand.NotifyCanExecuteChanged();
@@ -313,6 +314,11 @@ public partial class MainWindowViewModel : ObservableObject
     private async Task OnPinRequestedAsync(AssetOccurrence occurrence)
     {
         if (_workspaceService == null || _workspaceState == null) return;
+        if (_workspaceState.IsReadOnly)
+        {
+            OperationLog.AddEntry("WARN", "Pinning is disabled for read-only workspaces.");
+            return;
+        }
 
         byte[]? pinHash = occurrence.Sha256;
         if (pinHash == null || pinHash.Length == 0)

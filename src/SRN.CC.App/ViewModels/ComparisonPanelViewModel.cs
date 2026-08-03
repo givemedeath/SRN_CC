@@ -28,6 +28,7 @@ public partial class ComparisonPanelViewModel : ObservableObject
     private ComparisonMode _mode = ComparisonMode.OccurrenceMode;
 
     public ObservableCollection<PreviewSlotViewModel> Slots { get; } = new();
+    private bool _allowPin = true;
 
     public ComparisonPanelViewModel(
         PreviewEngine previewEngine,
@@ -39,6 +40,15 @@ public partial class ComparisonPanelViewModel : ObservableObject
         for (int i = 0; i < 3; i++)
         {
             Slots.Add(new PreviewSlotViewModel(i, _previewEngine, _onPinRequested));
+        }
+    }
+
+    public void SetCanPin(bool canPin)
+    {
+        _allowPin = canPin;
+        foreach (var slot in Slots)
+        {
+            slot.SetPinEnabled(_allowPin);
         }
     }
 

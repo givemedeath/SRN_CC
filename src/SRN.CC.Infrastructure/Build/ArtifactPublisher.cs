@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using SRN.CC.Core.Build;
 using SRN.CC.Core.Services;
@@ -23,7 +25,9 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         List<string> logs = new();
         string destDir = Path.GetDirectoryName(plan.DestinationHakPath)!;
         if (string.IsNullOrEmpty(destDir)) destDir = ".";
-        string publicationLockPath = Path.Combine(destDir, $"{Path.GetFileName(plan.DestinationHakPath)}.publication.lock");
+        string publicationLockPath = GetPublicationLockPath(plan.DestinationHakPath, plan.DestinationManifestPath, destDir);
+        bool hakExisted = File.Exists(plan.DestinationHakPath);
+        bool manifestExisted = File.Exists(plan.DestinationManifestPath);
 
         string transactionId = Guid.NewGuid().ToString("N");
         string journalPath = Path.Combine(destDir, $"{Path.GetFileName(plan.DestinationHakPath)}.{transactionId}{TransactionJournalSuffix}");
@@ -38,6 +42,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
             TempManifestPath = tempManifestPath,
             HakBackupPath = hakBackupPath,
             ManifestBackupPath = manifestBackupPath,
+            HakExistedBefore = hakExisted,
+            ManifestExistedBefore = manifestExisted,
             State = PublicationState.Prepared,
             CreatedUtc = DateTime.UtcNow,
             LastUpdatedUtc = DateTime.UtcNow
@@ -47,8 +53,6 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         {
             await using (await AcquirePublicationLockAsync(publicationLockPath, cancellationToken).ConfigureAwait(false))
             {
-                journal.HakExistedBefore = File.Exists(plan.DestinationHakPath);
-                journal.ManifestExistedBefore = File.Exists(plan.DestinationManifestPath);
 
                 logs.Add("Writing publication journal (Prepared)...");
                 await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
@@ -116,6 +120,15 @@ public sealed class ArtifactPublisher : IArtifactPublisher
                     Logs: logs
                 );
             }
+        }
+        catch (OperationCanceledException)
+        {
+            if (journal.State != PublicationState.Committed)
+            {
+                await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+            }
+
+            throw;
         }
         catch (Exception ex)
         {
@@ -282,6 +295,14 @@ public sealed class ArtifactPublisher : IArtifactPublisher
                 throw new TimeoutException($"Timed out waiting for publication lock '{lockPath}' after {PublicationLockTimeoutMs} ms.");
             }
         }
+    }
+
+    private static string GetPublicationLockPath(string destinationHakPath, string destinationManifestPath, string destinationDirectory)
+    {
+        string lockSeed = $"{Path.GetFullPath(destinationHakPath).ToLowerInvariant()}::{Path.GetFullPath(destinationManifestPath).ToLowerInvariant()}";
+        byte[] seedHash = SHA256.HashData(Encoding.UTF8.GetBytes(lockSeed));
+        string lockFile = $"{Convert.ToHexString(seedHash).ToLowerInvariant()}.publication.lock";
+        return Path.Combine(destinationDirectory, lockFile);
     }
 
     private sealed class PublicationLock : IAsyncDisposable

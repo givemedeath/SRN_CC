@@ -1,3 +1,4 @@
+using System.IO;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -38,6 +39,10 @@ public partial class App : Application
             var verifier = new BuildVerifier();
             var manifestGen = new ProvenanceManifestGenerator(registry);
             var publisher = new ArtifactPublisher();
+
+            // Attempt to recover interrupted publication transactions before constructing the UI.
+            publisher.RecoverPendingJournalAsync(Directory.GetCurrentDirectory()).GetAwaiter().GetResult();
+
             var orchestrator = new BuildOrchestrator(packer, verifier, manifestGen, publisher, registry, dispatcher);
 
             var previewEngine = new PreviewEngine(dispatcher, new IPreviewProvider[]

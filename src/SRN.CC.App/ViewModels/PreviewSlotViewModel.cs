@@ -13,6 +13,7 @@ public partial class PreviewSlotViewModel : ObservableObject
     private readonly PreviewEngine _previewEngine;
     private readonly Func<AssetOccurrence, Task> _onPinRequested;
     private CancellationTokenSource? _currentCts;
+    private bool _canPin = true;
 
     public int SlotIndex { get; }
 
@@ -49,6 +50,9 @@ public partial class PreviewSlotViewModel : ObservableObject
     [ObservableProperty]
     private bool _isPinned;
 
+    [ObservableProperty]
+    private bool _isPinEnabled;
+
     public PreviewSlotViewModel(
         int slotIndex,
         PreviewEngine previewEngine,
@@ -79,6 +83,7 @@ public partial class PreviewSlotViewModel : ObservableObject
             ErrorMessage = null;
             DiagnosticsText = null;
             IsPinned = false;
+            UpdatePinAvailability();
             return;
         }
 
@@ -87,6 +92,7 @@ public partial class PreviewSlotViewModel : ObservableObject
         IsPinned = asset?.Pin != null && asset.Pin.SourceId == source.Id && asset.Pin.Locator.Equals(occ.Locator);
 
         IsLoading = true;
+        UpdatePinAvailability();
         FormattedContent = null;
         ErrorMessage = null;
         DiagnosticsText = null;
@@ -113,19 +119,23 @@ public partial class PreviewSlotViewModel : ObservableObject
                 ErrorMessage = res.ErrorMessage;
                 DiagnosticsText = string.Join("\n", res.Diagnostics);
             }
+
+            UpdatePinAvailability();
         }
         catch (OperationCanceledException)
         {
             // Canceled
+            UpdatePinAvailability();
         }
         catch (Exception ex)
         {
             IsLoading = false;
             ErrorMessage = ex.Message;
+            UpdatePinAvailability();
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanPinThisOccurrence))]
     private async Task PinThisOccurrenceAsync()
     {
         if (AssignedOccurrence != null)
@@ -133,6 +143,15 @@ public partial class PreviewSlotViewModel : ObservableObject
             await _onPinRequested(AssignedOccurrence).ConfigureAwait(false);
             IsPinned = true;
         }
+    }
+
+    private bool CanPinThisOccurrence() => IsPinEnabled;
+
+    public void SetPinEnabled(bool canPin)
+    {
+        _canPin = canPin;
+        UpdatePinAvailability();
+        PinThisOccurrenceCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -146,5 +165,14 @@ public partial class PreviewSlotViewModel : ObservableObject
                 await AssignOccurrenceAsync(AssignedAsset, AssignedOccurrence, AssignedSource).ConfigureAwait(false);
             }
         }
+    }
+
+    partial void OnIsActiveChanged(bool value) => UpdatePinAvailability();
+    partial void OnAssignedOccurrenceChanged(AssetOccurrence? value) => UpdatePinAvailability();
+
+    private void UpdatePinAvailability()
+    {
+        IsPinEnabled = IsActive && _canPin && AssignedOccurrence != null && AssignedSource != null && !IsLoading;
+        PinThisOccurrenceCommand.NotifyCanExecuteChanged();
     }
 }

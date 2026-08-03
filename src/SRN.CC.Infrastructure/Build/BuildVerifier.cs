@@ -52,6 +52,24 @@ public sealed class BuildVerifier : IBuildVerifier
                 errors.Add($"Entry count mismatch: HAK contains {entries.Count} entries, expected {plan.Items.Count}.");
             }
 
+            List<HakFormatKey> expectedKeys = plan.Items
+                .Select(item => new HakFormatKey(item.Identity.OriginalResrefBytes.Span, item.Identity.ResourceType))
+                .ToList();
+            expectedKeys.Sort(CompareHakFormatKey);
+
+            if (expectedKeys.Count == entries.Count)
+            {
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    var expected = expectedKeys[i];
+                    var actual = entries[i].Key;
+                    if (!expected.Equals(actual))
+                    {
+                        errors.Add($"HAK key-table order mismatch at entry {i}: expected {DescribeKey(expected)} but found {DescribeKey(actual)}.");
+                    }
+                }
+            }
+
             var expectedMap = plan.Items.ToDictionary(
                 item => new HakFormatKey(item.Identity.OriginalResrefBytes.Span, item.Identity.ResourceType));
 
@@ -126,5 +144,21 @@ public sealed class BuildVerifier : IBuildVerifier
             Errors: errors,
             Warnings: warnings
         );
+    }
+
+    private static int CompareHakFormatKey(HakFormatKey a, HakFormatKey b)
+    {
+        int typeComparison = a.ResourceType.CompareTo(b.ResourceType);
+        if (typeComparison != 0)
+        {
+            return typeComparison;
+        }
+
+        return a.CanonicalResrefBytes.Span.SequenceCompareTo(b.CanonicalResrefBytes.Span);
+    }
+
+    private static string DescribeKey(HakFormatKey key)
+    {
+        return $"{Convert.ToHexString(key.CanonicalResrefBytes.Span).ToLowerInvariant()}.{key.ResourceType}";
     }
 }

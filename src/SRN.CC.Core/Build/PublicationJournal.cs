@@ -17,6 +17,8 @@ public sealed class PublicationJournal
     public required string TempManifestPath { get; init; }
     public required string HakBackupPath { get; init; }
     public required string ManifestBackupPath { get; init; }
+    public required bool HakExistedBefore { get; init; }
+    public required bool ManifestExistedBefore { get; init; }
     public required PublicationState State { get; set; }
     public required DateTime CreatedUtc { get; init; }
     public DateTime LastUpdatedUtc { get; set; }

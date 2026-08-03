@@ -96,4 +96,30 @@ public class ArtifactPublisherTests
         Assert.That(File.Exists(targetHak), Is.True);
         Assert.That(await File.ReadAllTextAsync(targetHak), Is.EqualTo("ORIGINAL HAK"));
     }
+
+    [Test]
+    public async Task PublishAsync_FailureWithNewTargets_RemovesNewlyCreatedTargetsOnRollback()
+    {
+        string newTargetHak = Path.Combine(_tempDir, "brand_new.hak");
+        string newTargetManifest = Path.Combine(_tempDir, "brand_new.manifest.json");
+
+        string tempHak = Path.Combine(_tempDir, "new.tmp.hak");
+        string nonExistentTempManifest = Path.Combine(_tempDir, "missing.tmp.manifest.json");
+        await File.WriteAllTextAsync(tempHak, "NEW HAK CONTENT");
+
+        var plan = new BuildPlan
+        {
+            DestinationHakPath = newTargetHak,
+            DestinationManifestPath = newTargetManifest,
+            FrozenSources = Array.Empty<AssetSource>(),
+            Items = Array.Empty<BuildItem>(),
+            CreatedUtc = DateTime.UtcNow
+        };
+
+        var publisher = new ArtifactPublisher();
+        var result = await publisher.PublishAsync(plan, tempHak, nonExistentTempManifest);
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(File.Exists(newTargetHak), Is.False, "Newly created HAK target must be removed on rollback if it did not exist before.");
+    }
 }

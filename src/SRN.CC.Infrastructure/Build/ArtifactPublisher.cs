@@ -26,6 +26,9 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         string hakBackupPath = plan.DestinationHakPath + ".bak";
         string manifestBackupPath = plan.DestinationManifestPath + ".bak";
 
+        bool hakExisted = File.Exists(plan.DestinationHakPath);
+        bool manifestExisted = File.Exists(plan.DestinationManifestPath);
+
         PublicationJournal journal = new()
         {
             DestinationHakPath = plan.DestinationHakPath,
@@ -34,6 +37,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
             TempManifestPath = tempManifestPath,
             HakBackupPath = hakBackupPath,
             ManifestBackupPath = manifestBackupPath,
+            HakExistedBefore = hakExisted,
+            ManifestExistedBefore = manifestExisted,
             State = PublicationState.Prepared,
             CreatedUtc = DateTime.UtcNow,
             LastUpdatedUtc = DateTime.UtcNow
@@ -46,11 +51,11 @@ public sealed class ArtifactPublisher : IArtifactPublisher
 
             // Step 1: Preflight locks and create backups (BackedUp)
             logs.Add("Creating target backups...");
-            if (File.Exists(plan.DestinationHakPath))
+            if (hakExisted)
             {
                 File.Copy(plan.DestinationHakPath, hakBackupPath, overwrite: true);
             }
-            if (File.Exists(plan.DestinationManifestPath))
+            if (manifestExisted)
             {
                 File.Copy(plan.DestinationManifestPath, manifestBackupPath, overwrite: true);
             }
@@ -153,14 +158,30 @@ public sealed class ArtifactPublisher : IArtifactPublisher
     {
         try
         {
-            // If HakReplaced or ManifestReplaced state was reached, restore backups over targets
-            if (journal.State >= PublicationState.HakReplaced && File.Exists(journal.HakBackupPath))
+            // If HakReplaced state was reached, restore or delete target HAK
+            if (journal.State >= PublicationState.HakReplaced)
             {
-                File.Copy(journal.HakBackupPath, journal.DestinationHakPath, overwrite: true);
+                if (journal.HakExistedBefore && File.Exists(journal.HakBackupPath))
+                {
+                    File.Copy(journal.HakBackupPath, journal.DestinationHakPath, overwrite: true);
+                }
+                else if (!journal.HakExistedBefore && File.Exists(journal.DestinationHakPath))
+                {
+                    File.Delete(journal.DestinationHakPath);
+                }
             }
-            if (journal.State >= PublicationState.ManifestReplaced && File.Exists(journal.ManifestBackupPath))
+
+            // If ManifestReplaced state was reached, restore or delete target Manifest
+            if (journal.State >= PublicationState.ManifestReplaced)
             {
-                File.Copy(journal.ManifestBackupPath, journal.DestinationManifestPath, overwrite: true);
+                if (journal.ManifestExistedBefore && File.Exists(journal.ManifestBackupPath))
+                {
+                    File.Copy(journal.ManifestBackupPath, journal.DestinationManifestPath, overwrite: true);
+                }
+                else if (!journal.ManifestExistedBefore && File.Exists(journal.DestinationManifestPath))
+                {
+                    File.Delete(journal.DestinationManifestPath);
+                }
             }
 
             // Cleanup temp files

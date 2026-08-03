@@ -310,16 +310,22 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         readTx.Commit();
 
         // Touch LRU after releasing the consistent read snapshot.
-        using (SqliteCommand touchCmd = conn.CreateCommand())
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
+            using SqliteCommand touchCmd = conn.CreateCommand();
             touchCmd.CommandText = "UPDATE source_snapshots SET last_access_utc = @now WHERE fingerprint = @fp;";
             touchCmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("o"));
             touchCmd.Parameters.AddWithValue("@fp", fpBytes);
             await touchCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
+        finally
+        {
+            _writeLock.Release();
+        }
 
         SourceScanStatistics stats = new(recordCount, totalLogicalBytes, TimeSpan.Zero);
-        AssetSource sourceWithFingerprint = source with { Fingerprint = fingerprint };
+        AssetSource sourceWithFingerprint = source with { Fingerprint = fingerprint, IsAvailable = true };
 
         return new SourceIndexSnapshot(
             source: sourceWithFingerprint,
@@ -533,5 +539,6 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         }
     }
 }
+
 
 

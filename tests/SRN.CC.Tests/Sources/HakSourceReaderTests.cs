@@ -125,6 +125,27 @@ public class HakSourceReaderTests
         }
     }
 
+    [Test]
+    public async Task IndexAsync_PreviouslyUnavailableSource_RecoversAvailability()
+    {
+        string hakPath = Path.Combine(Path.GetTempPath(), "SRNCC_HakSource_" + Guid.NewGuid().ToString("N") + ".hak");
+        try
+        {
+            HakAssetSourceReader reader = new();
+            SourceIndexSnapshot unavailable = await reader.IndexAsync(AssetSource.CreateHak(hakPath));
+            unavailable.Source.IsAvailable.Should().BeFalse();
+            WriteHak(hakPath, "recovered", "data"u8.ToArray());
+
+            SourceIndexSnapshot recovered = await reader.IndexAsync(unavailable.Source);
+
+            recovered.Source.IsAvailable.Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(hakPath)) File.Delete(hakPath);
+        }
+    }
+
     private static string CreateHak(string resref, byte[] payload)
     {
         string path = Path.Combine(Path.GetTempPath(), "SRNCC_HakSource_" + Guid.NewGuid().ToString("N") + ".hak");
@@ -159,4 +180,5 @@ public class HakSourceReaderTests
         public void Report(T value) => callback(value);
     }
 }
+
 

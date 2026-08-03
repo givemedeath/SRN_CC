@@ -43,7 +43,7 @@ public class SqliteCacheTests
         Guid callerSourceId = Guid.NewGuid();
 
         AssetSource originalSource = AssetSource.CreateFolder(@"C:\Test\Folder", priorityOrdinal: 1, id: originalSourceId);
-        AssetSource callerSource = AssetSource.CreateFolder(@"C:\Test\Folder", priorityOrdinal: 1, id: callerSourceId);
+        AssetSource callerSource = AssetSource.CreateFolder(@"C:\Test\Folder", priorityOrdinal: 1, id: callerSourceId) with { IsAvailable = false };
 
         byte[] digest = new byte[32];
         Array.Fill<byte>(digest, 0xAB);
@@ -75,6 +75,7 @@ public class SqliteCacheTests
         warmSnapshot!.IsCacheHit.Should().BeTrue();
         warmSnapshot.Records.Should().HaveCount(1);
         warmSnapshot.Records[0].Occurrence!.SourceId.Should().Be(callerSourceId, "Warm hit records must rematerialize with caller's source ID");
+        warmSnapshot.Source.IsAvailable.Should().BeTrue("a cache hit recovers a previously unavailable source");
     }
 
     [Test]
@@ -209,4 +210,5 @@ public static class SqliteCacheServiceExtensions
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
     }
 }
+
 

@@ -125,6 +125,22 @@ public class FolderSourceReaderTests
         snapshot.Records.Select(record => record.Occurrence).Where(occurrence => occurrence != null)
             .Should().OnlyContain(occurrence => occurrence!.ValidationState == ValidationState.Valid);
     }
+
+    [Test]
+    public async Task IndexAsync_PreviouslyUnavailableSource_RecoversAvailability()
+    {
+        string missingDirectory = Path.Combine(_tempDir, "missing");
+        FolderAssetSourceReader reader = new(_typeRegistry);
+        SourceIndexSnapshot unavailable = await reader.IndexAsync(AssetSource.CreateFolder(missingDirectory));
+        unavailable.Source.IsAvailable.Should().BeFalse();
+        Directory.CreateDirectory(missingDirectory);
+        await File.WriteAllTextAsync(Path.Combine(missingDirectory, "recovered.nss"), "data");
+
+        SourceIndexSnapshot recovered = await reader.IndexAsync(unavailable.Source);
+
+        recovered.Source.IsAvailable.Should().BeTrue();
+    }
 }
+
 
 

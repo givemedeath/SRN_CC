@@ -142,7 +142,7 @@ public sealed class HakReader
                 {
                     throw new InvalidDataException("HAK localized-string entry length extends past declared LocalizedStringSize.");
                 }
-                reader.ReadBytes(checked((int)strSize));
+                stream.Seek(strSize, SeekOrigin.Current);
                 bytesRead += strSize;
             }
 
@@ -294,5 +294,6 @@ public sealed class HakReader
         return new OwnedBoundedStream(sourceStream, entry.OffsetToResource, entry.ResourceSize, ownsStream: false);
     }
 }
+
 
 

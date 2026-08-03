@@ -195,6 +195,69 @@ public class HakReaderTests
 
         act.Should().Throw<InvalidDataException>().WithMessage("*allocation budget*");
     }
+
+    [Test]
+    public void Read_LargeLocalizedStringRecord_SkipsWithoutIntSizedAllocation()
+    {
+        const uint stringSize = 0x80000000;
+        const uint localizedSize = stringSize + 8;
+        uint tablesOffset = checked(160u + localizedSize);
+        byte[] prefix = new byte[168];
+        "HAK "u8.CopyTo(prefix);
+        "V1.0"u8.CopyTo(prefix.AsSpan(4));
+        BitConverter.TryWriteBytes(prefix.AsSpan(8, 4), 1u);
+        BitConverter.TryWriteBytes(prefix.AsSpan(12, 4), localizedSize);
+        BitConverter.TryWriteBytes(prefix.AsSpan(20, 4), 160u);
+        BitConverter.TryWriteBytes(prefix.AsSpan(24, 4), tablesOffset);
+        BitConverter.TryWriteBytes(prefix.AsSpan(28, 4), tablesOffset);
+        BitConverter.TryWriteBytes(prefix.AsSpan(164, 4), stringSize);
+
+        using SparseReadStream stream = new(prefix, tablesOffset);
+        Action act = () => _ = new HakReader(stream);
+
+        act.Should().NotThrow();
+    }
+
+    private sealed class SparseReadStream(byte[] prefix, long length) : Stream
+    {
+        private long _position;
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => length;
+        public override long Position { get => _position; set => _position = value; }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int available = (int)Math.Min(count, Length - _position);
+            if (available <= 0) return 0;
+            Array.Clear(buffer, offset, available);
+            if (_position < prefix.Length)
+            {
+                int copied = (int)Math.Min(available, prefix.Length - _position);
+                prefix.AsSpan((int)_position, copied).CopyTo(buffer.AsSpan(offset, copied));
+            }
+            _position += available;
+            return available;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            _position = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => _position + offset,
+                SeekOrigin.End => Length + offset,
+                _ => throw new ArgumentOutOfRangeException(nameof(origin))
+            };
+            return _position;
+        }
+
+        public override void Flush() { }
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 }
+
 
 

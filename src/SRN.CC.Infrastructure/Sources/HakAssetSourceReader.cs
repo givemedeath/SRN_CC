@@ -132,9 +132,15 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
         HashSet<AssetIdentity> seenIdentities = new();
 
         HakReader hakReader;
-        using (FileStream stream = new(source.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        try
         {
+            using FileStream stream = new(source.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             hakReader = new HakReader(stream);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // The source changed or became inaccessible between fingerprinting and parsing.
+            return null;
         }
 
         long totalEntries = hakReader.Entries.Count;
@@ -189,7 +195,7 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
 
         sw.Stop();
         SourceScanStatistics stats = new(totalEntries, fileInfoBefore.Length, sw.Elapsed);
-        AssetSource sourceWithFingerprint = source with { Fingerprint = fingerprint };
+        AssetSource sourceWithFingerprint = source with { Fingerprint = fingerprint, IsAvailable = true };
 
         return new SourceIndexSnapshot(
             source: sourceWithFingerprint,
@@ -253,4 +259,5 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
             scanStatistics: stats);
     }
 }
+
 

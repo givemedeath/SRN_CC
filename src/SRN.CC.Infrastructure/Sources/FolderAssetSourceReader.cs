@@ -222,7 +222,7 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
 
         sw.Stop();
         SourceScanStatistics stats = new(files.Count, totalBytes, sw.Elapsed);
-        AssetSource sourceWithFingerprint = source with { Fingerprint = fingerprint };
+        AssetSource sourceWithFingerprint = source with { Fingerprint = fingerprint, IsAvailable = true };
 
         return new SourceIndexSnapshot(
             source: sourceWithFingerprint,
@@ -330,4 +330,5 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
             scanStatistics: stats);
     }
 }
+
 

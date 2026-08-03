@@ -80,10 +80,13 @@ public sealed class ArtifactPublisher : IArtifactPublisher
 
             File.Move(tempManifestPath, plan.DestinationManifestPath, overwrite: true);
 
-            // Step 4: Commit & Cleanup
-            logs.Add("Committing transaction and removing backups...");
+            // Step 4: Persist Committed state BEFORE cleanup
+            logs.Add("Committing transaction...");
             journal.State = PublicationState.Committed;
+            journal.LastUpdatedUtc = DateTime.UtcNow;
+            await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
 
+            // Remove backups & journal
             if (File.Exists(hakBackupPath)) File.Delete(hakBackupPath);
             if (File.Exists(manifestBackupPath)) File.Delete(manifestBackupPath);
             if (File.Exists(journalPath)) File.Delete(journalPath);
@@ -135,7 +138,7 @@ public sealed class ArtifactPublisher : IArtifactPublisher
             {
                 if (File.Exists(journal.HakBackupPath)) File.Delete(journal.HakBackupPath);
                 if (File.Exists(journal.ManifestBackupPath)) File.Delete(journal.ManifestBackupPath);
-                File.Delete(journalPath);
+                if (File.Exists(journalPath)) File.Delete(journalPath);
                 return true;
             }
 

@@ -21,8 +21,11 @@ public enum ConflictFilterMode
 public partial class AssetTableViewModel : ObservableObject
 {
     private readonly IResourceTypeRegistry _registry;
-    private readonly Func<AssetRowViewModel, Task> _onRowSelectionChanged;
+    private readonly Action<AssetRowViewModel>? _onRowSelectionChanged;
+    private readonly Action<IEnumerable<AssetRowViewModel>, bool>? _onBatchSelectionChanged;
+    private readonly Action<AssetRowViewModel?>? _onSelectedRowChanged;
     private List<AssetRowViewModel> _allRows = new();
+    private bool _isBatchUpdating;
 
     [ObservableProperty]
     private ObservableCollection<AssetRowViewModel> _filteredRows = new();
@@ -46,10 +49,14 @@ public partial class AssetTableViewModel : ObservableObject
 
     public AssetTableViewModel(
         IResourceTypeRegistry registry,
-        Func<AssetRowViewModel, Task> onRowSelectionChanged)
+        Action<AssetRowViewModel>? onRowSelectionChanged = null,
+        Action<IEnumerable<AssetRowViewModel>, bool>? onBatchSelectionChanged = null,
+        Action<AssetRowViewModel?>? onSelectedRowChanged = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
-        _onRowSelectionChanged = onRowSelectionChanged ?? throw new ArgumentNullException(nameof(onRowSelectionChanged));
+        _onRowSelectionChanged = onRowSelectionChanged;
+        _onBatchSelectionChanged = onBatchSelectionChanged;
+        _onSelectedRowChanged = onSelectedRowChanged;
     }
 
     public void LoadAssets(IEnumerable<CuratedAsset> assets, IDictionary<Guid, string> sourceLabels)
@@ -68,8 +75,14 @@ public partial class AssetTableViewModel : ObservableObject
 
     private void OnRowIsSelectedChanged(AssetRowViewModel row)
     {
+        if (_isBatchUpdating) return;
         SelectedAssetCount = _allRows.Count(r => r.IsSelected);
-        _onRowSelectionChanged(row);
+        _onRowSelectionChanged?.Invoke(row);
+    }
+
+    partial void OnSelectedRowChanged(AssetRowViewModel? value)
+    {
+        _onSelectedRowChanged?.Invoke(value);
     }
 
     partial void OnSearchTextChanged(string value) => ApplyFilters();
@@ -106,28 +119,40 @@ public partial class AssetTableViewModel : ObservableObject
     [RelayCommand]
     private void IncludeAllFiltered()
     {
-        foreach (var row in FilteredRows)
+        _isBatchUpdating = true;
+        try
         {
-            row.IsSelected = true;
+            foreach (var row in FilteredRows)
+            {
+                row.IsSelected = true;
+            }
         }
+        finally
+        {
+            _isBatchUpdating = false;
+        }
+
         SelectedAssetCount = _allRows.Count(r => r.IsSelected);
-        if (FilteredRows.Count > 0)
-        {
-            _onRowSelectionChanged(FilteredRows[0]);
-        }
+        _onBatchSelectionChanged?.Invoke(FilteredRows, true);
     }
 
     [RelayCommand]
     private void ExcludeAllFiltered()
     {
-        foreach (var row in FilteredRows)
+        _isBatchUpdating = true;
+        try
         {
-            row.IsSelected = false;
+            foreach (var row in FilteredRows)
+            {
+                row.IsSelected = false;
+            }
         }
+        finally
+        {
+            _isBatchUpdating = false;
+        }
+
         SelectedAssetCount = _allRows.Count(r => r.IsSelected);
-        if (FilteredRows.Count > 0)
-        {
-            _onRowSelectionChanged(FilteredRows[0]);
-        }
+        _onBatchSelectionChanged?.Invoke(FilteredRows, false);
     }
 }

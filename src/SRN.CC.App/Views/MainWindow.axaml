@@ -15,10 +15,9 @@
         <Border Grid.Row="0" Background="#333337" Padding="6">
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="SRN.CC Asset Curator" FontWeight="Bold" FontSize="15" VerticalAlignment="Center" Margin="8,0,16,0" Foreground="#FFFFFF"/>
-                <Button Content="New Project"/>
-                <Button Content="Open..."/>
-                <Button Content="Save"/>
-                <Button Content="Save As..."/>
+                <Button Content="New Project" Command="{Binding NewProjectCommand}"/>
+                <Button Content="Open..." Command="{Binding OpenProjectCommand}"/>
+                <Button Content="Save" Command="{Binding SaveProjectCommand}"/>
                 <Rectangle Width="1" Height="20" Fill="#555555" Margin="4,0"/>
                 <Button Content="Build HAK" Command="{Binding BuildHakCommand}" Background="#007ACC" Foreground="#FFFFFF" FontWeight="Bold"/>
             </StackPanel>

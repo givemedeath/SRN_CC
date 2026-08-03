@@ -7,7 +7,11 @@ public sealed class HakWriter
 {
     public const long LegacySingleHakLimit = 2147483647L; // Int32.MaxValue boundary
 
-    public record WriteItem(HakFormatKey Key, Stream PayloadStream, uint PayloadSize);
+    public record WriteItem(
+        HakFormatKey Key,
+        Stream? PayloadStream,
+        uint PayloadSize,
+        Func<CancellationToken, Task<Stream>>? StreamFactory = null);
 
     public static void Write(Stream outputStream, IEnumerable<WriteItem> items)
     {
@@ -33,8 +37,11 @@ public sealed class HakWriter
         HashSet<HakFormatKey> seenKeys = new();
         foreach (var item in itemList)
         {
-            ArgumentNullException.ThrowIfNull(item.PayloadStream);
-            if (!item.PayloadStream.CanRead)
+            if (item.PayloadStream == null && item.StreamFactory == null)
+            {
+                throw new ArgumentException("Every HAK write item must supply either a PayloadStream or StreamFactory.", nameof(items));
+            }
+            if (item.PayloadStream != null && !item.PayloadStream.CanRead)
             {
                 throw new ArgumentException("Every HAK payload stream must be readable.", nameof(items));
             }
@@ -139,25 +146,36 @@ public sealed class HakWriter
 
                 progress?.Report(i + 1);
 
-                long remaining = item.PayloadSize;
-                while (remaining > 0)
+                Stream payloadStream = item.PayloadStream ?? await item.StreamFactory!(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    int toRead = (int)Math.Min(poolBuffer.Length, remaining);
-                    int read = await item.PayloadStream.ReadAsync(poolBuffer.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
-                    if (read == 0)
+                    long remaining = item.PayloadSize;
+                    while (remaining > 0)
                     {
-                        throw new EndOfStreamException($"Payload stream for key {item.Key} ended unexpectedly before declared size {item.PayloadSize}.");
+                        int toRead = (int)Math.Min(poolBuffer.Length, remaining);
+                        int read = await payloadStream.ReadAsync(poolBuffer.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
+                        if (read == 0)
+                        {
+                            throw new EndOfStreamException($"Payload stream for key {item.Key} ended unexpectedly before declared size {item.PayloadSize}.");
+                        }
+                        await outputStream.WriteAsync(poolBuffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                        remaining -= read;
                     }
-                    await outputStream.WriteAsync(poolBuffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-                    remaining -= read;
-                }
 
-                int trailingByteCount = await item.PayloadStream
-                    .ReadAsync(poolBuffer.AsMemory(0, 1), cancellationToken)
-                    .ConfigureAwait(false);
-                if (trailingByteCount != 0)
+                    int trailingByteCount = await payloadStream
+                        .ReadAsync(poolBuffer.AsMemory(0, 1), cancellationToken)
+                        .ConfigureAwait(false);
+                    if (trailingByteCount != 0)
+                    {
+                        throw new InvalidDataException($"Payload stream for key {item.Key} exceeds declared size {item.PayloadSize}.");
+                    }
+                }
+                finally
                 {
-                    throw new InvalidDataException($"Payload stream for key {item.Key} exceeds declared size {item.PayloadSize}.");
+                    if (item.StreamFactory != null)
+                    {
+                        await payloadStream.DisposeAsync().ConfigureAwait(false);
+                    }
                 }
             }
         }
@@ -183,4 +201,3 @@ public sealed class HakWriter
         }
     }
 }
-

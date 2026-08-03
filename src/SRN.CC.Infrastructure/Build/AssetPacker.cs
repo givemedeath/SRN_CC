@@ -37,57 +37,45 @@ public sealed class AssetPacker : IAssetPacker
         var sourceMap = plan.FrozenSources.ToDictionary(s => s.Id);
 
         List<HakWriter.WriteItem> writeItems = new(plan.Items.Count);
-        List<Stream> openedStreams = new(plan.Items.Count);
 
-        try
+        foreach (var item in plan.Items)
         {
-            foreach (var item in plan.Items)
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!sourceMap.TryGetValue(item.SourceId, out var source))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (!sourceMap.TryGetValue(item.SourceId, out var source))
-                {
-                    throw new InvalidOperationException($"Source {item.SourceId} required for build item {item.Identity} is missing.");
-                }
-
-                var occ = new AssetOccurrence(item.Identity, item.SourceId, item.Locator, item.Identity.OriginalName, item.ExpectedSizeBytes);
-                Stream payloadStream = await _dispatcher.OpenOccurrenceAsync(source, occ, cancellationToken).ConfigureAwait(false);
-                openedStreams.Add(payloadStream);
-
-                var hakKey = new HakFormatKey(item.Identity.OriginalResrefBytes.Span, item.Identity.ResourceType);
-                writeItems.Add(new HakWriter.WriteItem(hakKey, payloadStream, checked((uint)item.ExpectedSizeBytes)));
+                throw new InvalidOperationException($"Source {item.SourceId} required for build item {item.Identity} is missing.");
             }
 
-            await using (FileStream fs = new(tempHakPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true))
-            {
-                await HakWriter.WriteAsync(fs, writeItems, progress, cancellationToken).ConfigureAwait(false);
-                await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
+            var occ = new AssetOccurrence(item.Identity, item.SourceId, item.Locator, item.Identity.OriginalName, item.ExpectedSizeBytes);
+            var hakKey = new HakFormatKey(item.Identity.OriginalResrefBytes.Span, item.Identity.ResourceType);
 
-            long hakSizeBytes = new FileInfo(tempHakPath).Length;
-            string hakSha256;
-
-            using (FileStream fs = new(tempHakPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, useAsync: true))
-            using (SHA256 sha = SHA256.Create())
-            {
-                byte[] hashBytes = await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false);
-                hakSha256 = Convert.ToHexString(hashBytes).ToLowerInvariant();
-            }
-
-            return new BuildArtifact(
-                HakPath: plan.DestinationHakPath,
-                ManifestPath: plan.DestinationManifestPath,
-                HakSizeBytes: hakSizeBytes,
-                HakSha256Hex: hakSha256,
-                EntryCount: plan.Items.Count
-            );
+            Func<CancellationToken, Task<Stream>> factory = ct => _dispatcher.OpenOccurrenceAsync(source, occ, ct);
+            writeItems.Add(new HakWriter.WriteItem(hakKey, null, checked((uint)item.ExpectedSizeBytes), factory));
         }
-        finally
+
+        await using (FileStream fs = new(tempHakPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true))
         {
-            foreach (var stream in openedStreams)
-            {
-                try { stream.Dispose(); } catch { }
-            }
+            await HakWriter.WriteAsync(fs, writeItems, progress, cancellationToken).ConfigureAwait(false);
+            await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        long hakSizeBytes = new FileInfo(tempHakPath).Length;
+        string hakSha256;
+
+        using (FileStream fs = new(tempHakPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, useAsync: true))
+        using (SHA256 sha = SHA256.Create())
+        {
+            byte[] hashBytes = await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false);
+            hakSha256 = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        }
+
+        return new BuildArtifact(
+            HakPath: plan.DestinationHakPath,
+            ManifestPath: plan.DestinationManifestPath,
+            HakSizeBytes: hakSizeBytes,
+            HakSha256Hex: hakSha256,
+            EntryCount: plan.Items.Count
+        );
     }
 }

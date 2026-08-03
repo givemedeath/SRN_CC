@@ -68,6 +68,37 @@ public class ArtifactPublisherTests
     }
 
     [Test]
+    public async Task PublishAsync_DoesNotOverwriteOrDeleteUnrelatedBakFiles()
+    {
+        string targetHak = Path.Combine(_tempDir, "target.hak");
+        string targetManifest = Path.Combine(_tempDir, "target.manifest.json");
+        await File.WriteAllTextAsync(targetHak, "old hak");
+        await File.WriteAllTextAsync(targetManifest, "old manifest");
+        await File.WriteAllTextAsync(targetHak + ".bak", "manual hak backup");
+        await File.WriteAllTextAsync(targetManifest + ".bak", "manual manifest backup");
+
+        string tempHak = Path.Combine(_tempDir, "new.tmp.hak");
+        string tempManifest = Path.Combine(_tempDir, "new.tmp.manifest.json");
+        await File.WriteAllTextAsync(tempHak, "new hak");
+        await File.WriteAllTextAsync(tempManifest, "new manifest");
+
+        var plan = new BuildPlan
+        {
+            DestinationHakPath = targetHak,
+            DestinationManifestPath = targetManifest,
+            FrozenSources = Array.Empty<AssetSource>(),
+            Items = Array.Empty<BuildItem>(),
+            CreatedUtc = DateTime.UtcNow
+        };
+
+        var result = await new ArtifactPublisher().PublishAsync(plan, tempHak, tempManifest);
+
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(await File.ReadAllTextAsync(targetHak + ".bak"), Is.EqualTo("manual hak backup"));
+        Assert.That(await File.ReadAllTextAsync(targetManifest + ".bak"), Is.EqualTo("manual manifest backup"));
+    }
+
+    [Test]
     public async Task PublishAsync_FailureDuringReplacement_RestoresOriginalFilesFromBackup()
     {
         string targetHak = Path.Combine(_tempDir, "target_fail.hak");

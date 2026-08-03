@@ -23,8 +23,9 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         if (string.IsNullOrEmpty(destDir)) destDir = ".";
 
         string journalPath = Path.Combine(destDir, JournalFileName);
-        string hakBackupPath = plan.DestinationHakPath + ".bak";
-        string manifestBackupPath = plan.DestinationManifestPath + ".bak";
+        string transactionId = Guid.NewGuid().ToString("N");
+        string hakBackupPath = plan.DestinationHakPath + $".{transactionId}.bak";
+        string manifestBackupPath = plan.DestinationManifestPath + $".{transactionId}.bak";
 
         bool hakExisted = File.Exists(plan.DestinationHakPath);
         bool manifestExisted = File.Exists(plan.DestinationManifestPath);
@@ -86,10 +87,21 @@ public sealed class ArtifactPublisher : IArtifactPublisher
             journal.LastUpdatedUtc = DateTime.UtcNow;
             await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
 
-            // Remove backups & journal
-            if (File.Exists(hakBackupPath)) File.Delete(hakBackupPath);
-            if (File.Exists(manifestBackupPath)) File.Delete(manifestBackupPath);
-            if (File.Exists(journalPath)) File.Delete(journalPath);
+            // Cleanup is best-effort after the commit point. A cleanup failure must
+            // never roll back one half of an already committed artifact pair.
+            try
+            {
+                if (File.Exists(hakBackupPath)) File.Delete(hakBackupPath);
+                if (File.Exists(manifestBackupPath)) File.Delete(manifestBackupPath);
+                if (!File.Exists(hakBackupPath) && !File.Exists(manifestBackupPath) && File.Exists(journalPath))
+                {
+                    File.Delete(journalPath);
+                }
+            }
+            catch (Exception cleanupException)
+            {
+                logs.Add($"Publication committed; deferred cleanup after error: {cleanupException.Message}");
+            }
 
             logs.Add("Publication committed successfully.");
 
@@ -103,6 +115,12 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         }
         catch (Exception ex)
         {
+            if (journal.State == PublicationState.Committed)
+            {
+                logs.Add($"Publication committed; cleanup will be retried during recovery: {ex.Message}");
+                return new PublicationResult(true, plan.DestinationHakPath, plan.DestinationManifestPath, null, logs);
+            }
+
             logs.Add($"Publication error: {ex.Message}. Rolling back transaction...");
             await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
 

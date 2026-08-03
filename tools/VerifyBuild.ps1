@@ -70,7 +70,7 @@ $sdkVersion = "unknown"
 $inputHashes = Get-VerificationInputHashes
 
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host " Starting SRN.CC Milestones 1-2 Master Verification Pass " -ForegroundColor Cyan
+Write-Host " Starting SRN.CC Milestones 1-3 Master Verification Pass " -ForegroundColor Cyan
 Write-Host " Run: $runId" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 

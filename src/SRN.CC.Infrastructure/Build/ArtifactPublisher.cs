@@ -30,9 +30,6 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         string hakBackupPath = plan.DestinationHakPath + $".{transactionId}.bak";
         string manifestBackupPath = plan.DestinationManifestPath + $".{transactionId}.bak";
 
-        bool hakExisted = File.Exists(plan.DestinationHakPath);
-        bool manifestExisted = File.Exists(plan.DestinationManifestPath);
-
         PublicationJournal journal = new()
         {
             DestinationHakPath = plan.DestinationHakPath,
@@ -41,8 +38,6 @@ public sealed class ArtifactPublisher : IArtifactPublisher
             TempManifestPath = tempManifestPath,
             HakBackupPath = hakBackupPath,
             ManifestBackupPath = manifestBackupPath,
-            HakExistedBefore = hakExisted,
-            ManifestExistedBefore = manifestExisted,
             State = PublicationState.Prepared,
             CreatedUtc = DateTime.UtcNow,
             LastUpdatedUtc = DateTime.UtcNow
@@ -52,6 +47,9 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         {
             await using (await AcquirePublicationLockAsync(publicationLockPath, cancellationToken).ConfigureAwait(false))
             {
+                journal.HakExistedBefore = File.Exists(plan.DestinationHakPath);
+                journal.ManifestExistedBefore = File.Exists(plan.DestinationManifestPath);
+
                 logs.Add("Writing publication journal (Prepared)...");
                 await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
 

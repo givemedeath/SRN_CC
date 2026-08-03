@@ -203,10 +203,13 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
 
         try
         {
+            string normalizedDirectory = Path.GetFullPath(directory);
             var drive = DriveInfo.GetDrives()
-                .FirstOrDefault(d =>
+                .Where(d =>
                     d.IsReady &&
-                    directory.StartsWith(d.RootDirectory.FullName, StringComparison.OrdinalIgnoreCase));
+                    IsPathWithinRoot(normalizedDirectory, d.RootDirectory.FullName))
+                .OrderByDescending(d => d.RootDirectory.FullName.Length)
+                .FirstOrDefault();
             if (drive is null)
             {
                 error = $"Could not locate destination volume for '{directory}'.";
@@ -221,5 +224,29 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
             error = $"Failed to check destination free space: {ex.Message}";
             return false;
         }
+    }
+
+    private static bool IsPathWithinRoot(string fullPath, string rootPath)
+    {
+        string normalizedPath = Path.GetFullPath(fullPath);
+        string normalizedRoot = Path.GetFullPath(rootPath);
+
+        if (!normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(normalizedRoot, Path.GetPathRoot(normalizedPath), StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return normalizedPath.Length > normalizedRoot.Length &&
+            (normalizedPath[normalizedRoot.Length] == Path.DirectorySeparatorChar || normalizedPath[normalizedRoot.Length] == Path.AltDirectorySeparatorChar);
     }
 }

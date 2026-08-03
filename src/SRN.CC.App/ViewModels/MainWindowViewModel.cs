@@ -156,6 +156,7 @@ public partial class MainWindowViewModel : ObservableObject
     private async Task OpenProjectAsync(string? projectPath = null)
     {
         if (_workspaceService == null || _projectStore == null) return;
+        await _pendingSelectionUpdate.ConfigureAwait(true);
 
         string? path = projectPath;
         if (string.IsNullOrEmpty(path) && OpenFilePickerAsync != null)

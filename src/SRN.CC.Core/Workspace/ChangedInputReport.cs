@@ -40,15 +40,15 @@ public sealed record ChangedInputReport
         IReadOnlyList<AssetIdentity>? pinInvalidations = null,
         IReadOnlyList<AssetIdentity>? selectionChanges = null)
     {
-        AddedSources = addedSources ?? Array.Empty<AssetSource>();
-        RemovedSources = removedSources ?? Array.Empty<AssetSource>();
-        AvailabilityTransitions = availabilityTransitions ?? Array.Empty<Guid>();
-        FingerprintChanges = fingerprintChanges ?? Array.Empty<Guid>();
-        AddedIdentities = addedIdentities ?? Array.Empty<AssetIdentity>();
-        RemovedIdentities = removedIdentities ?? Array.Empty<AssetIdentity>();
-        WinnerChanges = winnerChanges ?? Array.Empty<AssetIdentity>();
-        PinReattachments = pinReattachments ?? Array.Empty<AssetIdentity>();
-        PinInvalidations = pinInvalidations ?? Array.Empty<AssetIdentity>();
-        SelectionChanges = selectionChanges ?? Array.Empty<AssetIdentity>();
+        AddedSources = (addedSources ?? Array.Empty<AssetSource>()).ToList().AsReadOnly();
+        RemovedSources = (removedSources ?? Array.Empty<AssetSource>()).ToList().AsReadOnly();
+        AvailabilityTransitions = (availabilityTransitions ?? Array.Empty<Guid>()).ToList().AsReadOnly();
+        FingerprintChanges = (fingerprintChanges ?? Array.Empty<Guid>()).ToList().AsReadOnly();
+        AddedIdentities = (addedIdentities ?? Array.Empty<AssetIdentity>()).ToList().AsReadOnly();
+        RemovedIdentities = (removedIdentities ?? Array.Empty<AssetIdentity>()).ToList().AsReadOnly();
+        WinnerChanges = (winnerChanges ?? Array.Empty<AssetIdentity>()).ToList().AsReadOnly();
+        PinReattachments = (pinReattachments ?? Array.Empty<AssetIdentity>()).ToList().AsReadOnly();
+        PinInvalidations = (pinInvalidations ?? Array.Empty<AssetIdentity>()).ToList().AsReadOnly();
+        SelectionChanges = (selectionChanges ?? Array.Empty<AssetIdentity>()).ToList().AsReadOnly();
     }
 }

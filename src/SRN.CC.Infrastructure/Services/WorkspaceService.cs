@@ -70,6 +70,11 @@ public sealed class WorkspaceService : IWorkspaceService
                 }
             }
 
+            foreach (AssetSource s in scannedSources)
+            {
+                _hashCache.InvalidateSource(s.Id);
+            }
+
             WorkspaceState newState = await _resolver.ResolveAsync(
                 scannedSources,
                 snapshots,

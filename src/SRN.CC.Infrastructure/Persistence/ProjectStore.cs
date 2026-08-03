@@ -108,6 +108,24 @@ public sealed class ProjectStore : IProjectStore
                     }
 
                     JsonObject? pathObj = sourceObj["path"] as JsonObject;
+                    if (!isReadOnly)
+                    {
+                        if (pathObj is null)
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' source is missing required 'path' object.");
+                        }
+                        string? pathKindStr = TryGetString(pathObj["kind"]);
+                        string? pathValStr = TryGetString(pathObj["value"]);
+                        if (string.IsNullOrEmpty(pathKindStr) || (!pathKindStr.Equals("absolute", StringComparison.OrdinalIgnoreCase) && !pathKindStr.Equals("relative", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' source path has invalid or missing kind '{pathKindStr}'.");
+                        }
+                        if (string.IsNullOrWhiteSpace(pathValStr))
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' source path has missing or empty value.");
+                        }
+                    }
+
                     string pathKind = TryGetString(pathObj?["kind"]) ?? "absolute";
                     string pathVal = TryGetString(pathObj?["value"]) ?? string.Empty;
 
@@ -118,12 +136,22 @@ public sealed class ProjectStore : IProjectStore
                     SourceFingerprint? fingerprint = null;
                     if (sourceObj["fingerprint"] is JsonObject fpObj)
                     {
-                        string? fpKindStr = TryGetString(fpObj["kind"]);
-                        AssetSourceKind fpKind = Enum.TryParse<AssetSourceKind>(fpKindStr, ignoreCase: true, out AssetSourceKind parsedFpKind) ? parsedFpKind : kind;
-                        int algVer = fpObj["algorithmVersion"]?.GetValue<int>() ?? 1;
-                        string? digestHex = TryGetString(fpObj["digest"]);
-                        byte[] digestBytes = !string.IsNullOrEmpty(digestHex) ? Convert.FromHexString(digestHex) : Array.Empty<byte>();
-                        fingerprint = new SourceFingerprint(fpKind, algVer, digestBytes);
+                        try
+                        {
+                            string? fpKindStr = TryGetString(fpObj["kind"]);
+                            AssetSourceKind fpKind = Enum.TryParse<AssetSourceKind>(fpKindStr, ignoreCase: true, out AssetSourceKind parsedFpKind) ? parsedFpKind : kind;
+                            int algVer = TryGetInt(fpObj["algorithmVersion"]) ?? 1;
+                            string? digestHex = TryGetString(fpObj["digest"]);
+                            if (!string.IsNullOrEmpty(digestHex) && digestHex.Length == 64)
+                            {
+                                byte[] digestBytes = Convert.FromHexString(digestHex);
+                                fingerprint = new SourceFingerprint(fpKind, algVer, digestBytes);
+                            }
+                        }
+                        catch
+                        {
+                            fingerprint = null;
+                        }
                     }
 
                     bool isAvailable = File.Exists(resolvedPath) || Directory.Exists(resolvedPath);
@@ -134,9 +162,26 @@ public sealed class ProjectStore : IProjectStore
         }
 
         // Parse selection state
+        if (!isReadOnly && rootObj["selectionState"] is not JsonObject)
+        {
+            throw new InvalidOperationException($"Project file '{fullProjectPath}' is missing required 'selectionState' object.");
+        }
+
         SelectionState selectionState = SelectionState.IncludeAll();
         if (rootObj["selectionState"] is JsonObject selObj)
         {
+            if (!isReadOnly)
+            {
+                if (selObj["defaultSelected"] is null || TryGetBool(selObj["defaultSelected"]) is null)
+                {
+                    throw new InvalidOperationException($"Project file '{fullProjectPath}' selectionState missing valid defaultSelected boolean.");
+                }
+                if (selObj["overrides"] is not JsonArray)
+                {
+                    throw new InvalidOperationException($"Project file '{fullProjectPath}' selectionState missing required 'overrides' array.");
+                }
+            }
+
             bool defaultSel = TryGetBool(selObj["defaultSelected"]) ?? true;
             Dictionary<AssetIdentity, bool> overrides = new();
 
@@ -147,13 +192,26 @@ public sealed class ProjectStore : IProjectStore
                     if (overrideNode is JsonObject overrideObj)
                     {
                         string? resref = TryGetString(overrideObj["resref"]);
-                        int rawType = TryGetInt(overrideObj["resourceType"]) ?? -1;
-                        bool selected = TryGetBool(overrideObj["selected"]) ?? true;
-                        if (!string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
+                        int? rawType = TryGetInt(overrideObj["resourceType"]);
+                        bool? selected = TryGetBool(overrideObj["selected"]);
+
+                        if (!isReadOnly)
                         {
-                            AssetIdentity id = new AssetIdentity(resref, (ushort)rawType);
-                            overrides[id] = selected;
+                            if (string.IsNullOrEmpty(resref) || !rawType.HasValue || rawType.Value is < 0 or > ushort.MaxValue || !selected.HasValue)
+                            {
+                                throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid selection override entry.");
+                            }
                         }
+
+                        if (!string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue && selected.HasValue)
+                        {
+                            AssetIdentity id = new AssetIdentity(resref, (ushort)rawType.Value);
+                            overrides[id] = selected.Value;
+                        }
+                    }
+                    else if (!isReadOnly)
+                    {
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' selection override entry must be a JSON object.");
                     }
                 }
             }
@@ -228,11 +286,25 @@ public sealed class ProjectStore : IProjectStore
                     }
 
                     string locKind = TryGetString(locObj?["kind"]) ?? "folderPath";
-                    OccurrenceLocator locator = locKind.Equals("hakEntry", StringComparison.OrdinalIgnoreCase)
-                        ? new HakEntryLocator(TryGetInt(locObj?["index"]) ?? 0)
-                        : new FolderFileLocator(TryGetString(locObj?["relativePath"]) ?? string.Empty);
+                    OccurrenceLocator? locator = null;
+                    if (locKind.Equals("hakEntry", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int? idx = TryGetInt(locObj?["index"]);
+                        if (idx.HasValue && idx.Value >= 0)
+                        {
+                            locator = new HakEntryLocator(idx.Value);
+                        }
+                    }
+                    else if (locKind.Equals("folderPath", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string? relPath = TryGetString(locObj?["relativePath"]);
+                        if (relPath is not null)
+                        {
+                            locator = new FolderFileLocator(relPath);
+                        }
+                    }
 
-                    if (!string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
+                    if (locator is not null && !string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
                     {
                         AssetIdentity identity = new AssetIdentity(resref, (ushort)rawType);
                         pins.Add(new WinnerPin(identity, sourceId, locator, pinHash));

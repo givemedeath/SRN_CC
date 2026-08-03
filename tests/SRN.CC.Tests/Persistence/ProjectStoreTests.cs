@@ -515,4 +515,83 @@ public class ProjectStoreTests
         JsonNode savedNode = JsonNode.Parse(savedJson)!;
         savedNode["sources"]?[0]?["unknownField"]?.GetValue<string>().Should().Be("preserved");
     }
+
+    [Test]
+    public async Task Schema1_MissingSourcePath_ShouldThrowInvalidOperationException()
+    {
+        string projectPath = Path.Combine(_tempDir, "missing_source_path.srnccproj");
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            {
+              "id": "{{Guid.NewGuid()}}",
+              "kind": "hak"
+            }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Schema1_MissingSelectionState_ShouldThrowInvalidOperationException()
+    {
+        string projectPath = Path.Combine(_tempDir, "missing_selection_state.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 1,
+          "sources": [],
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task NewerSchema_WithUnknownPinLocator_ShouldSkipPinAndLoadReadOnly()
+    {
+        string projectPath = Path.Combine(_tempDir, "unknown_locator.srnccproj");
+        string json = $$"""
+        {
+          "schemaVersion": 2,
+          "sources": [],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": [
+            {
+              "resref": "test",
+              "resourceType": 2000,
+              "sourceId": "{{Guid.NewGuid()}}",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "locator": { "kind": "futureLocator", "unknownData": 123 }
+            }
+          ]
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        WorkspaceState state = await store.LoadAsync(projectPath);
+        state.IsReadOnly.Should().BeTrue();
+        state.Pins.Should().BeEmpty();
+    }
 }

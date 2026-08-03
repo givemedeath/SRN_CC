@@ -49,7 +49,8 @@ public partial class MainWindowViewModel : ObservableObject
             new FallbackResourceTypeRegistry(),
             OnRowSelectionChanged,
             OnBatchSelectionChanged,
-            OnSelectedRowChanged);
+            OnSelectedRowChanged,
+            OnSelectedRowsChanged);
         ComparisonPanel = new ComparisonPanelViewModel(
             new PreviewEngine(new FallbackSourceReaderDispatcher(), new IPreviewProvider[] { }),
             OnPinRequestedAsync);
@@ -81,7 +82,8 @@ public partial class MainWindowViewModel : ObservableObject
             _registry,
             OnRowSelectionChanged,
             OnBatchSelectionChanged,
-            OnSelectedRowChanged);
+            OnSelectedRowChanged,
+            OnSelectedRowsChanged);
 
         ComparisonPanel = new ComparisonPanelViewModel(
             _previewEngine,
@@ -245,13 +247,28 @@ public partial class MainWindowViewModel : ObservableObject
         _ = OnSelectedRowChangedAsync(selectedRow);
     }
 
+    private void OnSelectedRowsChanged(IReadOnlyList<AssetRowViewModel> selectedRows)
+    {
+        _ = UpdateComparisonSelectionAsync(selectedRows);
+    }
+
     private async Task OnSelectedRowChangedAsync(AssetRowViewModel? selectedRow)
+    {
+        IReadOnlyList<CuratedAsset> curatedAssets = AssetTable.SelectedRows.Count > 0
+            ? AssetTable.SelectedRows.Select(r => r.CuratedAsset).ToList()
+            : (selectedRow != null ? new[] { selectedRow.CuratedAsset } : Array.Empty<CuratedAsset>());
+        await UpdateComparisonSelectionAsync(curatedAssets).ConfigureAwait(true);
+    }
+
+    private async Task UpdateComparisonSelectionAsync(IReadOnlyList<AssetRowViewModel> selectedRows)
+    {
+        await UpdateComparisonSelectionAsync(selectedRows.Select(r => r.CuratedAsset).ToArray()).ConfigureAwait(true);
+    }
+
+    private async Task UpdateComparisonSelectionAsync(IReadOnlyList<CuratedAsset> curatedAssets)
     {
         if (_workspaceState == null) return;
         var sourceMap = _workspaceState.Sources.ToDictionary(s => s.Id);
-        var curatedAssets = AssetTable.SelectedRows.Count > 0
-            ? AssetTable.SelectedRows.Select(r => r.CuratedAsset).ToList()
-            : (selectedRow != null ? new[] { selectedRow.CuratedAsset } : Array.Empty<CuratedAsset>());
         await ComparisonPanel.UpdateSelectionAsync(curatedAssets, sourceMap).ConfigureAwait(true);
     }
 

@@ -155,7 +155,21 @@ public sealed class ArtifactPublisher : IArtifactPublisher
     {
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(journal, new JsonSerializerOptions { WriteIndented = true });
         string tempPath = journalPath + ".tmp";
-        await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken).ConfigureAwait(false);
+
+        await using (var stream = new FileStream(
+            tempPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 4096,
+            options: FileOptions.Asynchronous | FileOptions.WriteThrough))
+        {
+            await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            stream.Flush(flushToDisk: true);
+        }
+
+        // The old journal remains valid until this same-directory atomic rename.
         File.Move(tempPath, journalPath, overwrite: true);
     }
 

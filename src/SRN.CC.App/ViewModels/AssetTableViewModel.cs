@@ -23,6 +23,7 @@ public partial class AssetTableViewModel : ObservableObject
     private readonly IResourceTypeRegistry _registry;
     private readonly Action<AssetRowViewModel>? _onRowSelectionChanged;
     private readonly Action<IEnumerable<AssetRowViewModel>, bool>? _onBatchSelectionChanged;
+    private readonly Action<AssetRowViewModel?>? _onSelectedRowChanged;
     private readonly Action<IReadOnlyList<AssetRowViewModel>>? _onSelectedRowsChanged;
     private List<AssetRowViewModel> _allRows = new();
     private bool _isBatchUpdating;

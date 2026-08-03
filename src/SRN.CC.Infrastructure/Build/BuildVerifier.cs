@@ -108,6 +108,10 @@ public sealed class BuildVerifier : IBuildVerifier
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             errors.Add($"Verification exception: {ex.Message}");

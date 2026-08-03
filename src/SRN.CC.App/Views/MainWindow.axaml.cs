@@ -32,6 +32,30 @@ public partial class MainWindow : Window
                 return files.Count > 0 ? files[0].Path.LocalPath : null;
             };
 
+            vm.SaveProjectFilePickerAsync = async () =>
+            {
+                var path = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "Save SRN.CC Project",
+                    SuggestedFileName = "project.srncc",
+                    FileTypeChoices = new[] { new FilePickerFileType("SRN.CC Project Files (*.srncc)") { Patterns = new[] { "*.srncc" } } }
+                });
+
+                return path?.Path.LocalPath;
+            };
+
+            vm.BuildOutputFilePickerAsync = async () =>
+            {
+                var path = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "Save HAK Output",
+                    SuggestedFileName = "output.hak",
+                    FileTypeChoices = new[] { new FilePickerFileType("HAK Files (*.hak)") { Patterns = new[] { "*.hak" } } }
+                });
+
+                return path?.Path.LocalPath;
+            };
+
             vm.HakFilePickerAsync = async () =>
             {
                 var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions

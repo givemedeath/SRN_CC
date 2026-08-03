@@ -111,6 +111,7 @@ public partial class MainWindowViewModel : ObservableObject
         AssetTable.LoadAssets(state.CuratedAssets, sourceLabels);
 
         SaveProjectCommand.NotifyCanExecuteChanged();
+        BuildHakCommand.NotifyCanExecuteChanged();
 
         OperationLog.AddEntry("INFO", $"Loaded workspace with {state.Sources.Count} sources and {state.CuratedAssets.Count} assets.");
     }
@@ -126,6 +127,8 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly SemaphoreSlim _selectionLock = new(1, 1);
 
     public Func<Task<string?>>? OpenFilePickerAsync { get; set; }
+    public Func<Task<string?>>? SaveProjectFilePickerAsync { get; set; }
+    public Func<Task<string?>>? BuildOutputFilePickerAsync { get; set; }
     public Func<Task<IReadOnlyList<string>>>? HakFilePickerAsync { get; set; }
     public Func<Task<string?>>? FolderPickerAsync { get; set; }
 
@@ -181,7 +184,18 @@ public partial class MainWindowViewModel : ObservableObject
             OperationLog.AddEntry("WARN", "Workspace is read-only. Open a writable copy before saving.");
             return;
         }
-        string path = _currentProjectPath ?? Path.Combine(Directory.GetCurrentDirectory(), "project.srncc");
+
+        string? path = _currentProjectPath;
+        if (string.IsNullOrWhiteSpace(path) && SaveProjectFilePickerAsync != null)
+        {
+            path = await SaveProjectFilePickerAsync().ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(path)) return;
+        }
+
+        path = string.IsNullOrWhiteSpace(path)
+            ? Path.Combine(Directory.GetCurrentDirectory(), "project.srncc")
+            : path;
+
         await _projectStore.SaveAsync(_workspaceState, path).ConfigureAwait(true);
         _currentProjectPath = path;
         Title = $"SRN.CC Asset Curator — {Path.GetFileName(path)}";
@@ -311,7 +325,7 @@ public partial class MainWindowViewModel : ObservableObject
         OperationLog.AddEntry("INFO", $"Pinned occurrence {occurrence.Identity.Resref}.{occurrence.Identity.ResourceType} to source {occurrence.SourceId}.");
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanBuildHak))]
     private async Task BuildHakAsync()
     {
         await _pendingSelectionUpdate.ConfigureAwait(true);
@@ -321,7 +335,25 @@ public partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        string destPath = Path.Combine(Directory.GetCurrentDirectory(), "output.hak");
+        string? destPath = null;
+        if (_currentProjectPath is null && BuildOutputFilePickerAsync != null)
+        {
+            destPath = await BuildOutputFilePickerAsync().ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(destPath)) return;
+        }
+
+        if (string.IsNullOrWhiteSpace(destPath))
+        {
+            string projectDir = !string.IsNullOrWhiteSpace(_currentProjectPath)
+                ? Path.GetDirectoryName(_currentProjectPath) ?? Directory.GetCurrentDirectory()
+                : Directory.GetCurrentDirectory();
+
+            string baseName = !string.IsNullOrWhiteSpace(_currentProjectPath)
+                ? Path.GetFileNameWithoutExtension(_currentProjectPath)
+                : "output";
+
+            destPath = Path.Combine(projectDir, $"{baseName}.hak");
+        }
 
         var cts = StatusBar.BeginOperation("Building HAK package...");
         OperationLog.AddEntry("INFO", $"Initiating build target -> {destPath}");
@@ -357,6 +389,8 @@ public partial class MainWindowViewModel : ObservableObject
             OperationLog.AddEntry("ERROR", $"Build exception: {ex.Message}");
         }
     }
+
+    private bool CanBuildHak() => _workspaceState != null && !_workspaceState.IsReadOnly;
 
     private async Task AddHakSourceAsync()
     {

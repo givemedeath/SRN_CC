@@ -7,6 +7,7 @@ namespace SRN.CC.Infrastructure.Build;
 public sealed class ArtifactPublisher : IArtifactPublisher
 {
     private const string JournalFileName = "publication-journal.json";
+    private const string TransactionJournalSuffix = ".publication-journal.json";
 
     public async Task<PublicationResult> PublishAsync(
         BuildPlan plan,
@@ -22,8 +23,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         string destDir = Path.GetDirectoryName(plan.DestinationHakPath)!;
         if (string.IsNullOrEmpty(destDir)) destDir = ".";
 
-        string journalPath = Path.Combine(destDir, JournalFileName);
         string transactionId = Guid.NewGuid().ToString("N");
+        string journalPath = Path.Combine(destDir, $"{Path.GetFileName(plan.DestinationHakPath)}.{transactionId}{TransactionJournalSuffix}");
         string hakBackupPath = plan.DestinationHakPath + $".{transactionId}.bak";
         string manifestBackupPath = plan.DestinationManifestPath + $".{transactionId}.bak";
 
@@ -140,32 +141,55 @@ public sealed class ArtifactPublisher : IArtifactPublisher
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(journalDirectory);
 
-        string journalPath = Path.Combine(journalDirectory, JournalFileName);
-        if (!File.Exists(journalPath))
+        if (!Directory.Exists(journalDirectory))
         {
             return false;
         }
 
-        try
-        {
-            byte[] bytes = await File.ReadAllBytesAsync(journalPath, cancellationToken).ConfigureAwait(false);
-            var journal = JsonSerializer.Deserialize<PublicationJournal>(bytes);
-            if (journal == null) return false;
+        bool recoveredAny = false;
 
-            if (journal.State == PublicationState.Committed)
+        string fixedLegacyJournal = Path.Combine(journalDirectory, JournalFileName);
+        if (File.Exists(fixedLegacyJournal))
+        {
+            if (await TryRecoverJournalAsync(fixedLegacyJournal, cancellationToken).ConfigureAwait(false))
             {
-                if (File.Exists(journal.HakBackupPath)) File.Delete(journal.HakBackupPath);
-                if (File.Exists(journal.ManifestBackupPath)) File.Delete(journal.ManifestBackupPath);
-                if (File.Exists(journalPath)) File.Delete(journalPath);
+                recoveredAny = true;
+            }
+        }
+
+        foreach (string journalPath in Directory.GetFiles(journalDirectory, $"*{TransactionJournalSuffix}"))
+        {
+            if (await TryRecoverJournalAsync(journalPath, cancellationToken).ConfigureAwait(false))
+            {
+                recoveredAny = true;
+            }
+        }
+
+        return recoveredAny;
+
+        async Task<bool> TryRecoverJournalAsync(string journalPath, CancellationToken ct)
+        {
+            try
+            {
+                byte[] bytes = await File.ReadAllBytesAsync(journalPath, ct).ConfigureAwait(false);
+                var journal = JsonSerializer.Deserialize<PublicationJournal>(bytes);
+                if (journal == null) return false;
+
+                if (journal.State == PublicationState.Committed)
+                {
+                    if (File.Exists(journal.HakBackupPath)) File.Delete(journal.HakBackupPath);
+                    if (File.Exists(journal.ManifestBackupPath)) File.Delete(journal.ManifestBackupPath);
+                    if (File.Exists(journalPath)) File.Delete(journalPath);
+                    return true;
+                }
+
+                await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
                 return true;
             }
-
-            await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
-            return true;
-        }
-        catch
-        {
-            return false;
+            catch
+            {
+                return false;
+            }
         }
     }
 

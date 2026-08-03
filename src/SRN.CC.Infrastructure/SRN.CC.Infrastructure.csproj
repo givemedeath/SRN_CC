@@ -4,6 +4,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\SRN.CC.Core\SRN.CC.Core.csproj" />
     <ProjectReference Include="..\SRN.CC.Formats\SRN.CC.Formats.csproj" />
   </ItemGroup>

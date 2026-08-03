@@ -7,6 +7,7 @@
     "SRN.CC.App.dll",
     "SRN.CC.App.deps.json",
     "SRN.CC.App.runtimeconfig.json",
+    "e_sqlite3.dll",
     "LICENSE.txt",
     "NOTICES.md",
     "THIRD-PARTY-LICENSES/SWLOR-LICENSE.txt",

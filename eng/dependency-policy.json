@@ -345,6 +345,32 @@
       "contentHash": "Eclse/ZZjr4lmWzZFNN9h/OluhKL+SK/QbUyKUewgX139aGeyMEO/DkMPwuFs2MixvanTnz6891rF8UHDg+W4Q=="
     },
     {
+      "id": "Microsoft.Data.Sqlite",
+      "version": "10.0.10",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/dotnet",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "58JwZ39lCvRXHfV5O6RQfbHEDu8ZsXI7weRoVRR4jrGRxxkS+qyeuGrN2xD+9VYEICApYr0iTSL6PuU+DdsvPg=="
+    },
+    {
+      "id": "Microsoft.Data.Sqlite.Core",
+      "version": "10.0.10",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/dotnet",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "TPCs0ldm7AWqcKmp6f/Xr+14sat7hx4rHfRlS4RgCURBH2thEWbAKEyX7cCWr63zVJVOJIJZTg2cBiUXa8ys6g=="
+    },
+    {
       "id": "Microsoft.Extensions.DependencyModel",
       "version": "8.0.2",
       "scope": "test",
@@ -564,6 +590,58 @@
       "reviewDate": "2026-08-02",
       "mustShipNotice": true,
       "contentHash": "XOpbx/4CReO2wYsq2s6rbvdauc6dntG4Zv499sHGTJ87bwZaFXszFkwql3+FIZMc8kUPeaj3Mx2ezIJmo8a1Kg=="
+    },
+    {
+      "id": "SQLitePCLRaw.bundle_e_sqlite3",
+      "version": "2.1.12",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "Apache-2.0"
+      },
+      "repositoryUrl": "https://github.com/ericsink/SQLitePCL.raw",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "mAgscpQMLw5/nfA1Q5oJVAT29yROUo1ifZGbbTpx/lwZpSxMUGoYbKfmvdm8oXER+RzxqBmmQzeBEVKfeHv2nw=="
+    },
+    {
+      "id": "SQLitePCLRaw.core",
+      "version": "2.1.12",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "Apache-2.0"
+      },
+      "repositoryUrl": "https://github.com/ericsink/SQLitePCL.raw",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "ETpNw9DY3ckWLgRRAeCHj+GKOuPi61aeczkXhgHexUvqoZBAYg8RYESE2J7O1M7+o6QbdSEZwrw9bfqztUVWXg=="
+    },
+    {
+      "id": "SQLitePCLRaw.lib.e_sqlite3",
+      "version": "2.1.12",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "Apache-2.0"
+      },
+      "repositoryUrl": "https://github.com/ericsink/SQLitePCL.raw",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "fWi8Dbknuhgg72fWinIdjXVaqO1hHL4YBBwVLnr7e1c9TAZwJ0QE38j9syW1hwx6HaqEVTwI+O07WPdZn8Rp0w=="
+    },
+    {
+      "id": "SQLitePCLRaw.provider.e_sqlite3",
+      "version": "2.1.12",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "Apache-2.0"
+      },
+      "repositoryUrl": "https://github.com/ericsink/SQLitePCL.raw",
+      "reviewDate": "2026-08-02",
+      "mustShipNotice": true,
+      "contentHash": "W3oH4XIfCzFrgUSDKHhN6N+dgzA5YHOR2VxX8GB6Qy7CyrJJgxPEG8NirgYWlPQC5P2jz2knSsexWu4tDUL33g=="
     },
     {
       "id": "System.Configuration.ConfigurationManager",

@@ -70,7 +70,7 @@ $sdkVersion = "unknown"
 $inputHashes = Get-VerificationInputHashes
 
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host " Starting SRN.CC Milestone 1 Master Verification Pass " -ForegroundColor Cyan
+Write-Host " Starting SRN.CC Milestones 1-2 Master Verification Pass " -ForegroundColor Cyan
 Write-Host " Run: $runId" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
@@ -108,7 +108,7 @@ try {
     Invoke-Checked { dotnet build SRN.CC.sln -c Release --no-restore -p:SRNCCVerificationRuntimeIdentifier=$targetRid } "Release build"
 
     Write-Host "[5/9] Running portable and headless functional tests..." -ForegroundColor Cyan
-    Invoke-Checked { dotnet test SRN.CC.sln -c Release --no-build --filter "Category!=Corpus&Category!=Performance" -p:SRNCCVerificationRuntimeIdentifier=$targetRid --results-directory (Join-Path $runDir "test-results") } "Portable/headless tests"
+    Invoke-Checked { dotnet test SRN.CC.sln -c Release --no-build --filter 'Category!=Corpus&Category!=Performance' -p:SRNCCVerificationRuntimeIdentifier=$targetRid --results-directory (Join-Path $runDir "test-results") } "Portable/headless tests"
 
     Write-Host "[6/9] Publishing a self-contained $targetRid application..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path $publishDir | Out-Null

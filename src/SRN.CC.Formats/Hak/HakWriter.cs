@@ -1,14 +1,24 @@
+using System.Buffers;
 using System.Text;
 
 namespace SRN.CC.Formats.Hak;
 
 public sealed class HakWriter
 {
-    public const long LegacySingleHakLimit = 2L * 1024 * 1024 * 1024;
+    public const long LegacySingleHakLimit = 2147483647L; // Int32.MaxValue boundary
 
     public record WriteItem(HakFormatKey Key, Stream PayloadStream, uint PayloadSize);
 
     public static void Write(Stream outputStream, IEnumerable<WriteItem> items)
+    {
+        WriteAsync(outputStream, items, null, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    public static async Task WriteAsync(
+        Stream outputStream,
+        IEnumerable<WriteItem> items,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(outputStream);
         ArgumentNullException.ThrowIfNull(items);
@@ -20,7 +30,6 @@ public sealed class HakWriter
 
         var itemList = items.ToList();
 
-        // Check for duplicate keys
         HashSet<HakFormatKey> seenKeys = new();
         foreach (var item in itemList)
         {
@@ -37,7 +46,7 @@ public sealed class HakWriter
             }
         }
 
-        // Sort items by numeric type, then CP1252 canonical resref bytes
+        // Sort items by numeric type ascending, then canonical CP1252 resref bytes ascending
         itemList.Sort((a, b) =>
         {
             int typeComp = a.Key.ResourceType.CompareTo(b.Key.ResourceType);
@@ -53,7 +62,6 @@ public sealed class HakWriter
         long resourceListSize = checked(entryCount * 8);
         long payloadStartOffset = checked(resourceListOffset + resourceListSize);
 
-        // Verify size limits
         long totalEstimatedPayload = 0;
         foreach (var item in itemList)
         {
@@ -63,63 +71,99 @@ public sealed class HakWriter
         long outputSize = checked(payloadStartOffset + totalEstimatedPayload);
         if (outputSize >= LegacySingleHakLimit)
         {
-            throw new InvalidOperationException("HAK size exceeds single-HAK limit.");
+            throw new InvalidOperationException($"HAK size {outputSize} exceeds single-HAK limit of {LegacySingleHakLimit} bytes.");
         }
 
-        using BinaryWriter writer = new(outputStream, Encoding.ASCII, leaveOpen: true);
+        byte[] headerBuffer = new byte[headerSize];
+        using (MemoryStream ms = new(headerBuffer))
+        using (BinaryWriter bw = new(ms, Encoding.ASCII))
+        {
+            bw.Write(Encoding.ASCII.GetBytes("HAK "));
+            bw.Write(Encoding.ASCII.GetBytes("V1.0"));
+            bw.Write((uint)0); // LanguageCount
+            bw.Write((uint)0); // LocalizedStringSize
+            bw.Write(checked((uint)entryCount));
+            bw.Write((uint)0); // OffsetToLocalizedString
+            bw.Write(checked((uint)keyListOffset));
+            bw.Write(checked((uint)resourceListOffset));
+            bw.Write((uint)0); // BuildYear
+            bw.Write((uint)0); // BuildDay
+            bw.Write((uint)0); // DescriptionStrRef
+        }
 
-        // Header (160 bytes)
-        writer.Write(Encoding.ASCII.GetBytes("HAK "));
-        writer.Write(Encoding.ASCII.GetBytes("V1.0"));
-        writer.Write((uint)0); // LanguageCount = 0
-        writer.Write((uint)0); // LocalizedStringSize = 0
-        writer.Write(checked((uint)entryCount));
-        writer.Write((uint)0); // OffsetToLocalizedString
-        writer.Write(checked((uint)keyListOffset));
-        writer.Write(checked((uint)resourceListOffset));
-        writer.Write((uint)0); // BuildYear
-        writer.Write((uint)0); // BuildDay
-        writer.Write((uint)0); // DescriptionStrRef
-
-        // 116 bytes reserved (zeros)
-        writer.Write(new byte[116]);
+        await outputStream.WriteAsync(headerBuffer, cancellationToken).ConfigureAwait(false);
 
         // Write KeyList
-        long currentPayloadOffset = payloadStartOffset;
-        for (int i = 0; i < entryCount; i++)
+        byte[] keyListBuffer = new byte[keyListSize];
+        using (MemoryStream ms = new(keyListBuffer))
+        using (BinaryWriter bw = new(ms, Encoding.ASCII))
         {
-            var item = itemList[i];
-            byte[] resref16 = new byte[16];
-            item.Key.ResrefBytes.Span.CopyTo(resref16);
+            for (int i = 0; i < entryCount; i++)
+            {
+                var item = itemList[i];
+                byte[] resref16 = new byte[16];
+                item.Key.ResrefBytes.Span.CopyTo(resref16);
 
-            writer.Write(resref16);
-            writer.Write((uint)i); // ResourceId
-            writer.Write(item.Key.ResourceType);
-            writer.Write((ushort)0); // Unused
+                bw.Write(resref16);
+                bw.Write((uint)i);
+                bw.Write(item.Key.ResourceType);
+                bw.Write((ushort)0);
+            }
         }
+        await outputStream.WriteAsync(keyListBuffer, cancellationToken).ConfigureAwait(false);
 
         // Write ResourceList
-        for (int i = 0; i < entryCount; i++)
+        byte[] resourceListBuffer = new byte[resourceListSize];
+        long currentPayloadOffset = payloadStartOffset;
+        using (MemoryStream ms = new(resourceListBuffer))
+        using (BinaryWriter bw = new(ms, Encoding.ASCII))
         {
-            var item = itemList[i];
-            writer.Write(checked((uint)currentPayloadOffset));
-            writer.Write(item.PayloadSize);
-            currentPayloadOffset = checked(currentPayloadOffset + item.PayloadSize);
-        }
-
-        // Write Payloads
-        byte[] buffer = new byte[8192];
-        foreach (var item in itemList)
-        {
-            long remaining = item.PayloadSize;
-            while (remaining > 0)
+            for (int i = 0; i < entryCount; i++)
             {
-                int toRead = (int)Math.Min(buffer.Length, remaining);
-                int read = item.PayloadStream.Read(buffer, 0, toRead);
-                if (read == 0) throw new EndOfStreamException("Payload stream ended unexpectedly.");
-                writer.Write(buffer, 0, read);
-                remaining -= read;
+                var item = itemList[i];
+                bw.Write(checked((uint)currentPayloadOffset));
+                bw.Write(item.PayloadSize);
+                currentPayloadOffset = checked(currentPayloadOffset + item.PayloadSize);
             }
+        }
+        await outputStream.WriteAsync(resourceListBuffer, cancellationToken).ConfigureAwait(false);
+
+        // Write Payloads using pooled buffer
+        byte[] poolBuffer = ArrayPool<byte>.Shared.Rent(65536);
+        try
+        {
+            for (int i = 0; i < entryCount; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var item = itemList[i];
+
+                progress?.Report(i + 1);
+
+                long remaining = item.PayloadSize;
+                while (remaining > 0)
+                {
+                    int toRead = (int)Math.Min(poolBuffer.Length, remaining);
+                    int read = await item.PayloadStream.ReadAsync(poolBuffer.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
+                    if (read == 0)
+                    {
+                        throw new EndOfStreamException($"Payload stream for key {item.Key} ended unexpectedly before declared size {item.PayloadSize}.");
+                    }
+                    await outputStream.WriteAsync(poolBuffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                    remaining -= read;
+                }
+
+                int trailingByteCount = await item.PayloadStream
+                    .ReadAsync(poolBuffer.AsMemory(0, 1), cancellationToken)
+                    .ConfigureAwait(false);
+                if (trailingByteCount != 0)
+                {
+                    throw new InvalidDataException($"Payload stream for key {item.Key} exceeds declared size {item.PayloadSize}.");
+                }
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(poolBuffer);
         }
     }
 
@@ -139,3 +183,4 @@ public sealed class HakWriter
         }
     }
 }
+

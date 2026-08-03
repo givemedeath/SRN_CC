@@ -46,15 +46,51 @@ public static class ResourceTypes
 
     public static ushort FromExtension(string? extension)
     {
-        if (string.IsNullOrWhiteSpace(extension))
-            return Invalid;
-
-        var normalized = extension.Trim().TrimStart('.');
-        return ExtensionToType.TryGetValue(normalized, out var type) ? type : Invalid;
+        return TryGetType(extension, out var type) ? type : Invalid;
     }
 
     public static string GetExtension(ushort resourceType)
     {
-        return TypeToExtension.TryGetValue(resourceType, out var extension) ? extension : string.Empty;
+        return TryGetExtension(resourceType, out var extension) ? extension : string.Empty;
+    }
+
+    public static bool TryGetType(string? extension, out ushort typeId)
+    {
+        typeId = 0;
+        if (string.IsNullOrWhiteSpace(extension))
+            return false;
+
+        var normalized = extension.Trim().TrimStart('.');
+        if (ExtensionToType.TryGetValue(normalized, out var knownType))
+        {
+            typeId = knownType;
+            return true;
+        }
+
+        var s = normalized;
+        if (s.StartsWith("r", StringComparison.OrdinalIgnoreCase))
+        {
+            s = s[1..];
+        }
+
+        if (s.Length is >= 1 and <= 5 && ushort.TryParse(s, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var numericType))
+        {
+            typeId = numericType;
+            return true;
+        }
+
+        return false;
+    }
+
+    public static bool TryGetExtension(ushort resourceType, out string extension)
+    {
+        if (TypeToExtension.TryGetValue(resourceType, out var ext))
+        {
+            extension = ext;
+            return true;
+        }
+
+        extension = string.Empty;
+        return false;
     }
 }

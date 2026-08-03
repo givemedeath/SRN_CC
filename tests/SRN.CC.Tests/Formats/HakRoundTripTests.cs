@@ -159,6 +159,16 @@ public class HakRoundTripTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*single-HAK limit*");
     }
 
+    [Test]
+    public void HAK_PayloadLongerThanDeclaredSize_ShouldThrow()
+    {
+        HakWriter.WriteItem item = new(new HakFormatKey("long"u8, 1), new MemoryStream("data"u8.ToArray()), 3);
+
+        Action act = () => Write(item);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*exceeds declared size*");
+    }
+
     private static HakWriter.WriteItem Item(string resref, ushort type, ReadOnlySpan<byte> payload)
     {
         byte[] bytes = payload.ToArray();
@@ -180,3 +190,4 @@ public class HakRoundTripTests
         return copy.ToArray();
     }
 }
+

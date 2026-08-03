@@ -283,4 +283,68 @@ public class ProjectStoreTests
         state.IsReadOnly.Should().BeTrue();
         state.Sources.Should().HaveCount(1);
     }
+
+    [Test]
+    public async Task PreserveNestedObjectUnknownProperties_OnSave_ShouldRetainPropertiesInPathAndLocator()
+    {
+        Guid sourceId = Guid.NewGuid();
+        string projectPath = Path.Combine(_tempDir, "nested_unknowns.srnccproj");
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            {
+              "id": "{{sourceId}}",
+              "kind": "hak",
+              "path": { "kind": "absolute", "value": "c:/test.hak", "extraPathMeta": "retained" }
+            }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        WorkspaceState state = await store.LoadAsync(projectPath);
+
+        string savePath = Path.Combine(_tempDir, "saved_nested_unknowns.srnccproj");
+        await store.SaveAsync(state, savePath);
+
+        string savedJson = await File.ReadAllTextAsync(savePath);
+        JsonNode savedNode = JsonNode.Parse(savedJson)!;
+
+        savedNode["sources"]?[0]?["path"]?["extraPathMeta"]?.GetValue<string>().Should().Be("retained");
+    }
+
+    [Test]
+    public async Task Schema1_WithInvalidSourceId_ShouldThrowInvalidOperationException()
+    {
+        string projectPath = Path.Combine(_tempDir, "invalid_schema1_id.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 1,
+          "sources": [
+            {
+              "id": "not-a-valid-guid",
+              "kind": "hak",
+              "path": { "kind": "absolute", "value": "c:/test.hak" }
+            }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
 }

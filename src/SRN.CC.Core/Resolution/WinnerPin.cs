@@ -5,10 +5,13 @@ namespace SRN.CC.Core.Resolution;
 
 public sealed record WinnerPin
 {
+    private readonly byte[] _pinHash;
+
     public AssetIdentity Identity { get; }
     public Guid SourceId { get; }
     public OccurrenceLocator Locator { get; }
-    public byte[] PinHash { get; }
+    public byte[] PinHash => _pinHash.ToArray();
+    public ReadOnlyMemory<byte> PinHashMemory => _pinHash;
 
     public WinnerPin(AssetIdentity identity, Guid sourceId, OccurrenceLocator locator, byte[] pinHash)
     {
@@ -24,7 +27,7 @@ public sealed record WinnerPin
         Identity = identity;
         SourceId = sourceId;
         Locator = locator;
-        PinHash = pinHash.ToArray();
+        _pinHash = pinHash.ToArray();
     }
 
     public bool Equals(WinnerPin? other)
@@ -34,7 +37,7 @@ public sealed record WinnerPin
         return Identity.Equals(other.Identity) &&
                SourceId.Equals(other.SourceId) &&
                Locator.Equals(other.Locator) &&
-               PinHash.AsSpan().SequenceEqual(other.PinHash);
+               _pinHash.AsSpan().SequenceEqual(other._pinHash);
     }
 
     public override int GetHashCode()
@@ -43,7 +46,7 @@ public sealed record WinnerPin
         hc.Add(Identity);
         hc.Add(SourceId);
         hc.Add(Locator);
-        hc.AddBytes(PinHash);
+        hc.AddBytes(_pinHash);
         return hc.ToHashCode();
     }
 }

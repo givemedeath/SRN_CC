@@ -35,7 +35,8 @@ public sealed class ProjectStore : IProjectStore
             throw new FileNotFoundException($"Project file not found at '{fullProjectPath}'.", fullProjectPath);
         }
 
-        string jsonContent = await File.ReadAllTextAsync(fullProjectPath, cancellationToken).ConfigureAwait(false);
+        byte[] rawDocumentBytes = await File.ReadAllBytesAsync(fullProjectPath, cancellationToken).ConfigureAwait(false);
+        string jsonContent = System.Text.Encoding.UTF8.GetString(rawDocumentBytes);
         JsonNode rootNode;
         try
         {
@@ -69,11 +70,31 @@ public sealed class ProjectStore : IProjectStore
             {
                 if (sourceNode is JsonObject sourceObj)
                 {
-                    Guid id = Guid.TryParse(sourceObj["id"]?.GetValue<string>(), out Guid parsedId) ? parsedId : Guid.NewGuid();
-                    string? kindStr = sourceObj["kind"]?.GetValue<string>();
-                    AssetSourceKind kind = Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out AssetSourceKind parsedKind)
-                        ? parsedKind
-                        : AssetSourceKind.Folder;
+                    Guid id;
+                    AssetSourceKind kind;
+                    if (!isReadOnly)
+                    {
+                        // Strict validation for schema 1
+                        string? idStr = sourceObj["id"]?.GetValue<string>();
+                        if (string.IsNullOrEmpty(idStr) || !Guid.TryParse(idStr, out id))
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source id '{idStr}'.");
+                        }
+                        string? kindStr = sourceObj["kind"]?.GetValue<string>();
+                        if (string.IsNullOrEmpty(kindStr) || !Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out kind))
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source kind '{kindStr}'.");
+                        }
+                    }
+                    else
+                    {
+                        // Shape-tolerant extraction for newer schema versions
+                        id = Guid.TryParse(sourceObj["id"]?.GetValue<string>(), out Guid parsedId) ? parsedId : Guid.NewGuid();
+                        string? kindStr = sourceObj["kind"]?.GetValue<string>();
+                        kind = Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out AssetSourceKind parsedKind)
+                            ? parsedKind
+                            : AssetSourceKind.Folder;
+                    }
 
                     JsonObject? pathObj = sourceObj["path"] as JsonObject;
                     string pathKind = pathObj?["kind"]?.GetValue<string>() ?? "absolute";
@@ -164,7 +185,8 @@ public sealed class ProjectStore : IProjectStore
             filters: rootObj["filters"],
             comparisonPreferences: rootObj["comparisonPreferences"],
             rawRootNode: rootObj,
-            rawDocumentText: jsonContent);
+            rawDocumentText: jsonContent,
+            rawDocumentBytes: rawDocumentBytes);
 
         // Index sources and resolve workspace
         Dictionary<Guid, SourceIndexSnapshot> snapshots = new();
@@ -232,12 +254,17 @@ public sealed class ProjectStore : IProjectStore
 
         if (state.IsReadOnly)
         {
+            if (state.Preferences.RawDocumentBytes is not null)
+            {
+                await WriteBytesAtomicallyAsync(fullTargetPath, state.Preferences.RawDocumentBytes, cancellationToken).ConfigureAwait(false);
+                return;
+            }
             if (!string.IsNullOrEmpty(state.Preferences.RawDocumentText))
             {
                 await WriteTextAtomicallyAsync(fullTargetPath, state.Preferences.RawDocumentText, cancellationToken).ConfigureAwait(false);
                 return;
             }
-            throw new InvalidOperationException("Cannot perform SaveAs on a newer schema read-only project without original document text.");
+            throw new InvalidOperationException("Cannot perform SaveAs on a newer schema read-only project without original document bytes.");
         }
 
         JsonObject rootObj = SerializeStateToJsonObject(state, fullTargetPath);
@@ -274,32 +301,27 @@ public sealed class ProjectStore : IProjectStore
             sourceObj["id"] = s.Id.ToString();
             sourceObj["kind"] = s.Kind.ToString().ToLowerInvariant();
 
+            JsonObject pathObj = sourceObj["path"]?.AsObject().DeepClone().AsObject() ?? new JsonObject();
             string relPath = GetRelativePathIfContained(projectDir, s.FullPath);
             if (relPath != s.FullPath)
             {
-                sourceObj["path"] = new JsonObject
-                {
-                    ["kind"] = "relative",
-                    ["value"] = relPath.Replace('\\', '/')
-                };
+                pathObj["kind"] = "relative";
+                pathObj["value"] = relPath.Replace('\\', '/');
             }
             else
             {
-                sourceObj["path"] = new JsonObject
-                {
-                    ["kind"] = "absolute",
-                    ["value"] = s.FullPath.Replace('\\', '/')
-                };
+                pathObj["kind"] = "absolute";
+                pathObj["value"] = s.FullPath.Replace('\\', '/');
             }
+            sourceObj["path"] = pathObj;
 
             if (s.Fingerprint is not null)
             {
-                sourceObj["fingerprint"] = new JsonObject
-                {
-                    ["kind"] = s.Fingerprint.Kind.ToString().ToLowerInvariant(),
-                    ["algorithmVersion"] = s.Fingerprint.AlgorithmVersion,
-                    ["digest"] = s.Fingerprint.ToHexString().ToLowerInvariant()
-                };
+                JsonObject fpObj = sourceObj["fingerprint"]?.AsObject().DeepClone().AsObject() ?? new JsonObject();
+                fpObj["kind"] = s.Fingerprint.Kind.ToString().ToLowerInvariant();
+                fpObj["algorithmVersion"] = s.Fingerprint.AlgorithmVersion;
+                fpObj["digest"] = s.Fingerprint.ToHexString().ToLowerInvariant();
+                sourceObj["fingerprint"] = fpObj;
             }
 
             sourcesArray.Add(sourceObj);
@@ -361,22 +383,18 @@ public sealed class ProjectStore : IProjectStore
             pinObj["sourceId"] = pin.SourceId.ToString();
             pinObj["sha256"] = Convert.ToHexString(pin.PinHash).ToLowerInvariant();
 
+            JsonObject locObj = pinObj["locator"]?.AsObject().DeepClone().AsObject() ?? new JsonObject();
             if (pin.Locator is HakEntryLocator hakLoc)
             {
-                pinObj["locator"] = new JsonObject
-                {
-                    ["kind"] = "hakEntry",
-                    ["index"] = hakLoc.EntryIndex
-                };
+                locObj["kind"] = "hakEntry";
+                locObj["index"] = hakLoc.EntryIndex;
             }
             else if (pin.Locator is FolderFileLocator folderLoc)
             {
-                pinObj["locator"] = new JsonObject
-                {
-                    ["kind"] = "folderPath",
-                    ["relativePath"] = folderLoc.NormalizedRelativePath
-                };
+                locObj["kind"] = "folderPath";
+                locObj["relativePath"] = folderLoc.NormalizedRelativePath;
             }
+            pinObj["locator"] = locObj;
 
             pinsArray.Add(pinObj);
         }
@@ -455,6 +473,37 @@ public sealed class ProjectStore : IProjectStore
             {
                 await writer.WriteAsync(text.AsMemory(), cancellationToken).ConfigureAwait(false);
                 await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+                fs.Flush(flushToDisk: true);
+            }
+
+            File.Move(tempPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+            throw;
+        }
+    }
+
+    private static async Task WriteBytesAtomicallyAsync(string targetPath, byte[] bytes, CancellationToken cancellationToken)
+    {
+        string? targetDir = Path.GetDirectoryName(targetPath);
+        if (!string.IsNullOrEmpty(targetDir))
+        {
+            Directory.CreateDirectory(targetDir);
+        }
+
+        string tempPath = targetPath + ".tmp." + Guid.NewGuid().ToString("N");
+
+        try
+        {
+            await using (FileStream fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+            {
+                await fs.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+                await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
                 fs.Flush(flushToDisk: true);
             }
 

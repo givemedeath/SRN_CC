@@ -32,7 +32,7 @@ public sealed record WorkspaceState
         ArgumentNullException.ThrowIfNull(pins);
 
         Sources = sources.ToList().AsReadOnly();
-        Snapshots = new Dictionary<Guid, SourceIndexSnapshot>(snapshots);
+        Snapshots = new System.Collections.ObjectModel.ReadOnlyDictionary<Guid, SourceIndexSnapshot>(new Dictionary<Guid, SourceIndexSnapshot>(snapshots));
         CuratedAssets = curatedAssets.ToList().AsReadOnly();
         SelectionState = selectionState;
         Pins = pins.ToList().AsReadOnly();

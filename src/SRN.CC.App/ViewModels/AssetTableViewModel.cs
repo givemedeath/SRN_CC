@@ -59,11 +59,17 @@ public partial class AssetTableViewModel : ObservableObject
             string label = a.ResolvedOccurrence != null && sourceLabels.TryGetValue(a.ResolvedOccurrence.SourceId, out var l)
                 ? l : "Unknown";
             string typeName = _registry.TryGetExtension(a.Identity.ResourceType, out var name) ? name.ToUpperInvariant() : "UNKNOWN";
-            return new AssetRowViewModel(a, typeName, label);
+            return new AssetRowViewModel(a, typeName, label, OnRowIsSelectedChanged);
         }).ToList();
 
         TotalAssetCount = _allRows.Count;
         ApplyFilters();
+    }
+
+    private void OnRowIsSelectedChanged(AssetRowViewModel row)
+    {
+        SelectedAssetCount = _allRows.Count(r => r.IsSelected);
+        _onRowSelectionChanged(row);
     }
 
     partial void OnSearchTextChanged(string value) => ApplyFilters();
@@ -105,6 +111,10 @@ public partial class AssetTableViewModel : ObservableObject
             row.IsSelected = true;
         }
         SelectedAssetCount = _allRows.Count(r => r.IsSelected);
+        if (FilteredRows.Count > 0)
+        {
+            _onRowSelectionChanged(FilteredRows[0]);
+        }
     }
 
     [RelayCommand]
@@ -115,5 +125,9 @@ public partial class AssetTableViewModel : ObservableObject
             row.IsSelected = false;
         }
         SelectedAssetCount = _allRows.Count(r => r.IsSelected);
+        if (FilteredRows.Count > 0)
+        {
+            _onRowSelectionChanged(FilteredRows[0]);
+        }
     }
 }

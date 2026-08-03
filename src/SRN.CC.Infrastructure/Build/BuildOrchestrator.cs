@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using SRN.CC.Core.Build;
 using SRN.CC.Core.Resolution;
 using SRN.CC.Core.Services;
@@ -14,19 +15,22 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
     private readonly ProvenanceManifestGenerator _manifestGenerator;
     private readonly IArtifactPublisher _publisher;
     private readonly IResourceTypeRegistry _registry;
+    private readonly ISourceReaderDispatcher _dispatcher;
 
     public BuildOrchestrator(
         IAssetPacker packer,
         IBuildVerifier verifier,
         ProvenanceManifestGenerator manifestGenerator,
         IArtifactPublisher publisher,
-        IResourceTypeRegistry registry)
+        IResourceTypeRegistry registry,
+        ISourceReaderDispatcher dispatcher)
     {
         _packer = packer ?? throw new ArgumentNullException(nameof(packer));
         _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
         _manifestGenerator = manifestGenerator ?? throw new ArgumentNullException(nameof(manifestGenerator));
         _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
     }
 
     public async Task<PublicationResult> ExecuteBuildAsync(
@@ -84,6 +88,13 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
             }
 
             string? sha256Hex = occ.Sha256 != null ? Convert.ToHexString(occ.Sha256).ToLowerInvariant() : null;
+            if (string.IsNullOrEmpty(sha256Hex))
+            {
+                await using var payloadStream = await _dispatcher.OpenOccurrenceAsync(src, occ, cancellationToken).ConfigureAwait(false);
+                using var sha = SHA256.Create();
+                byte[] hashBytes = await sha.ComputeHashAsync(payloadStream, cancellationToken).ConfigureAwait(false);
+                sha256Hex = Convert.ToHexString(hashBytes).ToLowerInvariant();
+            }
 
             buildItems.Add(new BuildItem(
                 Identity: asset.Identity,

@@ -52,6 +52,9 @@ public sealed class BuildVerifier : IBuildVerifier
                 errors.Add($"Entry count mismatch: HAK contains {entries.Count} entries, expected {plan.Items.Count}.");
             }
 
+            var expectedMap = plan.Items.ToDictionary(
+                item => new HakFormatKey(item.Identity.OriginalResrefBytes.Span, item.Identity.ResourceType));
+
             using (FileStream fs = new(tempHakPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, useAsync: true))
             {
                 byte[] buffer = new byte[65536];
@@ -82,9 +85,8 @@ public sealed class BuildVerifier : IBuildVerifier
 
                     string payloadHashHex = Convert.ToHexString(payloadSha.Hash!).ToLowerInvariant();
 
-                    if (i < plan.Items.Count)
+                    if (expectedMap.TryGetValue(entry.Key, out var expected))
                     {
-                        var expected = plan.Items[i];
                         if (entry.ResourceSize != expected.ExpectedSizeBytes)
                         {
                             errors.Add($"Size mismatch for entry {resrefStr}.{entry.Key.ResourceType}: expected {expected.ExpectedSizeBytes}, got {entry.ResourceSize}");
@@ -95,6 +97,10 @@ public sealed class BuildVerifier : IBuildVerifier
                         {
                             errors.Add($"SHA-256 mismatch for entry {resrefStr}.{entry.Key.ResourceType}: expected {expected.ExpectedSha256Hex}, got {payloadHashHex}");
                         }
+                    }
+                    else
+                    {
+                        errors.Add($"Unexpected entry in built HAK: {resrefStr}.{entry.Key.ResourceType}");
                     }
 
                     verifiedBytes += entry.ResourceSize;

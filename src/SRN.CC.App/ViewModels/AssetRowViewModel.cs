@@ -6,6 +6,8 @@ namespace SRN.CC.App.ViewModels;
 
 public partial class AssetRowViewModel : ObservableObject
 {
+    private readonly Action<AssetRowViewModel>? _onSelectionChanged;
+
     public CuratedAsset CuratedAsset { get; }
     public AssetIdentity Identity => CuratedAsset.Identity;
 
@@ -25,12 +27,17 @@ public partial class AssetRowViewModel : ObservableObject
     public string DiagnosticBadges { get; }
     public bool IsPinned => CuratedAsset.Pin != null;
 
-    public AssetRowViewModel(CuratedAsset asset, string resourceTypeName, string winnerSourceLabel)
+    public AssetRowViewModel(
+        CuratedAsset asset,
+        string resourceTypeName,
+        string winnerSourceLabel,
+        Action<AssetRowViewModel>? onSelectionChanged = null)
     {
         CuratedAsset = asset ?? throw new ArgumentNullException(nameof(asset));
         _isSelected = asset.IsSelected;
         ResourceTypeName = resourceTypeName;
         WinnerSourceLabel = winnerSourceLabel;
+        _onSelectionChanged = onSelectionChanged;
 
         var winner = asset.ResolvedOccurrence;
         if (winner != null)
@@ -58,6 +65,11 @@ public partial class AssetRowViewModel : ObservableObject
         if (asset.HasUnreadableOccurrence) badges.Add("Unreadable");
 
         DiagnosticBadges = badges.Count > 0 ? string.Join(" | ", badges) : "OK";
+    }
+
+    partial void OnIsSelectedChanged(bool value)
+    {
+        _onSelectionChanged?.Invoke(this);
     }
 
     private static string FormatBytes(long bytes)

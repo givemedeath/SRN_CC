@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Security.Cryptography;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Project;
 using SRN.CC.Core.Resolution;
+using SRN.CC.Core.Selection;
 using SRN.CC.Core.Services;
 using SRN.CC.Core.Sources;
 using SRN.CC.Core.Workspace;
@@ -21,6 +23,7 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly IBuildOrchestrator? _buildOrchestrator;
     private readonly PreviewEngine? _previewEngine;
     private readonly IResourceTypeRegistry? _registry;
+    private readonly ISourceReaderDispatcher? _dispatcher;
 
     private WorkspaceState? _workspaceState;
     private string? _currentProjectPath;
@@ -56,7 +59,8 @@ public partial class MainWindowViewModel : ObservableObject
         ISettingsStore settingsStore,
         IBuildOrchestrator buildOrchestrator,
         PreviewEngine previewEngine,
-        IResourceTypeRegistry registry)
+        IResourceTypeRegistry registry,
+        ISourceReaderDispatcher dispatcher)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
@@ -64,6 +68,7 @@ public partial class MainWindowViewModel : ObservableObject
         _buildOrchestrator = buildOrchestrator ?? throw new ArgumentNullException(nameof(buildOrchestrator));
         _previewEngine = previewEngine ?? throw new ArgumentNullException(nameof(previewEngine));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
 
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
@@ -114,6 +119,17 @@ public partial class MainWindowViewModel : ObservableObject
 
     private async Task OnRowSelectionChangedAsync(AssetRowViewModel row)
     {
+        if (_workspaceState != null && _workspaceService != null)
+        {
+            var overrides = new Dictionary<SRN.CC.Core.Identity.AssetIdentity, bool>();
+            foreach (var r in AssetTable.FilteredRows)
+            {
+                overrides[r.Identity] = r.IsSelected;
+            }
+            var newSelectionState = new SelectionState(defaultSelected: _workspaceState.SelectionState.DefaultSelected, overrides: overrides);
+            _workspaceState = await _workspaceService.UpdateSelectionAsync(newSelectionState).ConfigureAwait(true);
+        }
+
         if (_workspaceState == null) return;
         var selectedRows = AssetTable.FilteredRows.Where(r => r.IsSelected).Select(r => r.CuratedAsset).ToList();
         var sourceMap = _workspaceState.Sources.ToDictionary(s => s.Id);
@@ -124,11 +140,22 @@ public partial class MainWindowViewModel : ObservableObject
     {
         if (_workspaceService == null || _workspaceState == null) return;
 
-        byte[] pinHash = occurrence.Sha256 ?? new byte[32];
-        if (pinHash.Length != 32)
+        byte[]? pinHash = occurrence.Sha256;
+        if (pinHash == null || pinHash.Length == 0)
+        {
+            var source = _workspaceState.Sources.FirstOrDefault(s => s.Id == occurrence.SourceId);
+            if (source != null && _dispatcher != null)
+            {
+                await using var stream = await _dispatcher.OpenOccurrenceAsync(source, occurrence, CancellationToken.None).ConfigureAwait(true);
+                using var sha = SHA256.Create();
+                pinHash = await sha.ComputeHashAsync(stream, CancellationToken.None).ConfigureAwait(true);
+            }
+        }
+
+        if (pinHash == null || pinHash.Length != 32)
         {
             byte[] padded = new byte[32];
-            Array.Copy(pinHash, padded, Math.Min(pinHash.Length, 32));
+            if (pinHash != null) Array.Copy(pinHash, padded, Math.Min(pinHash.Length, 32));
             pinHash = padded;
         }
 

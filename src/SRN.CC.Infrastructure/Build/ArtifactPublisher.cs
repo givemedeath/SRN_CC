@@ -64,21 +64,21 @@ public sealed class ArtifactPublisher : IArtifactPublisher
             journal.LastUpdatedUtc = DateTime.UtcNow;
             await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
 
-            // Step 2: Replace HAK (HakReplaced)
+            // Step 2: Journal intent and Replace HAK (HakReplaced)
             logs.Add("Replacing HAK artifact...");
-            File.Move(tempHakPath, plan.DestinationHakPath, overwrite: true);
-
             journal.State = PublicationState.HakReplaced;
             journal.LastUpdatedUtc = DateTime.UtcNow;
             await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
 
-            // Step 3: Replace Manifest (ManifestReplaced)
-            logs.Add("Replacing Provenance Manifest artifact...");
-            File.Move(tempManifestPath, plan.DestinationManifestPath, overwrite: true);
+            File.Move(tempHakPath, plan.DestinationHakPath, overwrite: true);
 
+            // Step 3: Journal intent and Replace Manifest (ManifestReplaced)
+            logs.Add("Replacing Provenance Manifest artifact...");
             journal.State = PublicationState.ManifestReplaced;
             journal.LastUpdatedUtc = DateTime.UtcNow;
             await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
+
+            File.Move(tempManifestPath, plan.DestinationManifestPath, overwrite: true);
 
             // Step 4: Commit & Cleanup
             logs.Add("Committing transaction and removing backups...");

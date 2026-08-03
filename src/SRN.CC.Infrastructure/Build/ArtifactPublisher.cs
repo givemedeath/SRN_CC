@@ -8,6 +8,7 @@ public sealed class ArtifactPublisher : IArtifactPublisher
 {
     private const string JournalFileName = "publication-journal.json";
     private const string TransactionJournalSuffix = ".publication-journal.json";
+    private const int PublicationLockTimeoutMs = 20_000;
 
     public async Task<PublicationResult> PublishAsync(
         BuildPlan plan,
@@ -22,6 +23,7 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         List<string> logs = new();
         string destDir = Path.GetDirectoryName(plan.DestinationHakPath)!;
         if (string.IsNullOrEmpty(destDir)) destDir = ".";
+        string publicationLockPath = Path.Combine(destDir, $"{Path.GetFileName(plan.DestinationHakPath)}.publication.lock");
 
         string transactionId = Guid.NewGuid().ToString("N");
         string journalPath = Path.Combine(destDir, $"{Path.GetFileName(plan.DestinationHakPath)}.{transactionId}{TransactionJournalSuffix}");
@@ -48,71 +50,74 @@ public sealed class ArtifactPublisher : IArtifactPublisher
 
         try
         {
-            logs.Add("Writing publication journal (Prepared)...");
-            await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
-
-            // Step 1: Preflight locks and create backups (BackedUp)
-            logs.Add("Creating target backups...");
-            if (hakExisted)
+            await using (await AcquirePublicationLockAsync(publicationLockPath, cancellationToken).ConfigureAwait(false))
             {
-                File.Copy(plan.DestinationHakPath, hakBackupPath, overwrite: true);
-            }
-            if (manifestExisted)
-            {
-                File.Copy(plan.DestinationManifestPath, manifestBackupPath, overwrite: true);
-            }
+                logs.Add("Writing publication journal (Prepared)...");
+                await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
 
-            journal.State = PublicationState.BackedUp;
-            journal.LastUpdatedUtc = DateTime.UtcNow;
-            await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
-
-            // Step 2: Journal intent and Replace HAK (HakReplaced)
-            logs.Add("Replacing HAK artifact...");
-            journal.State = PublicationState.HakReplaced;
-            journal.LastUpdatedUtc = DateTime.UtcNow;
-            await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
-
-            File.Move(tempHakPath, plan.DestinationHakPath, overwrite: true);
-
-            // Step 3: Journal intent and Replace Manifest (ManifestReplaced)
-            logs.Add("Replacing Provenance Manifest artifact...");
-            journal.State = PublicationState.ManifestReplaced;
-            journal.LastUpdatedUtc = DateTime.UtcNow;
-            await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
-
-            File.Move(tempManifestPath, plan.DestinationManifestPath, overwrite: true);
-
-            // Step 4: Persist Committed state BEFORE cleanup
-            logs.Add("Committing transaction...");
-            journal.State = PublicationState.Committed;
-            journal.LastUpdatedUtc = DateTime.UtcNow;
-            await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
-
-            // Cleanup is best-effort after the commit point. A cleanup failure must
-            // never roll back one half of an already committed artifact pair.
-            try
-            {
-                if (File.Exists(hakBackupPath)) File.Delete(hakBackupPath);
-                if (File.Exists(manifestBackupPath)) File.Delete(manifestBackupPath);
-                if (!File.Exists(hakBackupPath) && !File.Exists(manifestBackupPath) && File.Exists(journalPath))
+                // Step 1: Preflight locks and create backups (BackedUp)
+                logs.Add("Creating target backups...");
+                if (hakExisted)
                 {
-                    File.Delete(journalPath);
+                    File.Copy(plan.DestinationHakPath, hakBackupPath, overwrite: true);
                 }
-            }
-            catch (Exception cleanupException)
-            {
-                logs.Add($"Publication committed; deferred cleanup after error: {cleanupException.Message}");
-            }
+                if (manifestExisted)
+                {
+                    File.Copy(plan.DestinationManifestPath, manifestBackupPath, overwrite: true);
+                }
 
-            logs.Add("Publication committed successfully.");
+                journal.State = PublicationState.BackedUp;
+                journal.LastUpdatedUtc = DateTime.UtcNow;
+                await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
 
-            return new PublicationResult(
-                IsSuccess: true,
-                PublishedHakPath: plan.DestinationHakPath,
-                PublishedManifestPath: plan.DestinationManifestPath,
-                ErrorMessage: null,
-                Logs: logs
-            );
+                // Step 2: Journal intent and Replace HAK (HakReplaced)
+                logs.Add("Replacing HAK artifact...");
+                journal.State = PublicationState.HakReplaced;
+                journal.LastUpdatedUtc = DateTime.UtcNow;
+                await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
+
+                File.Move(tempHakPath, plan.DestinationHakPath, overwrite: true);
+
+                // Step 3: Journal intent and Replace Manifest (ManifestReplaced)
+                logs.Add("Replacing Provenance Manifest artifact...");
+                journal.State = PublicationState.ManifestReplaced;
+                journal.LastUpdatedUtc = DateTime.UtcNow;
+                await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
+
+                File.Move(tempManifestPath, plan.DestinationManifestPath, overwrite: true);
+
+                // Step 4: Persist Committed state BEFORE cleanup
+                logs.Add("Committing transaction...");
+                journal.State = PublicationState.Committed;
+                journal.LastUpdatedUtc = DateTime.UtcNow;
+                await SaveJournalAsync(journalPath, journal, cancellationToken).ConfigureAwait(false);
+
+                // Cleanup is best-effort after the commit point. A cleanup failure must
+                // never roll back one half of an already committed artifact pair.
+                try
+                {
+                    if (File.Exists(hakBackupPath)) File.Delete(hakBackupPath);
+                    if (File.Exists(manifestBackupPath)) File.Delete(manifestBackupPath);
+                    if (!File.Exists(hakBackupPath) && !File.Exists(manifestBackupPath) && File.Exists(journalPath))
+                    {
+                        File.Delete(journalPath);
+                    }
+                }
+                catch (Exception cleanupException)
+                {
+                    logs.Add($"Publication committed; deferred cleanup after error: {cleanupException.Message}");
+                }
+
+                logs.Add("Publication committed successfully.");
+
+                return new PublicationResult(
+                    IsSuccess: true,
+                    PublishedHakPath: plan.DestinationHakPath,
+                    PublishedManifestPath: plan.DestinationManifestPath,
+                    ErrorMessage: null,
+                    Logs: logs
+                );
+            }
         }
         catch (Exception ex)
         {
@@ -259,5 +264,47 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         catch { }
 
         return Task.CompletedTask;
+    }
+
+    private static async Task<PublicationLock> AcquirePublicationLockAsync(string lockPath, CancellationToken cancellationToken)
+    {
+        DateTime timeoutAt = DateTime.UtcNow.AddMilliseconds(PublicationLockTimeoutMs);
+        while (true)
+        {
+            try
+            {
+                return new PublicationLock(lockPath);
+            }
+            catch (IOException) when (DateTime.UtcNow < timeoutAt)
+            {
+                await Task.Delay(75, cancellationToken).ConfigureAwait(false);
+            }
+            catch (IOException)
+            {
+                throw new TimeoutException($"Timed out waiting for publication lock '{lockPath}' after {PublicationLockTimeoutMs} ms.");
+            }
+        }
+    }
+
+    private sealed class PublicationLock : IAsyncDisposable
+    {
+        private readonly FileStream _stream;
+
+        public PublicationLock(string lockPath)
+        {
+            _stream = new FileStream(
+                lockPath,
+                FileMode.OpenOrCreate,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                bufferSize: 4096,
+                options: FileOptions.WriteThrough);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            _stream.Dispose();
+            return ValueTask.CompletedTask;
+        }
     }
 }

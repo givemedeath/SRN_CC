@@ -128,6 +128,23 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
         string tempHakPath = Path.Combine(destDir, $"{Guid.NewGuid():N}.tmp.hak");
         string tempManifestPath = Path.Combine(destDir, $"{Guid.NewGuid():N}.tmp.manifest.json");
 
+        long estimatedManifestSize = Math.Max(1, checked(selectedAssets.Count * 512L));
+        long estimatedExistingPayloadBytes = 0;
+        if (File.Exists(destNorm)) { estimatedExistingPayloadBytes += new FileInfo(destNorm).Length; }
+        if (File.Exists(destinationManifestPath)) { estimatedExistingPayloadBytes += new FileInfo(destinationManifestPath).Length; }
+
+        long requiredDiskBytes = checked(estimatedHakSize * 2L + estimatedManifestSize * 2L + estimatedExistingPayloadBytes);
+        if (!TryGetAvailableBytes(destDir, out var freeBytes, out var diskError))
+        {
+            return Fail(diskError);
+        }
+
+        if (requiredDiskBytes > freeBytes)
+        {
+            return Fail(
+                $"Insufficient disk space for build artifacts. Destination volume has approximately {freeBytes:N0} bytes available, but estimated requirement is {requiredDiskBytes:N0} bytes.");
+        }
+
         var plan = new BuildPlan
         {
             DestinationHakPath = destNorm,
@@ -177,5 +194,32 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
     {
         string directoryWithSeparator = Path.TrimEndingDirectorySeparator(directory) + Path.DirectorySeparatorChar;
         return path.StartsWith(directoryWithSeparator, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetAvailableBytes(string directory, out long availableBytes, out string error)
+    {
+        availableBytes = 0;
+        error = string.Empty;
+
+        try
+        {
+            var drive = DriveInfo.GetDrives()
+                .FirstOrDefault(d =>
+                    d.IsReady &&
+                    directory.StartsWith(d.RootDirectory.FullName, StringComparison.OrdinalIgnoreCase));
+            if (drive is null)
+            {
+                error = $"Could not locate destination volume for '{directory}'.";
+                return false;
+            }
+
+            availableBytes = drive.AvailableFreeSpace;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to check destination free space: {ex.Message}";
+            return false;
+        }
     }
 }

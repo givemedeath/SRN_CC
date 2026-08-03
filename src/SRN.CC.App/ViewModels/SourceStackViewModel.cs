@@ -10,6 +10,7 @@ public partial class SourceStackViewModel : ObservableObject
     private readonly Func<Task> _onWorkspaceChanged;
     private readonly Func<Task> _onAddHakSource;
     private readonly Func<Task> _onAddFolderSource;
+    private readonly Func<bool> _canMoveSources;
 
     [ObservableProperty]
     private ObservableCollection<SourceItemViewModel> _sources = new();
@@ -17,11 +18,16 @@ public partial class SourceStackViewModel : ObservableObject
     [ObservableProperty]
     private SourceItemViewModel? _selectedSource;
 
-    public SourceStackViewModel(Func<Task> onWorkspaceChanged, Func<Task>? onAddHakSource = null, Func<Task>? onAddFolderSource = null)
+    public SourceStackViewModel(
+        Func<Task> onWorkspaceChanged,
+        Func<Task>? onAddHakSource = null,
+        Func<Task>? onAddFolderSource = null,
+        Func<bool>? canMoveSources = null)
     {
         _onWorkspaceChanged = onWorkspaceChanged ?? throw new ArgumentNullException(nameof(onWorkspaceChanged));
         _onAddHakSource = onAddHakSource ?? (() => Task.CompletedTask);
         _onAddFolderSource = onAddFolderSource ?? (() => Task.CompletedTask);
+        _canMoveSources = canMoveSources ?? (() => true);
     }
 
     [RelayCommand]
@@ -30,12 +36,14 @@ public partial class SourceStackViewModel : ObservableObject
     [RelayCommand]
     private Task AddFolderSourceAsync() => _onAddFolderSource();
 
+    private bool CanMoveSource() => _canMoveSources();
+
     public void UpdateSources(IEnumerable<SourceItemViewModel> sources)
     {
         Sources = new ObservableCollection<SourceItemViewModel>(sources.OrderBy(s => s.PriorityOrdinal));
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanMoveSource))]
     private async Task MoveUpAsync()
     {
         if (SelectedSource == null) return;
@@ -47,7 +55,7 @@ public partial class SourceStackViewModel : ObservableObject
         await _onWorkspaceChanged().ConfigureAwait(false);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanMoveSource))]
     private async Task MoveDownAsync()
     {
         if (SelectedSource == null) return;

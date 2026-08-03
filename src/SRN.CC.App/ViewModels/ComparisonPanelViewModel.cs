@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SRN.CC.Core.Occurrences;
@@ -21,6 +22,7 @@ public partial class ComparisonPanelViewModel : ObservableObject
     private readonly Func<AssetOccurrence, Task> _onPinRequested;
     private IReadOnlyList<CuratedAsset> _selectedAssets = Array.Empty<CuratedAsset>();
     private IReadOnlyDictionary<Guid, AssetSource> _sourceMap = new Dictionary<Guid, AssetSource>();
+    private int _selectionUpdateGeneration;
 
     [ObservableProperty]
     private ComparisonMode _mode = ComparisonMode.OccurrenceMode;
@@ -51,25 +53,35 @@ public partial class ComparisonPanelViewModel : ObservableObject
         IReadOnlyList<CuratedAsset> selectedAssets,
         IReadOnlyDictionary<Guid, AssetSource> sourceMap)
     {
-        _selectedAssets = selectedAssets.ToArray();
-        _sourceMap = sourceMap;
+        int generation = Interlocked.Increment(ref _selectionUpdateGeneration);
+        var effectiveAssets = selectedAssets.ToArray();
+        var effectiveSourceMap = sourceMap.ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        _selectedAssets = effectiveAssets;
+        _sourceMap = effectiveSourceMap;
+
+        if (generation != _selectionUpdateGeneration)
+        {
+            return;
+        }
 
         if (Mode == ComparisonMode.OccurrenceMode)
         {
-            var targetAsset = selectedAssets.FirstOrDefault();
+            var targetAsset = effectiveAssets.FirstOrDefault();
             if (targetAsset == null)
             {
-                await ClearAllSlotsAsync().ConfigureAwait(false);
+                await ClearAllSlotsAsync(generation).ConfigureAwait(false);
                 return;
             }
 
             var occurrences = targetAsset.AllOccurrences;
             for (int i = 0; i < 3; i++)
             {
+                if (generation != _selectionUpdateGeneration) return;
                 if (i < occurrences.Count)
                 {
                     var occ = occurrences[i];
-                    sourceMap.TryGetValue(occ.SourceId, out var src);
+                    effectiveSourceMap.TryGetValue(occ.SourceId, out var src);
                     await Slots[i].AssignOccurrenceAsync(targetAsset, occ, src).ConfigureAwait(false);
                 }
                 else
@@ -82,11 +94,12 @@ public partial class ComparisonPanelViewModel : ObservableObject
         {
             for (int i = 0; i < 3; i++)
             {
-                if (i < selectedAssets.Count)
+                if (generation != _selectionUpdateGeneration) return;
+                if (i < effectiveAssets.Length)
                 {
-                    var asset = selectedAssets[i];
+                    var asset = effectiveAssets[i];
                     var winner = asset.ResolvedOccurrence;
-                    if (winner != null && sourceMap.TryGetValue(winner.SourceId, out var src))
+                    if (winner != null && effectiveSourceMap.TryGetValue(winner.SourceId, out var src))
                     {
                         await Slots[i].AssignOccurrenceAsync(asset, winner, src).ConfigureAwait(false);
                     }
@@ -105,15 +118,22 @@ public partial class ComparisonPanelViewModel : ObservableObject
 
     public async Task ClearSelectionAsync()
     {
+        int generation = Interlocked.Increment(ref _selectionUpdateGeneration);
         _selectedAssets = Array.Empty<CuratedAsset>();
         _sourceMap = new Dictionary<Guid, AssetSource>();
-        await ClearAllSlotsAsync().ConfigureAwait(false);
+        await ClearAllSlotsAsync(generation).ConfigureAwait(false);
     }
 
-    private async Task ClearAllSlotsAsync()
+    private async Task ClearAllSlotsAsync(int generation)
     {
+        if (generation != _selectionUpdateGeneration)
+        {
+            return;
+        }
+
         foreach (var slot in Slots)
         {
+            if (generation != _selectionUpdateGeneration) return;
             await slot.AssignOccurrenceAsync(null, null, null).ConfigureAwait(false);
         }
     }

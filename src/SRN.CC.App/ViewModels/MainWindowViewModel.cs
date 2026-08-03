@@ -45,7 +45,11 @@ public partial class MainWindowViewModel : ObservableObject
     {
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
-        SourceStack = new SourceStackViewModel(OnWorkspaceChangedAsync, AddHakSourceAsync, AddFolderSourceAsync);
+        SourceStack = new SourceStackViewModel(
+            OnWorkspaceChangedAsync,
+            AddHakSourceAsync,
+            AddFolderSourceAsync,
+            CanMoveSources);
         AssetTable = new AssetTableViewModel(
             new FallbackResourceTypeRegistry(),
             OnRowSelectionChanged,
@@ -78,7 +82,11 @@ public partial class MainWindowViewModel : ObservableObject
 
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
-        SourceStack = new SourceStackViewModel(OnWorkspaceChangedAsync, AddHakSourceAsync, AddFolderSourceAsync);
+        SourceStack = new SourceStackViewModel(
+            OnWorkspaceChangedAsync,
+            AddHakSourceAsync,
+            AddFolderSourceAsync,
+            CanMoveSources);
         AssetTable = new AssetTableViewModel(
             _registry,
             OnRowSelectionChanged,
@@ -93,6 +101,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     public async Task LoadWorkspaceStateAsync(WorkspaceState state, string? projectPath = null)
     {
+        await _pendingSelectionUpdate.ConfigureAwait(true);
         _workspaceState = state;
         _currentProjectPath = projectPath;
 
@@ -112,6 +121,8 @@ public partial class MainWindowViewModel : ObservableObject
 
         SaveProjectCommand.NotifyCanExecuteChanged();
         BuildHakCommand.NotifyCanExecuteChanged();
+        SourceStack.MoveUpCommand.NotifyCanExecuteChanged();
+        SourceStack.MoveDownCommand.NotifyCanExecuteChanged();
 
         OperationLog.AddEntry("INFO", $"Loaded workspace with {state.Sources.Count} sources and {state.CuratedAssets.Count} assets.");
     }
@@ -207,6 +218,10 @@ public partial class MainWindowViewModel : ObservableObject
     private async Task OnWorkspaceChangedAsync()
     {
         if (_workspaceService == null || _workspaceState == null) return;
+        if (_workspaceState.IsReadOnly)
+        {
+            return;
+        }
 
         var sourceOrders = SourceStack.Sources.Select(s => s.Source.Id).ToList();
         var (newState, _) = await _workspaceService.ReorderSourcesAsync(sourceOrders).ConfigureAwait(true);
@@ -391,6 +406,8 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     private bool CanBuildHak() => _workspaceState != null && !_workspaceState.IsReadOnly;
+
+    private bool CanMoveSources() => _workspaceState is { IsReadOnly: false };
 
     private async Task AddHakSourceAsync()
     {

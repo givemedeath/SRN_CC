@@ -594,4 +594,83 @@ public class ProjectStoreTests
         state.IsReadOnly.Should().BeTrue();
         state.Pins.Should().BeEmpty();
     }
+
+    [Test]
+    public async Task Schema1_NonObjectSourceArrayItem_ShouldThrowInvalidOperationException()
+    {
+        string projectPath = Path.Combine(_tempDir, "non_object_source.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 1,
+          "sources": [ "invalid_scalar_source" ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Schema1_MissingPinsArray_ShouldThrowInvalidOperationException()
+    {
+        string projectPath = Path.Combine(_tempDir, "missing_pins.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 1,
+          "sources": [],
+          "selectionState": { "defaultSelected": true, "overrides": [] }
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task PreserveCp1252Identities_DistinctCaseResrefs_ShouldOverlayCorrectly()
+    {
+        string projectPath = Path.Combine(_tempDir, "cp1252_overlay.srnccproj");
+        string json = """
+        {
+          "schemaVersion": 1,
+          "sources": [],
+          "selectionState": {
+            "defaultSelected": true,
+            "overrides": [
+              { "resref": "Ä", "resourceType": 2000, "selected": false, "customTag": "upper" },
+              { "resref": "ä", "resourceType": 2000, "selected": false, "customTag": "lower" }
+            ]
+          },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        WorkspaceState state = await store.LoadAsync(projectPath);
+        string savePath = Path.Combine(_tempDir, "saved_cp1252.srnccproj");
+        await store.SaveAsync(state, savePath);
+
+        string savedJson = await File.ReadAllTextAsync(savePath);
+        JsonNode savedNode = JsonNode.Parse(savedJson)!;
+        JsonArray overrides = savedNode["selectionState"]?["overrides"]?.AsArray()!;
+        overrides.Count.Should().Be(2);
+        overrides[0]?["customTag"]?.GetValue<string>().Should().Be("upper");
+        overrides[1]?["customTag"]?.GetValue<string>().Should().Be("lower");
+    }
 }

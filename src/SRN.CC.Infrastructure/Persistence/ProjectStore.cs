@@ -78,86 +78,115 @@ public sealed class ProjectStore : IProjectStore
             int priorityOrdinal = 0;
             foreach (JsonNode? sourceNode in sourcesArray)
             {
-                if (sourceNode is JsonObject sourceObj)
+                if (sourceNode is not JsonObject sourceObj)
                 {
-                    Guid id;
-                    AssetSourceKind kind;
                     if (!isReadOnly)
                     {
-                        // Strict validation for schema 1
-                        string? idStr = TryGetString(sourceObj["id"]);
-                        if (string.IsNullOrEmpty(idStr) || !Guid.TryParse(idStr, out id))
-                        {
-                            throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source id '{idStr}'.");
-                        }
-                        string? kindStr = TryGetString(sourceObj["kind"]);
-                        if (string.IsNullOrEmpty(kindStr) || !Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out kind))
-                        {
-                            throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source kind '{kindStr}'.");
-                        }
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' source array item must be a JSON object.");
                     }
-                    else
-                    {
-                        // Shape-tolerant extraction for newer schema versions
-                        string? idStr = TryGetString(sourceObj["id"]);
-                        id = Guid.TryParse(idStr, out Guid parsedId) ? parsedId : Guid.NewGuid();
-                        string? kindStr = TryGetString(sourceObj["kind"]);
-                        kind = Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out AssetSourceKind parsedKind)
-                            ? parsedKind
-                            : AssetSourceKind.Folder;
-                    }
-
-                    JsonObject? pathObj = sourceObj["path"] as JsonObject;
-                    if (!isReadOnly)
-                    {
-                        if (pathObj is null)
-                        {
-                            throw new InvalidOperationException($"Project file '{fullProjectPath}' source is missing required 'path' object.");
-                        }
-                        string? pathKindStr = TryGetString(pathObj["kind"]);
-                        string? pathValStr = TryGetString(pathObj["value"]);
-                        if (string.IsNullOrEmpty(pathKindStr) || (!pathKindStr.Equals("absolute", StringComparison.OrdinalIgnoreCase) && !pathKindStr.Equals("relative", StringComparison.OrdinalIgnoreCase)))
-                        {
-                            throw new InvalidOperationException($"Project file '{fullProjectPath}' source path has invalid or missing kind '{pathKindStr}'.");
-                        }
-                        if (string.IsNullOrWhiteSpace(pathValStr))
-                        {
-                            throw new InvalidOperationException($"Project file '{fullProjectPath}' source path has missing or empty value.");
-                        }
-                    }
-
-                    string pathKind = TryGetString(pathObj?["kind"]) ?? "absolute";
-                    string pathVal = TryGetString(pathObj?["value"]) ?? string.Empty;
-
-                    string resolvedPath = pathKind.Equals("relative", StringComparison.OrdinalIgnoreCase)
-                        ? Path.GetFullPath(Path.Combine(projectDir, pathVal))
-                        : (string.IsNullOrWhiteSpace(pathVal) ? fullProjectPath : Path.GetFullPath(pathVal));
-
-                    SourceFingerprint? fingerprint = null;
-                    if (sourceObj["fingerprint"] is JsonObject fpObj)
-                    {
-                        try
-                        {
-                            string? fpKindStr = TryGetString(fpObj["kind"]);
-                            AssetSourceKind fpKind = Enum.TryParse<AssetSourceKind>(fpKindStr, ignoreCase: true, out AssetSourceKind parsedFpKind) ? parsedFpKind : kind;
-                            int algVer = TryGetInt(fpObj["algorithmVersion"]) ?? 1;
-                            string? digestHex = TryGetString(fpObj["digest"]);
-                            if (!string.IsNullOrEmpty(digestHex) && digestHex.Length == 64)
-                            {
-                                byte[] digestBytes = Convert.FromHexString(digestHex);
-                                fingerprint = new SourceFingerprint(fpKind, algVer, digestBytes);
-                            }
-                        }
-                        catch
-                        {
-                            fingerprint = null;
-                        }
-                    }
-
-                    bool isAvailable = File.Exists(resolvedPath) || Directory.Exists(resolvedPath);
-                    AssetSource source = new AssetSource(id, kind, resolvedPath, priorityOrdinal++, isAvailable, fingerprint);
-                    sources.Add(source);
+                    continue;
                 }
+
+                Guid id;
+                AssetSourceKind kind;
+                if (!isReadOnly)
+                {
+                    // Strict validation for schema 1
+                    string? idStr = TryGetString(sourceObj["id"]);
+                    if (string.IsNullOrEmpty(idStr) || !Guid.TryParse(idStr, out id))
+                    {
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source id '{idStr}'.");
+                    }
+                    string? kindStr = TryGetString(sourceObj["kind"]);
+                    if (string.IsNullOrEmpty(kindStr) || !Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out kind))
+                    {
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source kind '{kindStr}'.");
+                    }
+                }
+                else
+                {
+                    // Shape-tolerant extraction for newer schema versions
+                    string? idStr = TryGetString(sourceObj["id"]);
+                    id = Guid.TryParse(idStr, out Guid parsedId) ? parsedId : Guid.NewGuid();
+                    string? kindStr = TryGetString(sourceObj["kind"]);
+                    kind = Enum.TryParse<AssetSourceKind>(kindStr, ignoreCase: true, out AssetSourceKind parsedKind)
+                        ? parsedKind
+                        : AssetSourceKind.Folder;
+                }
+
+                JsonObject? pathObj = sourceObj["path"] as JsonObject;
+                if (!isReadOnly)
+                {
+                    if (pathObj is null)
+                    {
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' source is missing required 'path' object.");
+                    }
+                    string? pathKindStr = TryGetString(pathObj["kind"]);
+                    string? pathValStr = TryGetString(pathObj["value"]);
+                    if (string.IsNullOrEmpty(pathKindStr) || (!pathKindStr.Equals("absolute", StringComparison.OrdinalIgnoreCase) && !pathKindStr.Equals("relative", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' source path has invalid or missing kind '{pathKindStr}'.");
+                    }
+                    if (string.IsNullOrWhiteSpace(pathValStr))
+                    {
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' source path has missing or empty value.");
+                    }
+                }
+
+                string pathKind = TryGetString(pathObj?["kind"]) ?? "absolute";
+                string pathVal = TryGetString(pathObj?["value"]) ?? string.Empty;
+
+                string resolvedPath = pathKind.Equals("relative", StringComparison.OrdinalIgnoreCase)
+                    ? Path.GetFullPath(Path.Combine(projectDir, pathVal))
+                    : (string.IsNullOrWhiteSpace(pathVal) ? fullProjectPath : Path.GetFullPath(pathVal));
+
+                SourceFingerprint? fingerprint = null;
+                if (sourceObj["fingerprint"] is JsonObject fpObj)
+                {
+                    string? fpKindStr = TryGetString(fpObj["kind"]);
+                    int? algVerVal = TryGetInt(fpObj["algorithmVersion"]);
+                    string? digestHex = TryGetString(fpObj["digest"]);
+
+                    if (!isReadOnly)
+                    {
+                        if (string.IsNullOrEmpty(fpKindStr) || !Enum.TryParse<AssetSourceKind>(fpKindStr, ignoreCase: true, out _))
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' fingerprint contains invalid kind '{fpKindStr}'.");
+                        }
+                        if (!algVerVal.HasValue || algVerVal.Value < 1)
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' fingerprint contains invalid algorithmVersion '{algVerVal}'.");
+                        }
+                        if (string.IsNullOrEmpty(digestHex) || digestHex.Length % 2 != 0 || !TryFromHexString(digestHex, out _))
+                        {
+                            throw new InvalidOperationException($"Project file '{fullProjectPath}' fingerprint contains invalid digest hex string.");
+                        }
+                    }
+
+                    try
+                    {
+                        AssetSourceKind fpKind = Enum.TryParse<AssetSourceKind>(fpKindStr, ignoreCase: true, out AssetSourceKind parsedFpKind) ? parsedFpKind : kind;
+                        int algVer = algVerVal ?? 1;
+                        byte[] digestBytes = !string.IsNullOrEmpty(digestHex) && TryFromHexString(digestHex, out byte[] parsedDigest) ? parsedDigest : Array.Empty<byte>();
+                        fingerprint = new SourceFingerprint(fpKind, algVer, digestBytes);
+                    }
+                    catch
+                    {
+                        if (!isReadOnly)
+                        {
+                            throw;
+                        }
+                        fingerprint = null;
+                    }
+                }
+                else if (!isReadOnly && sourceObj["fingerprint"] is not null)
+                {
+                    throw new InvalidOperationException($"Project file '{fullProjectPath}' fingerprint must be a JSON object.");
+                }
+
+                bool isAvailable = File.Exists(resolvedPath) || Directory.Exists(resolvedPath);
+                AssetSource source = new AssetSource(id, kind, resolvedPath, priorityOrdinal++, isAvailable, fingerprint);
+                sources.Add(source);
             }
         }
 
@@ -220,6 +249,11 @@ public sealed class ProjectStore : IProjectStore
         }
 
         // Parse pins
+        if (!isReadOnly && rootObj["pins"] is not JsonArray)
+        {
+            throw new InvalidOperationException($"Project file '{fullProjectPath}' is missing required 'pins' JSON array.");
+        }
+
         List<WinnerPin> pins = new();
         if (rootObj["pins"] is JsonArray pinsArray)
         {
@@ -249,7 +283,16 @@ public sealed class ProjectStore : IProjectStore
                     }
 
                     Guid sourceId = Guid.TryParse(sourceIdStr, out Guid parsedSrcId) ? parsedSrcId : Guid.Empty;
-                    byte[] pinHash = !string.IsNullOrEmpty(sha256Hex) && sha256Hex.Length == 64 ? Convert.FromHexString(sha256Hex) : new byte[32];
+                    byte[]? pinHash = null;
+                    if (!string.IsNullOrEmpty(sha256Hex) && sha256Hex.Length == 64 && TryFromHexString(sha256Hex, out byte[] parsedHash))
+                    {
+                        pinHash = parsedHash;
+                    }
+
+                    if (!isReadOnly && pinHash is null)
+                    {
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid pin sha256 hex string.");
+                    }
 
                     JsonObject? locObj = pinObj["locator"] as JsonObject;
                     if (!isReadOnly)
@@ -304,11 +347,15 @@ public sealed class ProjectStore : IProjectStore
                         }
                     }
 
-                    if (locator is not null && !string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
+                    if (pinHash is not null && locator is not null && !string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
                     {
                         AssetIdentity identity = new AssetIdentity(resref, (ushort)rawType);
                         pins.Add(new WinnerPin(identity, sourceId, locator, pinHash));
                     }
+                }
+                else if (!isReadOnly)
+                {
+                    throw new InvalidOperationException($"Project file '{fullProjectPath}' pin array item must be a JSON object.");
                 }
             }
         }
@@ -471,14 +518,15 @@ public sealed class ProjectStore : IProjectStore
         rootObj["sources"] = sourcesArray;
 
         // Serialize selection state overlaying on raw override nodes
-        Dictionary<(string Resref, ushort ResourceType), JsonObject> rawOverrideItems = new();
+        Dictionary<AssetIdentity, JsonObject> rawOverrideItems = new();
         if (rootObj["selectionState"] is JsonObject existingSelObj && existingSelObj["overrides"] is JsonArray existingOverridesArray)
         {
             foreach (JsonNode? item in existingOverridesArray)
             {
-                if (item is JsonObject obj && obj["resref"]?.GetValue<string>() is string resref && obj["resourceType"]?.GetValue<int>() is int resType)
+                if (item is JsonObject obj && TryGetString(obj["resref"]) is string resref && TryGetInt(obj["resourceType"]) is int resType && resType is >= 0 and <= ushort.MaxValue)
                 {
-                    rawOverrideItems[(resref.ToLowerInvariant(), (ushort)resType)] = obj.DeepClone().AsObject();
+                    AssetIdentity id = new AssetIdentity(resref, (ushort)resType);
+                    rawOverrideItems[id] = obj.DeepClone().AsObject();
                 }
             }
         }
@@ -488,7 +536,7 @@ public sealed class ProjectStore : IProjectStore
         JsonArray overridesArray = new JsonArray();
         foreach (var kvp in state.SelectionState.Overrides)
         {
-            JsonObject overrideObj = rawOverrideItems.TryGetValue((kvp.Key.OriginalName.ToLowerInvariant(), kvp.Key.ResourceType), out JsonObject? existingObj)
+            JsonObject overrideObj = rawOverrideItems.TryGetValue(kvp.Key, out JsonObject? existingObj)
                 ? existingObj
                 : new JsonObject();
 
@@ -501,14 +549,15 @@ public sealed class ProjectStore : IProjectStore
         rootObj["selectionState"] = selObj;
 
         // Serialize pins overlaying on raw pin nodes
-        Dictionary<(string Resref, ushort ResourceType), JsonObject> rawPinItems = new();
+        Dictionary<AssetIdentity, JsonObject> rawPinItems = new();
         if (rootObj["pins"] is JsonArray existingPinsArray)
         {
             foreach (JsonNode? item in existingPinsArray)
             {
-                if (item is JsonObject obj && obj["resref"]?.GetValue<string>() is string resref && obj["resourceType"]?.GetValue<int>() is int resType)
+                if (item is JsonObject obj && TryGetString(obj["resref"]) is string resref && TryGetInt(obj["resourceType"]) is int resType && resType is >= 0 and <= ushort.MaxValue)
                 {
-                    rawPinItems[(resref.ToLowerInvariant(), (ushort)resType)] = obj.DeepClone().AsObject();
+                    AssetIdentity id = new AssetIdentity(resref, (ushort)resType);
+                    rawPinItems[id] = obj.DeepClone().AsObject();
                 }
             }
         }
@@ -516,7 +565,7 @@ public sealed class ProjectStore : IProjectStore
         JsonArray pinsArray = new JsonArray();
         foreach (WinnerPin pin in state.Pins)
         {
-            JsonObject pinObj = rawPinItems.TryGetValue((pin.Identity.OriginalName.ToLowerInvariant(), pin.Identity.ResourceType), out JsonObject? existingObj)
+            JsonObject pinObj = rawPinItems.TryGetValue(pin.Identity, out JsonObject? existingObj)
                 ? existingObj
                 : new JsonObject();
 
@@ -686,5 +735,23 @@ public sealed class ProjectStore : IProjectStore
             return i;
         }
         return null;
+    }
+
+    private static bool TryFromHexString(string? hex, out byte[] bytes)
+    {
+        bytes = Array.Empty<byte>();
+        if (string.IsNullOrEmpty(hex) || hex.Length % 2 != 0)
+        {
+            return false;
+        }
+        try
+        {
+            bytes = Convert.FromHexString(hex);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

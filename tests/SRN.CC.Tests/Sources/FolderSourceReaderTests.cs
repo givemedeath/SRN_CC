@@ -116,8 +116,8 @@ public class FolderSourceReaderTests
         string secondDirectory = Path.Combine(_tempDir, "second");
         Directory.CreateDirectory(firstDirectory);
         Directory.CreateDirectory(secondDirectory);
-        await File.WriteAllTextAsync(Path.Combine(firstDirectory, "Ã‰.nss"), "first");
-        await File.WriteAllTextAsync(Path.Combine(secondDirectory, "Ã©.nss"), "second");
+        await File.WriteAllTextAsync(Path.Combine(firstDirectory, "\u00C9.nss"), "first");
+        await File.WriteAllTextAsync(Path.Combine(secondDirectory, "\u00E9.nss"), "second");
 
         SourceIndexSnapshot snapshot = await new FolderAssetSourceReader(_typeRegistry)
             .IndexAsync(AssetSource.CreateFolder(_tempDir));
@@ -126,4 +126,5 @@ public class FolderSourceReaderTests
             .Should().OnlyContain(occurrence => occurrence!.ValidationState == ValidationState.Valid);
     }
 }
+
 

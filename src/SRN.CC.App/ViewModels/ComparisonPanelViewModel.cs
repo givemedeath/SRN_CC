@@ -19,6 +19,8 @@ public partial class ComparisonPanelViewModel : ObservableObject
 {
     private readonly PreviewEngine _previewEngine;
     private readonly Func<AssetOccurrence, Task> _onPinRequested;
+    private IReadOnlyList<CuratedAsset> _selectedAssets = Array.Empty<CuratedAsset>();
+    private IReadOnlyDictionary<Guid, AssetSource> _sourceMap = new Dictionary<Guid, AssetSource>();
 
     [ObservableProperty]
     private ComparisonMode _mode = ComparisonMode.OccurrenceMode;
@@ -42,13 +44,16 @@ public partial class ComparisonPanelViewModel : ObservableObject
     private async Task ToggleModeAsync()
     {
         Mode = Mode == ComparisonMode.OccurrenceMode ? ComparisonMode.ResolvedMode : ComparisonMode.OccurrenceMode;
-        await ClearAllSlotsAsync().ConfigureAwait(false);
+        await UpdateSelectionAsync(_selectedAssets, _sourceMap).ConfigureAwait(false);
     }
 
     public async Task UpdateSelectionAsync(
         IReadOnlyList<CuratedAsset> selectedAssets,
         IReadOnlyDictionary<Guid, AssetSource> sourceMap)
     {
+        _selectedAssets = selectedAssets.ToArray();
+        _sourceMap = sourceMap;
+
         if (Mode == ComparisonMode.OccurrenceMode)
         {
             var targetAsset = selectedAssets.FirstOrDefault();

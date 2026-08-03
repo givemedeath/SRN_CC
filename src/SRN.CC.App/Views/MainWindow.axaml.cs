@@ -31,6 +31,30 @@ public partial class MainWindow : Window
                 });
                 return files.Count > 0 ? files[0].Path.LocalPath : null;
             };
+
+            vm.HakFilePickerAsync = async () =>
+            {
+                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Add HAK Sources",
+                    AllowMultiple = true,
+                    FileTypeFilter = new[]
+                    {
+                        new FilePickerFileType("HAK Files (*.hak)") { Patterns = new[] { "*.hak" } }
+                    }
+                });
+                return files.Select(file => file.Path.LocalPath).ToArray();
+            };
+
+            vm.FolderPickerAsync = async () =>
+            {
+                var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = "Add Folder Source",
+                    AllowMultiple = false
+                });
+                return folders.Count > 0 ? folders[0].Path.LocalPath : null;
+            };
         }
     }
 }

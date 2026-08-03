@@ -53,7 +53,7 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
             {
                 return Fail($"Output path '{destinationHakPath}' overlaps directly with source path '{source.FullPath}'.");
             }
-            if (source.Kind == AssetSourceKind.Folder && destNorm.StartsWith(srcNorm, StringComparison.OrdinalIgnoreCase))
+            if (source.Kind == AssetSourceKind.Folder && IsPathInsideDirectory(destNorm, srcNorm))
             {
                 return Fail($"Output path '{destinationHakPath}' is located inside source folder '{source.FullPath}'.");
             }
@@ -167,4 +167,10 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
 
     private static PublicationResult Fail(string message) =>
         new PublicationResult(false, null, null, message, new[] { message });
+
+    private static bool IsPathInsideDirectory(string path, string directory)
+    {
+        string directoryWithSeparator = Path.TrimEndingDirectorySeparator(directory) + Path.DirectorySeparatorChar;
+        return path.StartsWith(directoryWithSeparator, StringComparison.OrdinalIgnoreCase);
+    }
 }

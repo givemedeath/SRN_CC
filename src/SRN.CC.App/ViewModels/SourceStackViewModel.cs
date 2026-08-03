@@ -8,6 +8,8 @@ namespace SRN.CC.App.ViewModels;
 public partial class SourceStackViewModel : ObservableObject
 {
     private readonly Func<Task> _onWorkspaceChanged;
+    private readonly Func<Task> _onAddHakSource;
+    private readonly Func<Task> _onAddFolderSource;
 
     [ObservableProperty]
     private ObservableCollection<SourceItemViewModel> _sources = new();
@@ -15,10 +17,18 @@ public partial class SourceStackViewModel : ObservableObject
     [ObservableProperty]
     private SourceItemViewModel? _selectedSource;
 
-    public SourceStackViewModel(Func<Task> onWorkspaceChanged)
+    public SourceStackViewModel(Func<Task> onWorkspaceChanged, Func<Task>? onAddHakSource = null, Func<Task>? onAddFolderSource = null)
     {
         _onWorkspaceChanged = onWorkspaceChanged ?? throw new ArgumentNullException(nameof(onWorkspaceChanged));
+        _onAddHakSource = onAddHakSource ?? (() => Task.CompletedTask);
+        _onAddFolderSource = onAddFolderSource ?? (() => Task.CompletedTask);
     }
+
+    [RelayCommand]
+    private Task AddHakSourceAsync() => _onAddHakSource();
+
+    [RelayCommand]
+    private Task AddFolderSourceAsync() => _onAddFolderSource();
 
     public void UpdateSources(IEnumerable<SourceItemViewModel> sources)
     {

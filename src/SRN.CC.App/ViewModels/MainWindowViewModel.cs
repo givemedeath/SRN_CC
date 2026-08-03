@@ -27,6 +27,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     private WorkspaceState? _workspaceState;
     private string? _currentProjectPath;
+    private Task _pendingSelectionUpdate = Task.CompletedTask;
 
     [ObservableProperty]
     private string _title = "SRN.CC Asset Curator";
@@ -44,7 +45,7 @@ public partial class MainWindowViewModel : ObservableObject
     {
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
-        SourceStack = new SourceStackViewModel(OnWorkspaceChangedAsync);
+        SourceStack = new SourceStackViewModel(OnWorkspaceChangedAsync, AddHakSourceAsync, AddFolderSourceAsync);
         AssetTable = new AssetTableViewModel(
             new FallbackResourceTypeRegistry(),
             OnRowSelectionChanged,
@@ -77,7 +78,7 @@ public partial class MainWindowViewModel : ObservableObject
 
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
-        SourceStack = new SourceStackViewModel(OnWorkspaceChangedAsync);
+        SourceStack = new SourceStackViewModel(OnWorkspaceChangedAsync, AddHakSourceAsync, AddFolderSourceAsync);
         AssetTable = new AssetTableViewModel(
             _registry,
             OnRowSelectionChanged,
@@ -118,6 +119,8 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly SemaphoreSlim _selectionLock = new(1, 1);
 
     public Func<Task<string?>>? OpenFilePickerAsync { get; set; }
+    public Func<Task<IReadOnlyList<string>>>? HakFilePickerAsync { get; set; }
+    public Func<Task<string?>>? FolderPickerAsync { get; set; }
 
     [RelayCommand]
     private async Task NewProjectAsync()
@@ -164,6 +167,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveProjectAsync()
     {
+        await _pendingSelectionUpdate.ConfigureAwait(true);
         if (_workspaceState == null || _projectStore == null) return;
         string path = _currentProjectPath ?? Path.Combine(Directory.GetCurrentDirectory(), "project.srncc");
         await _projectStore.SaveAsync(_workspaceState, path).ConfigureAwait(true);
@@ -186,7 +190,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     private void OnRowSelectionChanged(AssetRowViewModel row)
     {
-        _ = OnRowSelectionChangedAsync(row);
+        _pendingSelectionUpdate = OnRowSelectionChangedAsync(row);
     }
 
     private async Task OnRowSelectionChangedAsync(AssetRowViewModel row)
@@ -214,7 +218,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     private void OnBatchSelectionChanged(IEnumerable<AssetRowViewModel> rows, bool selected)
     {
-        _ = OnBatchSelectionChangedAsync(rows, selected);
+        _pendingSelectionUpdate = OnBatchSelectionChangedAsync(rows, selected);
     }
 
     private async Task OnBatchSelectionChangedAsync(IEnumerable<AssetRowViewModel> rows, bool selected)
@@ -306,6 +310,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     private async Task BuildHakAsync()
     {
+        await _pendingSelectionUpdate.ConfigureAwait(true);
         if (_workspaceState == null || _buildOrchestrator == null)
         {
             OperationLog.AddEntry("WARN", "No active workspace loaded for build.");
@@ -347,6 +352,41 @@ public partial class MainWindowViewModel : ObservableObject
             StatusBar.EndOperation("Build error.");
             OperationLog.AddEntry("ERROR", $"Build exception: {ex.Message}");
         }
+    }
+
+    private async Task AddHakSourceAsync()
+    {
+        if (HakFilePickerAsync == null) return;
+        IReadOnlyList<string> paths = await HakFilePickerAsync().ConfigureAwait(true);
+        await AddSourcesAsync(paths.Select(path => AssetSource.CreateHak(path))).ConfigureAwait(true);
+    }
+
+    private async Task AddFolderSourceAsync()
+    {
+        if (FolderPickerAsync == null) return;
+        string? path = await FolderPickerAsync().ConfigureAwait(true);
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            await AddSourcesAsync(new[] { AssetSource.CreateFolder(path) }).ConfigureAwait(true);
+        }
+    }
+
+    private async Task AddSourcesAsync(IEnumerable<AssetSource> newSources)
+    {
+        if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly) return;
+
+        var additions = newSources.ToList();
+        if (additions.Count == 0) return;
+
+        var sources = _workspaceState.Sources.Concat(additions)
+            .Select((source, index) => source with { PriorityOrdinal = index })
+            .ToList();
+        var (state, _) = await _workspaceService.InitializeAsync(
+            sources,
+            _workspaceState.Pins,
+            _workspaceState.SelectionState,
+            _workspaceState.Preferences).ConfigureAwait(true);
+        LoadWorkspaceState(state, _currentProjectPath);
     }
 
     private void GenerateSyntheticDemoData()

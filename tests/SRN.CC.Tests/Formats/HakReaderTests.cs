@@ -158,4 +158,26 @@ public class HakReaderTests
         act.Should().Throw<InvalidOperationException>()
            .WithMessage("*exceeds single-HAK limit*");
     }
+
+    [TestCase(1u, 0u)]
+    [TestCase(0u, 1u)]
+    [TestCase(1u, 9u)]
+    public void Read_InconsistentLocalizedStringMetadata_Throws(uint languageCount, uint localizedStringSize)
+    {
+        byte[] bytes = new byte[checked(160 + (int)localizedStringSize)];
+        "HAK "u8.CopyTo(bytes);
+        "V1.0"u8.CopyTo(bytes.AsSpan(4));
+        BitConverter.TryWriteBytes(bytes.AsSpan(8, 4), languageCount);
+        BitConverter.TryWriteBytes(bytes.AsSpan(12, 4), localizedStringSize);
+        BitConverter.TryWriteBytes(bytes.AsSpan(20, 4), 160u);
+        uint tablesOffset = 160u + localizedStringSize;
+        BitConverter.TryWriteBytes(bytes.AsSpan(24, 4), tablesOffset);
+        BitConverter.TryWriteBytes(bytes.AsSpan(28, 4), tablesOffset);
+
+        using MemoryStream stream = new(bytes);
+        Action act = () => _ = new HakReader(stream);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*localized-string*");
+    }
 }
+

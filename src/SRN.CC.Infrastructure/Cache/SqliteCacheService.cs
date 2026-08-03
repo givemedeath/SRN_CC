@@ -81,6 +81,7 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
 
     private void EnsureDatabaseInitialized()
     {
+        string? quarantineReason = null;
         try
         {
             using SqliteConnection conn = CreateConnection();
@@ -89,63 +90,101 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
             string? checkResult = checkCmd.ExecuteScalar() as string;
             if (!string.Equals(checkResult, "ok", StringComparison.OrdinalIgnoreCase))
             {
-                QuarantineCorruptedDatabase("Quick check failed.");
-                return;
+                quarantineReason = "Quick check failed.";
             }
-
-            using SqliteCommand cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-                CREATE TABLE IF NOT EXISTS schema_info (
-                    version INTEGER PRIMARY KEY
-                );
-            ";
-            cmd.ExecuteNonQuery();
-
-            cmd.CommandText = "SELECT version FROM schema_info LIMIT 1;";
-            object? verObj = cmd.ExecuteScalar();
-            if (verObj == null)
+            else
             {
+                using SqliteCommand cmd = conn.CreateCommand();
                 cmd.CommandText = @"
-                    INSERT INTO schema_info (version) VALUES (1);
-                    CREATE TABLE source_snapshots (
-                        fingerprint BLOB PRIMARY KEY,
-                        source_kind INTEGER NOT NULL,
-                        timestamp_utc TEXT NOT NULL,
-                        record_count INTEGER NOT NULL,
-                        logical_bytes INTEGER NOT NULL,
-                        last_access_utc TEXT NOT NULL
+                    CREATE TABLE IF NOT EXISTS schema_info (
+                        version INTEGER PRIMARY KEY
                     );
-                    CREATE TABLE asset_records (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        fingerprint BLOB NOT NULL,
-                        sequence_index INTEGER NOT NULL,
-                        locator_type INTEGER NOT NULL,
-                        entry_index INTEGER,
-                        relative_path TEXT,
-                        original_name TEXT,
-                        canonical_resref TEXT,
-                        resource_type INTEGER,
-                        size INTEGER NOT NULL,
-                        validation_state INTEGER,
-                        diagnostic_code INTEGER,
-                        diagnostic_message TEXT,
-                        FOREIGN KEY(fingerprint) REFERENCES source_snapshots(fingerprint) ON DELETE CASCADE
-                    );
-                    CREATE INDEX idx_asset_records_fingerprint ON asset_records(fingerprint);
-                    CREATE INDEX idx_source_snapshots_lru ON source_snapshots(last_access_utc ASC);
                 ";
                 cmd.ExecuteNonQuery();
-            }
-            else if (Convert.ToInt32(verObj) != 1)
-            {
-                QuarantineCorruptedDatabase($"Unsupported cache schema version {verObj}.");
+
+                cmd.CommandText = "SELECT version FROM schema_info LIMIT 1;";
+                object? verObj = cmd.ExecuteScalar();
+                if (verObj == null)
+                {
+                    using SqliteTransaction tx = conn.BeginTransaction();
+                    cmd.Transaction = tx;
+                    cmd.CommandText = GetSchemaCreationSql(includeSchemaInfo: false);
+                    cmd.ExecuteNonQuery();
+                    tx.Commit();
+                }
+                else if (Convert.ToInt32(verObj) != 1)
+                {
+                    quarantineReason = $"Unsupported cache schema version {verObj}.";
+                }
+                else if (!HasCompleteVersionOneSchema(conn))
+                {
+                    quarantineReason = "Cache schema version 1 is incomplete.";
+                }
             }
         }
         catch (Exception ex)
         {
-            QuarantineCorruptedDatabase($"Database initialization error: {ex.Message}");
+            quarantineReason = $"Database initialization error: {ex.Message}";
+        }
+
+        // The initialization connection must be disposed before a Windows rename.
+        if (quarantineReason != null)
+        {
+            QuarantineCorruptedDatabase(quarantineReason);
         }
     }
+
+    private static bool HasCompleteVersionOneSchema(SqliteConnection conn)
+    {
+        return HasRequiredColumns(conn, "schema_info", "version") &&
+               HasRequiredColumns(conn, "source_snapshots", "fingerprint", "source_kind", "timestamp_utc", "record_count", "logical_bytes", "last_access_utc") &&
+               HasRequiredColumns(conn, "asset_records", "id", "fingerprint", "sequence_index", "locator_type", "entry_index", "relative_path", "original_name", "canonical_resref", "resource_type", "size", "validation_state", "diagnostic_code", "diagnostic_message");
+    }
+
+    private static bool HasRequiredColumns(SqliteConnection conn, string tableName, params string[] requiredColumns)
+    {
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info([{tableName}]);";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        HashSet<string> actualColumns = new(StringComparer.OrdinalIgnoreCase);
+        while (reader.Read())
+        {
+            actualColumns.Add(reader.GetString(1));
+        }
+
+        return requiredColumns.All(actualColumns.Contains);
+    }
+
+    private static string GetSchemaCreationSql(bool includeSchemaInfo) => $@"
+        {(includeSchemaInfo ? "CREATE TABLE schema_info (version INTEGER PRIMARY KEY);" : string.Empty)}
+        INSERT INTO schema_info (version) VALUES (1);
+        CREATE TABLE source_snapshots (
+            fingerprint BLOB PRIMARY KEY,
+            source_kind INTEGER NOT NULL,
+            timestamp_utc TEXT NOT NULL,
+            record_count INTEGER NOT NULL,
+            logical_bytes INTEGER NOT NULL,
+            last_access_utc TEXT NOT NULL
+        );
+        CREATE TABLE asset_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fingerprint BLOB NOT NULL,
+            sequence_index INTEGER NOT NULL,
+            locator_type INTEGER NOT NULL,
+            entry_index INTEGER,
+            relative_path TEXT,
+            original_name TEXT,
+            canonical_resref TEXT,
+            resource_type INTEGER,
+            size INTEGER NOT NULL,
+            validation_state INTEGER,
+            diagnostic_code INTEGER,
+            diagnostic_message TEXT,
+            FOREIGN KEY(fingerprint) REFERENCES source_snapshots(fingerprint) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_asset_records_fingerprint ON asset_records(fingerprint);
+        CREATE INDEX idx_source_snapshots_lru ON source_snapshots(last_access_utc ASC);
+    ";
 
     private void QuarantineCorruptedDatabase(string reason)
     {
@@ -164,36 +203,7 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         // Initialize clean database
         using SqliteConnection conn = CreateConnection();
         using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            CREATE TABLE schema_info (version INTEGER PRIMARY KEY);
-            INSERT INTO schema_info (version) VALUES (1);
-            CREATE TABLE source_snapshots (
-                fingerprint BLOB PRIMARY KEY,
-                source_kind INTEGER NOT NULL,
-                timestamp_utc TEXT NOT NULL,
-                record_count INTEGER NOT NULL,
-                logical_bytes INTEGER NOT NULL,
-                last_access_utc TEXT NOT NULL
-            );
-            CREATE TABLE asset_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fingerprint BLOB NOT NULL,
-                sequence_index INTEGER NOT NULL,
-                locator_type INTEGER NOT NULL,
-                entry_index INTEGER,
-                relative_path TEXT,
-                original_name TEXT,
-                canonical_resref TEXT,
-                resource_type INTEGER,
-                size INTEGER NOT NULL,
-                validation_state INTEGER,
-                diagnostic_code INTEGER,
-                diagnostic_message TEXT,
-                FOREIGN KEY(fingerprint) REFERENCES source_snapshots(fingerprint) ON DELETE CASCADE
-            );
-            CREATE INDEX idx_asset_records_fingerprint ON asset_records(fingerprint);
-            CREATE INDEX idx_source_snapshots_lru ON source_snapshots(last_access_utc ASC);
-        ";
+        cmd.CommandText = GetSchemaCreationSql(includeSchemaInfo: true);
         cmd.ExecuteNonQuery();
     }
 

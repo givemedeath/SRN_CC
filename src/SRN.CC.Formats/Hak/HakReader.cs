@@ -64,6 +64,11 @@ public sealed class HakReader
         long keyListSize = checked((long)EntryCount * 24); // 16 resref + 4 resId + 2 resType + 2 unused
         long resourceListSize = checked((long)EntryCount * 8); // 4 offset + 4 size
 
+        if ((LanguageCount == 0) != (LocalizedStringSize == 0))
+        {
+            throw new InvalidDataException("HAK localized-string count and size must either both be zero or both be nonzero.");
+        }
+
         // Validate table offsets and bounds
         if (OffsetToKeyList < 160 || OffsetToResourceList < 160)
         {
@@ -130,6 +135,11 @@ public sealed class HakReader
                 }
                 reader.ReadBytes(checked((int)strSize));
                 bytesRead += strSize;
+            }
+
+            if (bytesRead != LocalizedStringSize)
+            {
+                throw new InvalidDataException("HAK localized-string records do not exactly consume LocalizedStringSize.");
             }
         }
 

@@ -134,7 +134,7 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
 
         List<IndexedAssetRecord> records = new();
         List<AssetDiagnosticRecord> diagnostics = new();
-        HashSet<string> seenIdentities = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<AssetIdentity> seenIdentities = new();
 
         string rootPrefix = Path.GetFullPath(source.FullPath).TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
         long totalBytes = 0;
@@ -174,9 +174,8 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
                     continue;
                 }
 
-                string identityKey = identity.ToString();
                 ValidationState vState = ValidationState.Valid;
-                if (!seenIdentities.Add(identityKey))
+                if (!seenIdentities.Add(identity))
                 {
                     vState = ValidationState.DuplicateIdentity;
                 }

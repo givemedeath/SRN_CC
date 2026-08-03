@@ -83,6 +83,27 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
         ArgumentNullException.ThrowIfNull(source);
         Stopwatch sw = Stopwatch.StartNew();
 
+        SourceIndexSnapshot? snapshot = await ScanHakOnceAsync(source, progress, cancellationToken).ConfigureAwait(false);
+        if (snapshot == null)
+        {
+            progress?.Report(new IndexProgress(source.Id, IndexPhase.Scanning, 0, null, "Retrying HAK scan after drift..."));
+            snapshot = await ScanHakOnceAsync(source, progress, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (snapshot == null)
+        {
+            AssetDiagnosticRecord diag = new(DiagnosticCode.ChangedSourceFailure, "HAK file changed repeatedly during indexing scan.", targetPath: source.FullPath);
+            return CreateUnavailableSnapshot(source, diag, sw.Elapsed);
+        }
+
+        sw.Stop();
+        return snapshot;
+    }
+
+    private async Task<SourceIndexSnapshot?> ScanHakOnceAsync(AssetSource source, IProgress<IndexProgress>? progress, CancellationToken cancellationToken)
+    {
+        Stopwatch sw = Stopwatch.StartNew();
+
         FileInfo fileInfoBefore = new(source.FullPath);
         if (!fileInfoBefore.Exists)
         {
@@ -108,7 +129,7 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
 
         List<IndexedAssetRecord> records = new();
         List<AssetDiagnosticRecord> diagnostics = new();
-        HashSet<string> seenIdentities = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<AssetIdentity> seenIdentities = new();
 
         HakReader hakReader;
         using (FileStream stream = new(source.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -137,9 +158,8 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
                 continue;
             }
 
-            string identityKey = identity.ToString();
             ValidationState vState = ValidationState.Valid;
-            if (!seenIdentities.Add(identityKey))
+            if (!seenIdentities.Add(identity))
             {
                 vState = ValidationState.DuplicateIdentity;
             }
@@ -164,9 +184,7 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
             fileInfoAfter.Length != fileInfoBefore.Length ||
             fileInfoAfter.LastWriteTimeUtc != fileInfoBefore.LastWriteTimeUtc)
         {
-            AssetDiagnosticRecord diag = new(DiagnosticCode.SourceDriftDetected, "HAK file was modified during indexing scan.", targetPath: source.FullPath);
-            diagnostics.Add(diag);
-            return CreateUnavailableSnapshot(source, diag, sw.Elapsed);
+            return null;
         }
 
         sw.Stop();

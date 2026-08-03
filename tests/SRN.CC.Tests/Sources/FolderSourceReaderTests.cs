@@ -108,4 +108,22 @@ public class FolderSourceReaderTests
 
         content.Should().Be("Hello World Content");
     }
+
+    [Test]
+    public async Task IndexAsync_NonAsciiCaseVariants_AreDistinctIdentities()
+    {
+        string firstDirectory = Path.Combine(_tempDir, "first");
+        string secondDirectory = Path.Combine(_tempDir, "second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        await File.WriteAllTextAsync(Path.Combine(firstDirectory, "Ã‰.nss"), "first");
+        await File.WriteAllTextAsync(Path.Combine(secondDirectory, "Ã©.nss"), "second");
+
+        SourceIndexSnapshot snapshot = await new FolderAssetSourceReader(_typeRegistry)
+            .IndexAsync(AssetSource.CreateFolder(_tempDir));
+
+        snapshot.Records.Select(record => record.Occurrence).Where(occurrence => occurrence != null)
+            .Should().OnlyContain(occurrence => occurrence!.ValidationState == ValidationState.Valid);
+    }
 }
+

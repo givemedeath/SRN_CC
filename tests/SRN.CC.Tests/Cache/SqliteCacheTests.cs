@@ -27,6 +27,11 @@ public class SqliteCacheTests
         if (File.Exists(_tempDbPath)) File.Delete(_tempDbPath);
         if (File.Exists(_tempDbPath + "-wal")) File.Delete(_tempDbPath + "-wal");
         if (File.Exists(_tempDbPath + "-shm")) File.Delete(_tempDbPath + "-shm");
+        string directory = Path.GetDirectoryName(_tempDbPath)!;
+        foreach (string file in Directory.GetFiles(directory, Path.GetFileName(_tempDbPath) + ".corrupt-*"))
+        {
+            File.Delete(file);
+        }
     }
 
     [Test]
@@ -135,6 +140,43 @@ public class SqliteCacheTests
 
         SourceIndexSnapshot? restored = await cacheService.TryGetSnapshotAsync(source, fingerprint);
         restored!.ScanStatistics.TotalLogicalBytes.Should().Be(1_000);
+    }
+
+    [Test]
+    public void Initialize_UnsupportedSchema_QuarantinesAfterClosingConnection()
+    {
+        CreateDatabase("CREATE TABLE schema_info (version INTEGER PRIMARY KEY); INSERT INTO schema_info VALUES (2);");
+
+        Action act = () => { using SqliteCacheService _ = new(_tempDbPath); };
+
+        act.Should().NotThrow();
+        GetQuarantinedDatabases().Should().ContainSingle();
+    }
+
+    [Test]
+    public void Initialize_IncompleteVersionOneSchema_QuarantinesAndRebuilds()
+    {
+        CreateDatabase("CREATE TABLE schema_info (version INTEGER PRIMARY KEY); INSERT INTO schema_info VALUES (1);");
+
+        Action act = () => { using SqliteCacheService _ = new(_tempDbPath); };
+
+        act.Should().NotThrow();
+        GetQuarantinedDatabases().Should().ContainSingle();
+    }
+
+    private void CreateDatabase(string commandText)
+    {
+        using Microsoft.Data.Sqlite.SqliteConnection connection = new($"Data Source={_tempDbPath};Pooling=False");
+        connection.Open();
+        using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand();
+        command.CommandText = commandText;
+        command.ExecuteNonQuery();
+    }
+
+    private string[] GetQuarantinedDatabases()
+    {
+        string directory = Path.GetDirectoryName(_tempDbPath)!;
+        return Directory.GetFiles(directory, Path.GetFileName(_tempDbPath) + ".corrupt-*");
     }
 
     private static SourceIndexSnapshot CreateTestSnapshot(

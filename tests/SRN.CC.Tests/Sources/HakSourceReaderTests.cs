@@ -1,6 +1,8 @@
 using FluentAssertions;
 using NUnit.Framework;
 using SRN.CC.Core.Diagnostics;
+using SRN.CC.Core.Indexing;
+using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Snapshots;
 using SRN.CC.Core.Sources;
 using SRN.CC.Formats.Hak;
@@ -71,6 +73,58 @@ public class HakSourceReaderTests
         }
     }
 
+    [Test]
+    public async Task IndexAsync_DriftOnce_RetriesStableHak()
+    {
+        string hakPath = CreateHak("first", "data"u8.ToArray());
+        try
+        {
+            bool replaced = false;
+            InlineProgress<IndexProgress> progress = new(_ =>
+            {
+                if (replaced) return;
+                replaced = true;
+                WriteHak(hakPath, "second", "longer data"u8.ToArray());
+            });
+
+            SourceIndexSnapshot snapshot = await new HakAssetSourceReader()
+                .IndexAsync(AssetSource.CreateHak(hakPath), progress);
+
+            snapshot.Source.IsAvailable.Should().BeTrue();
+            snapshot.Records.Single().Occurrence!.Identity.OriginalName.Should().Be("second");
+        }
+        finally
+        {
+            File.Delete(hakPath);
+        }
+    }
+
+    [Test]
+    public async Task IndexAsync_NonAsciiCaseVariants_AreDistinctIdentities()
+    {
+        string hakPath = Path.Combine(Path.GetTempPath(), "SRNCC_HakSource_" + Guid.NewGuid().ToString("N") + ".hak");
+        try
+        {
+            using (FileStream output = new(hakPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                HakWriter.Write(output, new[]
+                {
+                    new HakWriter.WriteItem(new HakFormatKey(new byte[] { 0xC9 }, 2009), new MemoryStream("first"u8.ToArray()), 5),
+                    new HakWriter.WriteItem(new HakFormatKey(new byte[] { 0xE9 }, 2009), new MemoryStream("second"u8.ToArray()), 6)
+                });
+            }
+
+            SourceIndexSnapshot snapshot = await new HakAssetSourceReader().IndexAsync(AssetSource.CreateHak(hakPath));
+
+            snapshot.Records.Select(record => record.Occurrence).Where(occurrence => occurrence != null)
+                .Should().OnlyContain(occurrence => occurrence!.ValidationState == ValidationState.Valid);
+        }
+        finally
+        {
+            File.Delete(hakPath);
+        }
+    }
+
     private static string CreateHak(string resref, byte[] payload)
     {
         string path = Path.Combine(Path.GetTempPath(), "SRNCC_HakSource_" + Guid.NewGuid().ToString("N") + ".hak");
@@ -98,6 +152,11 @@ public class HakSourceReaderTests
         BitConverter.GetBytes((ushort)2009).CopyTo(bytes, 180);
         BitConverter.GetBytes(192u).CopyTo(bytes, 184);
         return bytes;
+    }
+
+    private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>
+    {
+        public void Report(T value) => callback(value);
     }
 }
 

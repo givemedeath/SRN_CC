@@ -115,11 +115,11 @@ public sealed class ProjectStore : IProjectStore
                     if (overrideNode is JsonObject overrideObj)
                     {
                         string? resref = overrideObj["resref"]?.GetValue<string>();
-                        ushort resourceType = (ushort)(overrideObj["resourceType"]?.GetValue<int>() ?? 0);
+                        int rawType = overrideObj["resourceType"]?.GetValue<int>() ?? -1;
                         bool selected = overrideObj["selected"]?.GetValue<bool>() ?? true;
-                        if (!string.IsNullOrEmpty(resref))
+                        if (!string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
                         {
-                            AssetIdentity id = new AssetIdentity(resref, resourceType);
+                            AssetIdentity id = new AssetIdentity(resref, (ushort)rawType);
                             overrides[id] = selected;
                         }
                     }
@@ -138,7 +138,7 @@ public sealed class ProjectStore : IProjectStore
                 if (pinNode is JsonObject pinObj)
                 {
                     string? resref = pinObj["resref"]?.GetValue<string>();
-                    ushort resourceType = (ushort)(pinObj["resourceType"]?.GetValue<int>() ?? 0);
+                    int rawType = pinObj["resourceType"]?.GetValue<int>() ?? -1;
                     Guid sourceId = Guid.TryParse(pinObj["sourceId"]?.GetValue<string>(), out Guid parsedSrcId) ? parsedSrcId : Guid.Empty;
                     string? sha256Hex = pinObj["sha256"]?.GetValue<string>();
                     byte[] pinHash = !string.IsNullOrEmpty(sha256Hex) ? Convert.FromHexString(sha256Hex) : new byte[32];
@@ -149,9 +149,9 @@ public sealed class ProjectStore : IProjectStore
                         ? new HakEntryLocator(locObj?["index"]?.GetValue<int>() ?? 0)
                         : new FolderFileLocator(locObj?["relativePath"]?.GetValue<string>() ?? string.Empty);
 
-                    if (!string.IsNullOrEmpty(resref))
+                    if (!string.IsNullOrEmpty(resref) && rawType is >= 0 and <= ushort.MaxValue)
                     {
-                        AssetIdentity identity = new AssetIdentity(resref, resourceType);
+                        AssetIdentity identity = new AssetIdentity(resref, (ushort)rawType);
                         pins.Add(new WinnerPin(identity, sourceId, locator, pinHash));
                     }
                 }
@@ -186,6 +186,10 @@ public sealed class ProjectStore : IProjectStore
                     scannedSources.Add(updatedSource);
                     snapshots[updatedSource.Id] = snapshot;
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch
             {

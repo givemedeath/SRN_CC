@@ -31,11 +31,11 @@ public sealed record WorkspaceState
         ArgumentNullException.ThrowIfNull(selectionState);
         ArgumentNullException.ThrowIfNull(pins);
 
-        Sources = sources;
-        Snapshots = snapshots;
-        CuratedAssets = curatedAssets;
+        Sources = sources.ToList().AsReadOnly();
+        Snapshots = new Dictionary<Guid, SourceIndexSnapshot>(snapshots);
+        CuratedAssets = curatedAssets.ToList().AsReadOnly();
         SelectionState = selectionState;
-        Pins = pins;
+        Pins = pins.ToList().AsReadOnly();
         Preferences = preferences ?? new ProjectPreferences();
         IsReadOnly = isReadOnly;
     }

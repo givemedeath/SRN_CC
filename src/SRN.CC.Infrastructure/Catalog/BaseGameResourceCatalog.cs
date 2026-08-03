@@ -92,8 +92,15 @@ public sealed class BaseGameResourceCatalog : IBaseGameResourceCatalog
         }
 
         var bifResource = bifFile.VariableResources[keyResource.VariableTableIndex];
+        if (bifResource.Id != keyResource.ResourceId || bifResource.ResourceType != keyResource.ResourceType)
+        {
+            throw new InvalidDataException(
+                $"KEY/BIF resource mismatch at BIF {keyResource.BifIndex}, variable index {keyResource.VariableTableIndex}.");
+        }
+
         Stream stream = BifReader.OpenPayloadStream(bifResource, bifPath);
         return Task.FromResult(stream);
     }
 }
+
 

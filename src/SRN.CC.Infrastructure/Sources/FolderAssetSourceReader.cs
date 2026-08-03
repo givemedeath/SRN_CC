@@ -174,6 +174,22 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
                     continue;
                 }
 
+                try
+                {
+                    using FileStream probe = new(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    _ = probe.ReadByte();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    AssetDiagnosticRecord diag = new(
+                        DiagnosticCode.FileReadError,
+                        $"File '{file.RelativePath}' cannot be read: {ex.Message}",
+                        targetPath: file.RelativePath);
+                    records.Add(new IndexedAssetRecord(diag));
+                    diagnostics.Add(diag);
+                    continue;
+                }
+
                 ValidationState vState = ValidationState.Valid;
                 if (!seenIdentities.Add(identity))
                 {
@@ -330,5 +346,6 @@ public sealed class FolderAssetSourceReader : IAssetSourceReader
             scanStatistics: stats);
     }
 }
+
 
 

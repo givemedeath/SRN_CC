@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using SRN.CC.Core.Diagnostics;
@@ -55,27 +56,50 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
         if (reader.LocalizedStringSize > 0)
         {
             stream.Position = reader.OffsetToLocalizedString;
-            byte[] locBytes = new byte[reader.LocalizedStringSize];
-            await stream.ReadExactlyAsync(locBytes, cancellationToken).ConfigureAwait(false);
-            hasher.AppendData(locBytes);
+            await AppendStreamRangeAsync(hasher, stream, reader.LocalizedStringSize, cancellationToken).ConfigureAwait(false);
         }
 
         // Append KeyList table
         long keyListSize = checked((long)reader.EntryCount * 24);
         stream.Position = reader.OffsetToKeyList;
-        byte[] keyBytes = new byte[keyListSize];
-        await stream.ReadExactlyAsync(keyBytes, cancellationToken).ConfigureAwait(false);
-        hasher.AppendData(keyBytes);
+        await AppendStreamRangeAsync(hasher, stream, keyListSize, cancellationToken).ConfigureAwait(false);
 
         // Append ResourceList table
         long resourceListSize = checked((long)reader.EntryCount * 8);
         stream.Position = reader.OffsetToResourceList;
-        byte[] resBytes = new byte[resourceListSize];
-        await stream.ReadExactlyAsync(resBytes, cancellationToken).ConfigureAwait(false);
-        hasher.AppendData(resBytes);
+        await AppendStreamRangeAsync(hasher, stream, resourceListSize, cancellationToken).ConfigureAwait(false);
 
         byte[] digest = hasher.GetHashAndReset();
         return new SourceFingerprint(AssetSourceKind.Hak, AlgorithmVersion, digest);
+    }
+
+    private static async Task AppendStreamRangeAsync(
+        IncrementalHash hasher,
+        Stream stream,
+        long length,
+        CancellationToken cancellationToken)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
+        {
+            long remaining = length;
+            while (remaining > 0)
+            {
+                int requested = (int)Math.Min(buffer.Length, remaining);
+                int read = await stream.ReadAsync(buffer.AsMemory(0, requested), cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    throw new EndOfStreamException("HAK metadata ended before the declared range was read.");
+                }
+
+                hasher.AppendData(buffer, 0, read);
+                remaining -= read;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     public async Task<SourceIndexSnapshot> IndexAsync(AssetSource source, IProgress<IndexProgress>? progress = null, CancellationToken cancellationToken = default)
@@ -259,5 +283,6 @@ public sealed class HakAssetSourceReader : IAssetSourceReader
             scanStatistics: stats);
     }
 }
+
 
 

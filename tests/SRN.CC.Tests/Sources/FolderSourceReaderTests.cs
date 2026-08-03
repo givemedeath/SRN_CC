@@ -140,7 +140,23 @@ public class FolderSourceReaderTests
 
         recovered.Source.IsAvailable.Should().BeTrue();
     }
+
+    [Test]
+    public async Task IndexAsync_UnreadableFile_EmitsFileReadError()
+    {
+        string filePath = Path.Combine(_tempDir, "locked.nss");
+        await File.WriteAllTextAsync(filePath, "data");
+        using FileStream exclusiveLock = new(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        SourceIndexSnapshot snapshot = await new FolderAssetSourceReader(_typeRegistry)
+            .IndexAsync(AssetSource.CreateFolder(_tempDir));
+
+        snapshot.Diagnostics.Should().ContainSingle(diagnostic =>
+            diagnostic.Code == DiagnosticCode.FileReadError && diagnostic.TargetPath == "locked.nss");
+        snapshot.Records.Should().NotContain(record => record.Occurrence != null);
+    }
 }
+
 
 
 

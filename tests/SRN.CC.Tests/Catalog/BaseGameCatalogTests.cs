@@ -56,6 +56,20 @@ public class BaseGameCatalogTests
         catalog.Contains(new AssetIdentity("sample", 2002)).Should().BeTrue();
     }
 
+    [Test]
+    public void BaseGameCatalog_BifResourceTypeMismatch_RejectsPayload()
+    {
+        string dataDir = Path.Combine(_tempDir, "data");
+        Directory.CreateDirectory(dataDir);
+        File.WriteAllBytes(Path.Combine(dataDir, "nwn_base.key"), BuildKey());
+        File.WriteAllBytes(Path.Combine(dataDir, "sample.bif"), BuildBif(resourceType: 2003));
+        BaseGameResourceCatalog catalog = new(_tempDir);
+
+        Action act = () => _ = catalog.OpenAsync(new AssetIdentity("sample", 2002));
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*KEY/BIF resource mismatch*");
+    }
+
     private static byte[] BuildKey()
     {
         using MemoryStream stream = new();
@@ -82,5 +96,23 @@ public class BaseGameCatalogTests
         writer.Write(Encoding.ASCII.GetBytes(filename));
         return stream.ToArray();
     }
+
+    private static byte[] BuildBif(uint resourceType)
+    {
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write("BIFF"u8);
+        writer.Write("V1  "u8);
+        writer.Write(1u);
+        writer.Write(0u);
+        writer.Write(20u);
+        writer.Write(0u);
+        writer.Write(36u);
+        writer.Write(4u);
+        writer.Write(resourceType);
+        writer.Write(new byte[] { 1, 2, 3, 4 });
+        return stream.ToArray();
+    }
 }
+
 

@@ -49,6 +49,7 @@ public partial class MainWindowViewModel : ObservableObject
             OnWorkspaceChangedAsync,
             AddHakSourceAsync,
             AddFolderSourceAsync,
+            RescanSourcesAsync,
             CanMoveSources);
         AssetTable = new AssetTableViewModel(
             new FallbackResourceTypeRegistry(),
@@ -86,6 +87,7 @@ public partial class MainWindowViewModel : ObservableObject
             OnWorkspaceChangedAsync,
             AddHakSourceAsync,
             AddFolderSourceAsync,
+            RescanSourcesAsync,
             CanMoveSources);
         AssetTable = new AssetTableViewModel(
             _registry,
@@ -431,6 +433,23 @@ public partial class MainWindowViewModel : ObservableObject
         {
             await AddSourcesAsync(new[] { AssetSource.CreateFolder(path) }).ConfigureAwait(true);
         }
+    }
+
+    private async Task RescanSourcesAsync()
+    {
+        if (_workspaceService == null || _workspaceState == null)
+        {
+            return;
+        }
+
+        if (_workspaceState.IsReadOnly)
+        {
+            OperationLog.AddEntry("WARN", "Workspace is read-only. Rescan is disabled.");
+            return;
+        }
+
+        var (state, _) = await _workspaceService.RescanAsync().ConfigureAwait(true);
+        await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
     }
 
     private async Task AddSourcesAsync(IEnumerable<AssetSource> newSources)

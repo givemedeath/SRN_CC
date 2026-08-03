@@ -10,6 +10,7 @@ public partial class SourceStackViewModel : ObservableObject
     private readonly Func<Task> _onWorkspaceChanged;
     private readonly Func<Task> _onAddHakSource;
     private readonly Func<Task> _onAddFolderSource;
+    private readonly Func<Task> _onRescanSources;
     private readonly Func<bool> _canMoveSources;
 
     [ObservableProperty]
@@ -22,11 +23,13 @@ public partial class SourceStackViewModel : ObservableObject
         Func<Task> onWorkspaceChanged,
         Func<Task>? onAddHakSource = null,
         Func<Task>? onAddFolderSource = null,
+        Func<Task>? onRescanSources = null,
         Func<bool>? canMoveSources = null)
     {
         _onWorkspaceChanged = onWorkspaceChanged ?? throw new ArgumentNullException(nameof(onWorkspaceChanged));
         _onAddHakSource = onAddHakSource ?? (() => Task.CompletedTask);
         _onAddFolderSource = onAddFolderSource ?? (() => Task.CompletedTask);
+        _onRescanSources = onRescanSources ?? (() => Task.CompletedTask);
         _canMoveSources = canMoveSources ?? (() => true);
     }
 
@@ -35,6 +38,9 @@ public partial class SourceStackViewModel : ObservableObject
 
     [RelayCommand]
     private Task AddFolderSourceAsync() => _onAddFolderSource();
+
+    [RelayCommand(CanExecute = nameof(CanMoveSource))]
+    private Task RescanSourcesAsync() => _onRescanSources();
 
     private bool CanMoveSource() => _canMoveSources();
 

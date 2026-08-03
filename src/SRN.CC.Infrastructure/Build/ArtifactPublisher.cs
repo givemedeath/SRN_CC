@@ -26,8 +26,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         string destDir = Path.GetDirectoryName(plan.DestinationHakPath)!;
         if (string.IsNullOrEmpty(destDir)) destDir = ".";
         string publicationLockPath = GetPublicationLockPath(plan.DestinationHakPath, plan.DestinationManifestPath, destDir);
-        bool hakExisted = File.Exists(plan.DestinationHakPath);
-        bool manifestExisted = File.Exists(plan.DestinationManifestPath);
+        bool existingHakAtStart = File.Exists(plan.DestinationHakPath);
+        bool existingManifestAtStart = File.Exists(plan.DestinationManifestPath);
 
         string transactionId = Guid.NewGuid().ToString("N");
         string journalPath = Path.Combine(destDir, $"{Path.GetFileName(plan.DestinationHakPath)}.{transactionId}{TransactionJournalSuffix}");
@@ -40,8 +40,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         {
             await using (await AcquirePublicationLockAsync(publicationLockPath, cancellationToken).ConfigureAwait(false))
             {
-                bool hakExisted = File.Exists(plan.DestinationHakPath);
-                bool manifestExisted = File.Exists(plan.DestinationManifestPath);
+                bool existingHakBeforePublish = File.Exists(plan.DestinationHakPath);
+                bool existingManifestBeforePublish = File.Exists(plan.DestinationManifestPath);
 
                 journal = new PublicationJournal
                 {
@@ -51,8 +51,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
                     TempManifestPath = tempManifestPath,
                     HakBackupPath = hakBackupPath,
                     ManifestBackupPath = manifestBackupPath,
-                    HakExistedBefore = hakExisted,
-                    ManifestExistedBefore = manifestExisted,
+                    HakExistedBefore = existingHakBeforePublish,
+                    ManifestExistedBefore = existingManifestBeforePublish,
                     State = PublicationState.Prepared,
                     CreatedUtc = DateTime.UtcNow,
                     LastUpdatedUtc = DateTime.UtcNow
@@ -63,11 +63,11 @@ public sealed class ArtifactPublisher : IArtifactPublisher
 
                 // Step 1: Preflight locks and create backups (BackedUp)
                 logs.Add("Creating target backups...");
-                if (hakExisted)
+                if (existingHakBeforePublish)
                 {
                     File.Copy(plan.DestinationHakPath, hakBackupPath, overwrite: true);
                 }
-                if (manifestExisted)
+                if (existingManifestBeforePublish)
                 {
                     File.Copy(plan.DestinationManifestPath, manifestBackupPath, overwrite: true);
                 }
@@ -127,7 +127,7 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         }
         catch (OperationCanceledException)
         {
-            if (journal.State != PublicationState.Committed)
+            if (journal is not null && journal.State != PublicationState.Committed)
             {
                 await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
             }

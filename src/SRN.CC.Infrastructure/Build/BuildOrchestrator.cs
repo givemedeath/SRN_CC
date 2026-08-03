@@ -108,9 +108,14 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
 
         // Preflight 3: Total estimated payload size < 2 GiB limit
         long totalPayloadSize = buildItems.Sum(i => i.ExpectedSizeBytes);
-        if (totalPayloadSize >= HakWriter.LegacySingleHakLimit)
+        long estimatedKeyListBytes = checked(buildItems.Count * 24L);
+        long estimatedResourceListBytes = checked(buildItems.Count * 8L);
+        long estimatedHeaderBytes = 160L;
+        long estimatedHakSize = checked(estimatedHeaderBytes + estimatedKeyListBytes + estimatedResourceListBytes + totalPayloadSize);
+        if (estimatedHakSize >= HakWriter.LegacySingleHakLimit)
         {
-            return Fail($"Total estimated payload size ({totalPayloadSize:N0} bytes) meets or exceeds the single-HAK limit ({HakWriter.LegacySingleHakLimit:N0} bytes).");
+            return Fail(
+                $"Estimated output HAK size ({estimatedHakSize:N0} bytes) with format overhead meets or exceeds the single-HAK limit ({HakWriter.LegacySingleHakLimit:N0} bytes).");
         }
 
         string destDir = Path.GetDirectoryName(destNorm)!;

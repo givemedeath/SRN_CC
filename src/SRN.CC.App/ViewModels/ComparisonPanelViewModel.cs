@@ -103,6 +103,13 @@ public partial class ComparisonPanelViewModel : ObservableObject
         }
     }
 
+    public async Task ClearSelectionAsync()
+    {
+        _selectedAssets = Array.Empty<CuratedAsset>();
+        _sourceMap = new Dictionary<Guid, AssetSource>();
+        await ClearAllSlotsAsync().ConfigureAwait(false);
+    }
+
     private async Task ClearAllSlotsAsync()
     {
         foreach (var slot in Slots)

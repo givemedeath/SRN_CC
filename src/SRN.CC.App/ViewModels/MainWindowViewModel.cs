@@ -91,10 +91,15 @@ public partial class MainWindowViewModel : ObservableObject
             OnPinRequestedAsync);
     }
 
-    public void LoadWorkspaceState(WorkspaceState state, string? projectPath = null)
+    public async Task LoadWorkspaceStateAsync(WorkspaceState state, string? projectPath = null)
     {
         _workspaceState = state;
         _currentProjectPath = projectPath;
+
+        AssetTable.SelectedRows.Clear();
+        AssetTable.SelectedRow = null;
+        await ComparisonPanel.ClearSelectionAsync().ConfigureAwait(true);
+
         Title = string.IsNullOrEmpty(projectPath)
             ? "SRN.CC Asset Curator — [Unsaved Project]"
             : $"SRN.CC Asset Curator — {Path.GetFileName(projectPath)}";
@@ -104,6 +109,8 @@ public partial class MainWindowViewModel : ObservableObject
 
         var sourceLabels = state.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(state.CuratedAssets, sourceLabels);
+
+        SaveProjectCommand.NotifyCanExecuteChanged();
 
         OperationLog.AddEntry("INFO", $"Loaded workspace with {state.Sources.Count} sources and {state.CuratedAssets.Count} assets.");
     }
@@ -127,7 +134,7 @@ public partial class MainWindowViewModel : ObservableObject
     {
         if (_workspaceService == null) return;
         var (state, _) = await _workspaceService.InitializeAsync(Array.Empty<AssetSource>()).ConfigureAwait(true);
-        LoadWorkspaceState(state, null);
+        await LoadWorkspaceStateAsync(state, null).ConfigureAwait(true);
         OperationLog.AddEntry("INFO", "Created new empty project workspace.");
     }
 
@@ -161,20 +168,27 @@ public partial class MainWindowViewModel : ObservableObject
             project.SelectionState,
             project.Preferences,
             isReadOnly: project.IsReadOnly).ConfigureAwait(true);
-        LoadWorkspaceState(state, path);
+        await LoadWorkspaceStateAsync(state, path).ConfigureAwait(true);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanSaveProject))]
     private async Task SaveProjectAsync()
     {
         await _pendingSelectionUpdate.ConfigureAwait(true);
         if (_workspaceState == null || _projectStore == null) return;
+        if (_workspaceState.IsReadOnly)
+        {
+            OperationLog.AddEntry("WARN", "Workspace is read-only. Open a writable copy before saving.");
+            return;
+        }
         string path = _currentProjectPath ?? Path.Combine(Directory.GetCurrentDirectory(), "project.srncc");
         await _projectStore.SaveAsync(_workspaceState, path).ConfigureAwait(true);
         _currentProjectPath = path;
         Title = $"SRN.CC Asset Curator — {Path.GetFileName(path)}";
         OperationLog.AddEntry("INFO", $"Saved project state to '{path}'.");
     }
+
+    private bool CanSaveProject() => _workspaceState != null && !_workspaceState.IsReadOnly;
 
     private async Task OnWorkspaceChangedAsync()
     {
@@ -209,11 +223,6 @@ public partial class MainWindowViewModel : ObservableObject
         {
             _selectionLock.Release();
         }
-
-        if (_workspaceState == null) return;
-        var selectedRows = AssetTable.FilteredRows.Where(r => r.IsSelected).Select(r => r.CuratedAsset).ToList();
-        var sourceMap = _workspaceState.Sources.ToDictionary(s => s.Id);
-        await ComparisonPanel.UpdateSelectionAsync(selectedRows, sourceMap).ConfigureAwait(true);
     }
 
     private void OnBatchSelectionChanged(IEnumerable<AssetRowViewModel> rows, bool selected)
@@ -239,11 +248,6 @@ public partial class MainWindowViewModel : ObservableObject
         {
             _selectionLock.Release();
         }
-
-        if (_workspaceState == null) return;
-        var selectedRows = AssetTable.FilteredRows.Where(r => r.IsSelected).Select(r => r.CuratedAsset).ToList();
-        var sourceMap = _workspaceState.Sources.ToDictionary(s => s.Id);
-        await ComparisonPanel.UpdateSelectionAsync(selectedRows, sourceMap).ConfigureAwait(true);
     }
 
     private void OnSelectedRowChanged(AssetRowViewModel? selectedRow)
@@ -386,7 +390,7 @@ public partial class MainWindowViewModel : ObservableObject
             _workspaceState.Pins,
             _workspaceState.SelectionState,
             _workspaceState.Preferences).ConfigureAwait(true);
-        LoadWorkspaceState(state, _currentProjectPath);
+        await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
     }
 
     private void GenerateSyntheticDemoData()

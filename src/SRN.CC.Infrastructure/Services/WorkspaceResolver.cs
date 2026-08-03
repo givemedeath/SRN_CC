@@ -60,6 +60,7 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
             }
         }
 
+        Dictionary<AssetIdentity, WinnerPin> finalPinsMap = new();
         List<CuratedAsset> curatedAssets = new();
 
         // Process each identity deterministically (ordered by identity.ToString())
@@ -107,6 +108,10 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
                 hasUnreadableOccurrence |= unreadable;
                 hasDifferingPayloads |= payloadConflict;
                 resolvedSha256 = pinHash;
+                if (finalPin is not null)
+                {
+                    finalPinsMap[identity] = finalPin;
+                }
             }
             else
             {
@@ -144,12 +149,14 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
             curatedAssets.Add(asset);
         }
 
+        List<WinnerPin> updatedPins = pins.Select(p => finalPinsMap.GetValueOrDefault(p.Identity, p)).ToList();
+
         return new WorkspaceState(
             sources: normalizedSources.AsReadOnly(),
             snapshots: snapshots,
             curatedAssets: curatedAssets.AsReadOnly(),
             selectionState: selectionState,
-            pins: pins,
+            pins: updatedPins.AsReadOnly(),
             preferences: preferences,
             isReadOnly: isReadOnly);
     }
@@ -326,6 +333,10 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
                 _hashCache.PutHash(source.Id, occurrence.Identity, occurrence.Locator, occurrence.Size, source.Fingerprint, computedHash);
             }
             return computedHash;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {

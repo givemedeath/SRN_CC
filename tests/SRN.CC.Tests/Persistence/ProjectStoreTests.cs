@@ -188,4 +188,69 @@ public class ProjectStoreTests
         savedNode["unknownRootProp"]?.GetValue<string>().Should().Be("preservedValue");
         savedNode["futureFeatureObject"]?["nested"]?.GetValue<int>().Should().Be(42);
     }
+
+    [Test]
+    public async Task PreserveArrayItemUnknownProperties_OnSave_ShouldRetainNestedUnknowns()
+    {
+        Guid sourceId = Guid.NewGuid();
+        string projectPath = Path.Combine(_tempDir, "unknown_array_items.srnccproj");
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            {
+              "id": "{{sourceId}}",
+              "kind": "hak",
+              "path": { "kind": "absolute", "value": "c:/test.hak" },
+              "unknownItemProp": "preservedInSourceItem"
+            }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        WorkspaceState state = await store.LoadAsync(projectPath);
+
+        string savePath = Path.Combine(_tempDir, "saved_array_unknowns.srnccproj");
+        await store.SaveAsync(state, savePath);
+
+        string savedJson = await File.ReadAllTextAsync(savePath);
+        JsonNode savedNode = JsonNode.Parse(savedJson)!;
+
+        savedNode["sources"]?[0]?["unknownItemProp"]?.GetValue<string>().Should().Be("preservedInSourceItem");
+    }
+
+    [Test]
+    public async Task SaveAs_NewerSchema_ShouldPreserveOriginalDocumentByteForByte()
+    {
+        string projectPath = Path.Combine(_tempDir, "future_schema.srnccproj");
+        string originalJson = """
+        {
+          "schemaVersion": 99,
+          "sources": [],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": [],
+          "futureSchemaProperty": "importantData"
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, originalJson);
+
+        MockIndexService indexService = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(new DummyHashService(), new AssetHashCache());
+        ProjectStore store = new ProjectStore(indexService, resolver);
+
+        WorkspaceState state = await store.LoadAsync(projectPath);
+
+        string saveAsPath = Path.Combine(_tempDir, "copy_future_schema.srnccproj");
+        await store.SaveAsAsync(state, saveAsPath);
+
+        string savedJson = await File.ReadAllTextAsync(saveAsPath);
+        savedJson.Should().Be(originalJson, "SaveAs on read-only newer schema must preserve original document byte-for-byte");
+    }
 }

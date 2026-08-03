@@ -155,7 +155,8 @@ public sealed class ProjectStore : IProjectStore
             outputSettings: rootObj["outputSettings"],
             filters: rootObj["filters"],
             comparisonPreferences: rootObj["comparisonPreferences"],
-            rawRootNode: rootObj);
+            rawRootNode: rootObj,
+            rawDocumentText: jsonContent);
 
         // Index sources and resolve workspace
         Dictionary<Guid, SourceIndexSnapshot> snapshots = new();
@@ -166,9 +167,17 @@ public sealed class ProjectStore : IProjectStore
             try
             {
                 SourceIndexSnapshot snapshot = await _indexService.IndexAsync(s, progress: null, cancellationToken).ConfigureAwait(false);
-                AssetSource updatedSource = new AssetSource(s.Id, s.Kind, s.FullPath, s.PriorityOrdinal, isAvailable: true, snapshot.Fingerprint);
-                scannedSources.Add(updatedSource);
-                snapshots[updatedSource.Id] = snapshot;
+                if (!snapshot.Source.IsAvailable)
+                {
+                    AssetSource unavailable = new AssetSource(s.Id, s.Kind, s.FullPath, s.PriorityOrdinal, isAvailable: false, s.Fingerprint);
+                    scannedSources.Add(unavailable);
+                }
+                else
+                {
+                    AssetSource updatedSource = new AssetSource(s.Id, s.Kind, s.FullPath, s.PriorityOrdinal, isAvailable: true, snapshot.Fingerprint);
+                    scannedSources.Add(updatedSource);
+                    snapshots[updatedSource.Id] = snapshot;
+                }
             }
             catch
             {
@@ -211,18 +220,12 @@ public sealed class ProjectStore : IProjectStore
 
         if (state.IsReadOnly)
         {
-            // For read-only (newer schema) documents, SaveAs requires byte-for-byte preservation if the source file exists
-            if (File.Exists(fullTargetPath))
+            if (!string.IsNullOrEmpty(state.Preferences.RawDocumentText))
             {
-                // Verify byte-for-byte identity
-                JsonObject readOnlyObj = SerializeStateToJsonObject(state, fullTargetPath);
-                await WriteJsonAtomicallyAsync(fullTargetPath, readOnlyObj, cancellationToken).ConfigureAwait(false);
+                await WriteTextAtomicallyAsync(fullTargetPath, state.Preferences.RawDocumentText, cancellationToken).ConfigureAwait(false);
                 return;
             }
-            else
-            {
-                throw new InvalidOperationException("Cannot perform SaveAs on a newer schema read-only project without preserving original document.");
-            }
+            throw new InvalidOperationException("Cannot perform SaveAs on a newer schema read-only project without original document text.");
         }
 
         JsonObject rootObj = SerializeStateToJsonObject(state, fullTargetPath);
@@ -236,17 +239,29 @@ public sealed class ProjectStore : IProjectStore
         JsonObject rootObj = state.Preferences.RawRootNode?.DeepClone() as JsonObject ?? new JsonObject();
         rootObj["schemaVersion"] = CurrentSchemaVersion;
 
-        // Serialize sources
+        // Serialize sources overlaying on raw array item nodes
+        Dictionary<string, JsonObject> rawSourceItems = new();
+        if (rootObj["sources"] is JsonArray existingSourcesArray)
+        {
+            foreach (JsonNode? item in existingSourcesArray)
+            {
+                if (item is JsonObject obj && obj["id"]?.GetValue<string>() is string idStr)
+                {
+                    rawSourceItems[idStr] = obj.DeepClone().AsObject();
+                }
+            }
+        }
+
         JsonArray sourcesArray = new JsonArray();
         foreach (AssetSource s in state.Sources)
         {
-            JsonObject sourceObj = new JsonObject
-            {
-                ["id"] = s.Id.ToString(),
-                ["kind"] = s.Kind.ToString().ToLowerInvariant()
-            };
+            JsonObject sourceObj = rawSourceItems.TryGetValue(s.Id.ToString(), out JsonObject? existingObj)
+                ? existingObj
+                : new JsonObject();
 
-            // Path representation (relative if contained in projectDir or subdirectory, else absolute)
+            sourceObj["id"] = s.Id.ToString();
+            sourceObj["kind"] = s.Kind.ToString().ToLowerInvariant();
+
             string relPath = GetRelativePathIfContained(projectDir, s.FullPath);
             if (relPath != s.FullPath)
             {
@@ -279,35 +294,60 @@ public sealed class ProjectStore : IProjectStore
         }
         rootObj["sources"] = sourcesArray;
 
-        // Serialize selection state
-        JsonObject selObj = new JsonObject
+        // Serialize selection state overlaying on raw override nodes
+        Dictionary<(string Resref, ushort ResourceType), JsonObject> rawOverrideItems = new();
+        if (rootObj["selectionState"] is JsonObject existingSelObj && existingSelObj["overrides"] is JsonArray existingOverridesArray)
         {
-            ["defaultSelected"] = state.SelectionState.DefaultSelected
-        };
+            foreach (JsonNode? item in existingOverridesArray)
+            {
+                if (item is JsonObject obj && obj["resref"]?.GetValue<string>() is string resref && obj["resourceType"]?.GetValue<int>() is int resType)
+                {
+                    rawOverrideItems[(resref.ToLowerInvariant(), (ushort)resType)] = obj.DeepClone().AsObject();
+                }
+            }
+        }
+
+        JsonObject selObj = rootObj["selectionState"]?.AsObject() ?? new JsonObject();
+        selObj["defaultSelected"] = state.SelectionState.DefaultSelected;
         JsonArray overridesArray = new JsonArray();
         foreach (var kvp in state.SelectionState.Overrides)
         {
-            overridesArray.Add(new JsonObject
-            {
-                ["resref"] = kvp.Key.OriginalName,
-                ["resourceType"] = kvp.Key.ResourceType,
-                ["selected"] = kvp.Value
-            });
+            JsonObject overrideObj = rawOverrideItems.TryGetValue((kvp.Key.OriginalName.ToLowerInvariant(), kvp.Key.ResourceType), out JsonObject? existingObj)
+                ? existingObj
+                : new JsonObject();
+
+            overrideObj["resref"] = kvp.Key.OriginalName;
+            overrideObj["resourceType"] = kvp.Key.ResourceType;
+            overrideObj["selected"] = kvp.Value;
+            overridesArray.Add(overrideObj);
         }
         selObj["overrides"] = overridesArray;
         rootObj["selectionState"] = selObj;
 
-        // Serialize pins
+        // Serialize pins overlaying on raw pin nodes
+        Dictionary<(string Resref, ushort ResourceType), JsonObject> rawPinItems = new();
+        if (rootObj["pins"] is JsonArray existingPinsArray)
+        {
+            foreach (JsonNode? item in existingPinsArray)
+            {
+                if (item is JsonObject obj && obj["resref"]?.GetValue<string>() is string resref && obj["resourceType"]?.GetValue<int>() is int resType)
+                {
+                    rawPinItems[(resref.ToLowerInvariant(), (ushort)resType)] = obj.DeepClone().AsObject();
+                }
+            }
+        }
+
         JsonArray pinsArray = new JsonArray();
         foreach (WinnerPin pin in state.Pins)
         {
-            JsonObject pinObj = new JsonObject
-            {
-                ["resref"] = pin.Identity.OriginalName,
-                ["resourceType"] = pin.Identity.ResourceType,
-                ["sourceId"] = pin.SourceId.ToString(),
-                ["sha256"] = Convert.ToHexString(pin.PinHash).ToLowerInvariant()
-            };
+            JsonObject pinObj = rawPinItems.TryGetValue((pin.Identity.OriginalName.ToLowerInvariant(), pin.Identity.ResourceType), out JsonObject? existingObj)
+                ? existingObj
+                : new JsonObject();
+
+            pinObj["resref"] = pin.Identity.OriginalName;
+            pinObj["resourceType"] = pin.Identity.ResourceType;
+            pinObj["sourceId"] = pin.SourceId.ToString();
+            pinObj["sha256"] = Convert.ToHexString(pin.PinHash).ToLowerInvariant();
 
             if (pin.Locator is HakEntryLocator hakLoc)
             {
@@ -371,6 +411,38 @@ public sealed class ProjectStore : IProjectStore
             {
                 await JsonSerializer.SerializeAsync(fs, rootNode, options, cancellationToken).ConfigureAwait(false);
                 await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
+                fs.Flush(flushToDisk: true);
+            }
+
+            File.Move(tempPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+            throw;
+        }
+    }
+
+    private static async Task WriteTextAtomicallyAsync(string targetPath, string text, CancellationToken cancellationToken)
+    {
+        string? targetDir = Path.GetDirectoryName(targetPath);
+        if (!string.IsNullOrEmpty(targetDir))
+        {
+            Directory.CreateDirectory(targetDir);
+        }
+
+        string tempPath = targetPath + ".tmp." + Guid.NewGuid().ToString("N");
+
+        try
+        {
+            await using (FileStream fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+            await using (StreamWriter writer = new StreamWriter(fs, System.Text.Encoding.UTF8))
+            {
+                await writer.WriteAsync(text.AsMemory(), cancellationToken).ConfigureAwait(false);
+                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
                 fs.Flush(flushToDisk: true);
             }
 

@@ -364,8 +364,17 @@ public sealed class WorkspaceService : IWorkspaceService
         try
         {
             SourceIndexSnapshot snapshot = await _indexService.IndexAsync(source, progress: null, cancellationToken).ConfigureAwait(false);
+            if (!snapshot.Source.IsAvailable)
+            {
+                AssetSource unavailable = new AssetSource(source.Id, source.Kind, source.FullPath, source.PriorityOrdinal, isAvailable: false, source.Fingerprint);
+                return (unavailable, null);
+            }
             AssetSource updatedSource = new AssetSource(source.Id, source.Kind, source.FullPath, source.PriorityOrdinal, isAvailable: true, snapshot.Fingerprint);
             return (updatedSource, snapshot);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {

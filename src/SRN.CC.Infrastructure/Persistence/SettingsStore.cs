@@ -53,6 +53,10 @@ public sealed class SettingsStore : ISettingsStore
 
             return new ApplicationSettings(lastProjectPath, recentPaths, nwnInstallOverride);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch
         {
             // Quarantine corrupt settings file

@@ -372,16 +372,146 @@
     },
     {
       "id": "Microsoft.Extensions.DependencyModel",
-      "version": "8.0.2",
+      "version": "9.0.9",
       "scope": "test",
       "license": {
         "type": "expression",
         "value": "MIT"
       },
       "repositoryUrl": "https://github.com/dotnet/runtime",
-      "reviewDate": "2026-08-02",
+      "reviewDate": "2026-08-04",
       "mustShipNotice": false,
-      "contentHash": "mUBDZZRgZrSyFOsJ2qJJ9fXfqd/kXJwf3AiDoqLD9m6TjY5OO/vLNOb9fb4juC0487eq4hcGN/M2Rh/CKS7QYw=="
+      "contentHash": "fNGvKct2De8ghm0Bpfq0iWthtzIWabgOTi+gJhNOPhNJIowXNEUE2eZNW/zNCzrHVA3PXg2yZ+3cWZndC2IqYA=="
+    },
+    {
+      "id": "NAudio",
+      "version": "2.3.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/naudio/NAudio",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "xN+Lzlu9DmXqBiL6XkP0VZmgTxZPdSGjVSWtKG9HKuar3LhIYNOIYQETieigS+QDS+nrs1QmHbBWWOru0nWA5A=="
+    },
+    {
+      "id": "NAudio.Asio",
+      "version": "2.3.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/naudio/NAudio",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "I+rAAPT8vmSEw4d4ie+AoSkrvNK6ylRrXznnjQKS+qZgTA9Jnt1Pxe0EaU8nXxOOq5h8ucBSWccBEw6I/J0nkQ=="
+    },
+    {
+      "id": "NAudio.Core",
+      "version": "2.3.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/naudio/NAudio",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "jMd7r6dB6tAtXhOYL58ntPqwERNm1/Rhw5MKOIYvsnXzuX+PTGsa2VMam6n0npZYSwlSidKa4GAm4bFcXFUlcg=="
+    },
+    {
+      "id": "NAudio.Midi",
+      "version": "2.3.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/naudio/NAudio",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "t8wvPFPHHQOHhoNMCaDE8OiYZoJuxmY4H6UPBtmnf+xx7oQuajFCqlG4Q00ID+tiEyj471WeVb4Nkylr4tDoow=="
+    },
+    {
+      "id": "NAudio.Wasapi",
+      "version": "2.3.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/naudio/NAudio",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "y5K2BxrLnvohgu5znzg5wRsai3YcuNXfrpo68i7PmCQqpK5MC/R24e5aO3OyN/XhfRr12e0QYV0OnUWEHi5SzA=="
+    },
+    {
+      "id": "NAudio.WinMM",
+      "version": "2.3.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/naudio/NAudio",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "5G1dRjsZm50T3luyuqcmI2BSvj3K4ZJaD/x776/0Epj88qOsOryDZG40+MufwIk1UFJSFWhRobBqtJYFc8Ss4g=="
+    },
+    {
+      "id": "Pfim",
+      "version": "0.11.4",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/jbukhari/Pfim",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "B3KDFyxY1NTqbeqGEaOM9uE+G71GG2TxWqVSs57e1pWYPf2vNLMIxk+x55MXdkon0iGeaekolFTlLS2CkgktYg=="
+    },
+    {
+      "id": "Silk.NET.Core",
+      "version": "2.23.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/Silk.NET",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "D7AT/nnwlB+4RZ84XY8QNGBZMJI5z9l4CSSETIJ1wCfRJzRt/341y3MRZ4HbnFz4r/IGaWOEZr86iE+0/65yyQ=="
+    },
+    {
+      "id": "Silk.NET.Maths",
+      "version": "2.23.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/Silk.NET",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "r8PdIVzME8EH0qAgbmRPO87I4GfgR2j8TofT7EMuRJDf1QluoQwnVypDoFJjQ2ZBSRsGYk5unYxxogI05Ogsmw=="
+    },
+    {
+      "id": "Silk.NET.OpenGL",
+      "version": "2.23.0",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/Silk.NET",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
+      "contentHash": "CIakUoUqiAyRPykMk54tr1M1XpbJrT/iw12T85HDQcuRCFlBa1cxbX7v3FmtznKO5eM89esfmGNCgqDaKBiWfg=="
     },
     {
       "id": "Microsoft.NET.Test.Sdk",

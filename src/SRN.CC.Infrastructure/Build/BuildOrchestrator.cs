@@ -133,7 +133,7 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
         if (File.Exists(destNorm)) { estimatedExistingPayloadBytes += new FileInfo(destNorm).Length; }
         if (File.Exists(destinationManifestPath)) { estimatedExistingPayloadBytes += new FileInfo(destinationManifestPath).Length; }
 
-        long requiredDiskBytes = checked(estimatedHakSize * 2L + estimatedManifestSize * 2L + estimatedExistingPayloadBytes);
+        long requiredDiskBytes = checked(estimatedHakSize + estimatedManifestSize + estimatedExistingPayloadBytes);
         if (!TryGetAvailableBytes(destDir, out var freeBytes, out var diskError))
         {
             return Fail(diskError);

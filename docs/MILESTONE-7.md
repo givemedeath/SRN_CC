@@ -57,6 +57,19 @@ Verified state of the tree at the start of Milestone 7:
   `tools/VerifyBuild.ps1:115`.
 - **No operator documentation.** There is no `README.md` at the repository root; `docs/` is 21
   developer-facing milestone documents plus ADRs, compliance records, and evidence.
+- **`PLAN.md:143`'s build-start fingerprint recheck was never implemented.**
+  `DiagnosticCode.SourceDriftDetected` is declared at `src/SRN.CC.Core/Diagnostics/DiagnosticCode.cs:10`
+  and emitted nowhere, and `BuildOrchestrator.ExecuteBuildAsync` performs no fingerprint comparison.
+  What actually protects a build today is three other mechanisms: `FileShare.Read` handles held for
+  the duration, a per-entry identity and size recheck at `HakAssetSourceReader.cs:254-263`, and the
+  independent `BuildVerifier` pass over the finished artifact. This is a pre-existing Milestone 4 gap,
+  not one this milestone introduces — see the deferral note in Scope.
+- **The provenance manifest emits PascalCase field names.**
+  `ProvenanceManifestGenerator.cs:94-98` sets only `WriteIndented` and an `Encoder` on its
+  `JsonSerializerOptions`, with **no `PropertyNamingPolicy`**, so `HakSha256Hex` and `GeneratedUtc`
+  are the real names — not the camelCase `PLAN.md:159` implies. Every slice asserting on manifest
+  content must use the declared casing; changing it would be a breaking format change and is out of
+  scope.
 - **`SRNCC_REQUIRE_CORPUS` is documented at `PLAN.md:229` and never implemented.** Corpus gating is
   hand-rolled and triplicated across `CorpusIndexAcceptanceTests.cs:22-34`,
   `Render/ModelPreviewCorpusTests.cs:50-60`, and `Render/ModelPreviewWorkingSetTests.cs:39-51`.
@@ -210,7 +223,7 @@ public sealed record LogRecord(
     string? EventCode, IReadOnlyDictionary<string, string>? Data,
     string? ExceptionType, string? ExceptionMessage);
 
-public interface ILogSink : IDisposable { void Write(in LogRecord record); void Flush(); }
+public interface ILogSink : IDisposable { void Write(LogRecord record); void Flush(); }
 
 public interface IAppLogger
 {
@@ -434,7 +447,14 @@ the private-working-set-after-30-seconds-idle probe, and a recorded cold-index b
 end-to-end acceptance flow on real bytes producing a real HAK, plus backfill for the thin resolution,
 dependency, build, publication, UI, and preview areas of `PLAN.md:217-230`.
 
-**Explicitly deferred:** the `nwn_erf` oracle downloader and its compatibility tests (ADR 0004);
+**Explicitly deferred:** the `PLAN.md:143` build-start fingerprint recheck and any emission of
+`DiagnosticCode.SourceDriftDetected` — a pre-existing Milestone 4 gap, deferred here because the
+build is already protected by held `FileShare.Read` handles, the per-entry identity and size recheck
+at `HakAssetSourceReader.cs:254-263`, and the independent verifier pass, and because closing it means
+new production behaviour in `BuildOrchestrator` beyond what any Milestone 7 slice owns. S16's
+`HakDeterminismTests` covers the observable requirement — a source mutated mid-build fails
+verification. S23 must record this as a named plan-versus-code gap rather than letting the mapping
+table imply coverage; the `nwn_erf` oracle downloader and its compatibility tests (ADR 0004);
 recursive unknown-field preservation for `settings.json` (`PLAN.md:94` requires it for projects
 only); a real-GPU automated smoke test — no windowing package is approved in
 `eng/dependency-policy.json` and `Avalonia.Headless` has no GL backend, so the real-GPU path is

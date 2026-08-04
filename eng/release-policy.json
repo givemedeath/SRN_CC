@@ -1,0 +1,13 @@
+{
+  "zipEntryTimestampUtc": "1980-01-01T00:00:00Z",
+  "zipExcludedFiles": [
+    "publish-inventory.json"
+  ],
+  "nonSingleFileMarkers": [
+    "SRN.CC.App.exe",
+    "SRN.CC.App.dll",
+    "Avalonia.Base.dll"
+  ],
+  "minimumFileCount": 100,
+  "releaseNameTemplate": "SRN.CC-{version}-win-x64.zip"
+}

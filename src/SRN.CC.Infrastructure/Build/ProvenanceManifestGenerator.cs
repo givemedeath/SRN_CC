@@ -1,8 +1,10 @@
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
 using SRN.CC.Core.Build;
+using SRN.CC.Core.Schema;
 using SRN.CC.Core.Services;
 using SRN.CC.Formats.Hak;
 
@@ -10,6 +12,22 @@ namespace SRN.CC.Infrastructure.Build;
 
 public sealed class ProvenanceManifestGenerator
 {
+    /// <summary>
+    /// The value written to every manifest's <c>AppVersion</c> field.
+    /// </summary>
+    /// <remarks>
+    /// Read from the declaring assembly rather than <see cref="Assembly.GetEntryAssembly"/>, which is
+    /// null under a test host and would otherwise leave the field blank exactly where the manifest is
+    /// asserted against. Read once into a static: the attribute cannot change for the life of the
+    /// process, and reflecting per manifest would be pure waste on the build's hot path.
+    /// <para>
+    /// <c>IncludeSourceRevisionInInformationalVersion</c> is set to <c>false</c> in
+    /// <c>Directory.Build.props</c> so this carries no <c>+&lt;commit-sha&gt;</c> suffix; the
+    /// defensive trim below keeps a manifest deterministic even if that property is ever lost.
+    /// </para>
+    /// </remarks>
+    private static readonly string AppVersionString = ReadAppVersion();
+
     private readonly IResourceTypeRegistry _registry;
 
     public ProvenanceManifestGenerator(IResourceTypeRegistry registry)
@@ -81,8 +99,8 @@ public sealed class ProvenanceManifestGenerator
         }
 
         var manifestData = new ManifestData(
-            SchemaVersion: "1.0",
-            AppVersion: "1.0.0",
+            SchemaVersion: SchemaVersions.Manifest,
+            AppVersion: AppVersionString,
             GeneratedUtc: plan.CreatedUtc.ToString("o"),
             HakFileName: Path.GetFileName(plan.DestinationHakPath),
             HakSha256Hex: computedHakSha256Hex,
@@ -99,6 +117,24 @@ public sealed class ProvenanceManifestGenerator
 
         byte[] jsonBytes = JsonSerializer.SerializeToUtf8Bytes(manifestData, options);
         await File.WriteAllBytesAsync(tempManifestPath, jsonBytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string ReadAppVersion()
+    {
+        var attribute = typeof(ProvenanceManifestGenerator).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+
+        string informational = attribute?.InformationalVersion ?? string.Empty;
+
+        int plus = informational.IndexOf('+', StringComparison.Ordinal);
+        if (plus >= 0)
+        {
+            informational = informational[..plus];
+        }
+
+        // An assembly stripped of the attribute still has to produce a manifest; record that the
+        // version is unknown rather than throwing in the middle of a build.
+        return string.IsNullOrWhiteSpace(informational) ? "0.0.0-unknown" : informational;
     }
 
     private static async Task<string> ComputePayloadHashAsync(Stream fs, long offset, long sizeBytes, CancellationToken cancellationToken)

@@ -215,6 +215,16 @@ Implements A6's script half. Owns NEW `tools/PackRelease.ps1`, `tools/AuditRelea
       SHA-256.
 - [ ] Both scripts follow the existing convention: `$ErrorActionPreference = "Stop"`, parameterized,
       runnable standalone.
+- [ ] **Do not add `specialOrigins` entries for native libraries.** S7 briefly added entries for
+      `av_libglesv2.dll`, `libSkiaSharp.dll`, and `libHarfBuzzSharp.dll`; code review removed them.
+      All three are already origin-resolved from the deps manifest's `native` asset group
+      (`AuditPublish.ps1:102-107`), so an entry is strictly redundant, and `Add-Origin`
+      (lines 24-31) raises an *ambiguous origins* violation whenever a `specialOrigins` value
+      differs from the deps-derived `nuget:<Package>/<Version>` string. A frozen literal therefore
+      turns the next package version bump into an audit failure that names a policy file instead of
+      the bump. The pre-existing `e_sqlite3.dll` native carries no entry for exactly this reason.
+      `AuditRelease.ps1` must resolve origins from the deps manifest and treat `specialOrigins` as
+      an override of last resort.
 
 **Exit Criteria**
 - [ ] Packing the same publish tree twice produces byte-identical archives with identical SHA-256.

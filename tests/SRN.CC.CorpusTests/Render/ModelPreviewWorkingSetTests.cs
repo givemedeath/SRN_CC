@@ -37,18 +37,7 @@ public class ModelPreviewWorkingSetTests
     private string? _corpusRoot;
 
     [SetUp]
-    public void SetUp()
-    {
-        _corpusRoot = Environment.GetEnvironmentVariable("SRNCC_CORPUS_ROOT");
-        string? runCorpusEnv = Environment.GetEnvironmentVariable("SRNCC_RUN_CORPUS");
-        bool runCorpus = string.Equals(runCorpusEnv, "1", StringComparison.OrdinalIgnoreCase) ||
-                          string.Equals(runCorpusEnv, "true", StringComparison.OrdinalIgnoreCase);
-
-        if (!runCorpus || string.IsNullOrWhiteSpace(_corpusRoot) || !Directory.Exists(_corpusRoot))
-        {
-            Assert.Ignore("Corpus tests are ignored unless SRNCC_RUN_CORPUS=1 and SRNCC_CORPUS_ROOT points to a valid directory.");
-        }
-    }
+    public void SetUp() => _corpusRoot = CorpusGate.RequireCorpusRoot();
 
     [Test]
     public async Task ThreeConcurrentModelPreviews_UploadRenderDispose_PlusForcedGc_KeepsWorkingSetBelow750MiB()

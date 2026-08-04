@@ -56,13 +56,22 @@ S16's `RealHakFixtureFactory` **read-only**.
       entry count equals the selected count; the deselected identity is absent; every payload's bytes
       equal the bytes re-read from the original source through a **fresh** `SourceReaderDispatcher`;
       and resref bytes are the original CP1252 bytes, not re-encoded.
-- [ ] **Step 7 — manifest.** Assert `hakSha256Hex` equals a freshly computed SHA-256 of the file;
-      every per-resource hash equals a freshly computed payload hash; `appVersion` equals the runtime
-      `AssemblyInformationalVersion`; and no `[A-Za-z]:\` sequence appears outside the project
-      directory.
+- [ ] **Step 7 — manifest.** Assert `HakSha256Hex` equals a freshly computed SHA-256 of the file;
+      every per-resource `Sha256Hex` equals a freshly computed payload hash; `AppVersion` equals the
+      runtime `AssemblyInformationalVersion`; and no `[A-Za-z]:\` sequence appears outside the
+      project directory.
+      **Note the casing.** `ProvenanceManifestGenerator.cs:94-98` builds its `JsonSerializerOptions`
+      with only `WriteIndented` and an `Encoder` — **no `PropertyNamingPolicy`** — so the emitted
+      field names are the record's declared PascalCase (`SchemaVersion`, `AppVersion`,
+      `GeneratedUtc`, `HakFileName`, `HakSha256Hex`, `TotalEntries`, `TotalSizeBytes`, and
+      `Resources[].{Resref, ResourceType, ResourceTypeName, SourceLabel, OriginLocator, SizeBytes,
+      Sha256Hex, IsPinned}`), **not** the camelCase that `PLAN.md:159` and earlier drafts of this
+      document implied. Assert against the real names. Do **not** "fix" the casing — that would be a
+      breaking manifest-format change outside this milestone's scope, and
+      `docs/operator/MANIFEST-FORMAT.md` already documents the PascalCase form.
 - [ ] **Step 8 — repeat-build determinism.** Build again to a **different directory with the same
       filename**, so `hakFileName` is identical. Assert the two HAK files are byte-identical and the
-      two manifests are identical after replacing `generatedUtc`. This is the `PLAN.md:224` clause
+      two manifests are identical after replacing `GeneratedUtc`. This is the `PLAN.md:224` clause
       with no test today.
 - [ ] **Step 9 — publication integrity.** Assert no journal or backup residue remains after step 5.
       Then hand-craft a `HakReplaced`-state journal plus a backup pair and call

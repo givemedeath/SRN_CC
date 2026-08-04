@@ -50,9 +50,25 @@ Owns NEW `docs/evidence/MILESTONE-7-EVIDENCE.md`; NEW
       orbit/pan/dolly, toggle the walkmesh, fill three concurrent viewports, confirm missing-texture
       degradation, and force a shader-unsupported path to confirm the text fallback.
 - [ ] Record what is **deferred and not gate-blocking**, restating the parent document's deferral
-      list verbatim so the two cannot drift: the `nwn_erf` oracle (ADR 0004), recursive unknown-field
+      list verbatim so the two cannot drift: the `PLAN.md:143` build-start fingerprint recheck and
+      `DiagnosticCode.SourceDriftDetected`, the `nwn_erf` oracle (ADR 0004), recursive unknown-field
       preservation for settings, an automated real-GPU smoke test, startup GL probing, and the
       Milestone 6 render deferrals that remain open.
+- [ ] Record the two **plan-versus-code divergences** found during wave 0, so the mapping table
+      cannot imply coverage that does not exist:
+      1. `PLAN.md:143` requires a fingerprint recheck at build start.
+         `DiagnosticCode.SourceDriftDetected` (`DiagnosticCode.cs:10`) is emitted nowhere and
+         `BuildOrchestrator` performs no such comparison. State what does protect the build instead
+         (held `FileShare.Read` handles, the per-entry recheck at `HakAssetSourceReader.cs:254-263`,
+         and the independent verifier pass) and cite `HakDeterminismTests` for the observable
+         requirement.
+      2. `PLAN.md:159` implies camelCase manifest fields; the generator emits PascalCase because no
+         `PropertyNamingPolicy` is set (`ProvenanceManifestGenerator.cs:94-98`). The tests and
+         `docs/operator/MANIFEST-FORMAT.md` follow the code. Note that `PLAN.md`, not the code, is
+         the inaccurate artifact here.
+      3. Supporting detail for the ADR 0004 row: the `nwn_erf.exe` SHA-256 pin at `PLAN.md:173` is
+         63 hex characters, not 64, so the specified downloader was never implementable as
+         transcribed. This strengthens the rejection but is not its primary basis.
 - [ ] ADR 0005 in the MADR shape used by `docs/adr/0003-*.md`: `## Context and Problem Statement`,
       `## Decision Drivers`, `## Considered Options`, `## Decision Outcome`, `### Consequences`,
       `### Rejected options`.

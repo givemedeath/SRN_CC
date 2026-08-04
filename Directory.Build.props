@@ -24,4 +24,23 @@
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
     <CopyOutputSymbolsToPublishDirectory Condition="'$(Configuration)' == 'Release'">false</CopyOutputSymbolsToPublishDirectory>
   </PropertyGroup>
+
+  <!--
+    Version stamping. Every assembly in the solution — production and test alike — is stamped from
+    the single SRNCCVersionPrefix in eng/Versions.props, so no .csproj carries a version literal.
+
+    IncludeSourceRevisionInInformationalVersion=false is load-bearing, not cosmetic: without it the
+    SDK appends '+<commit-sha>' to AssemblyInformationalVersion. ProvenanceManifestGenerator reads
+    that attribute into the manifest's AppVersion field, so the suffix would make two manifests over
+    byte-identical content differ by more than GeneratedUtc and break the determinism guarantee.
+  -->
+  <PropertyGroup>
+    <Version>$(SRNCCVersionPrefix)</Version>
+    <AssemblyVersion>$(SRNCCVersionPrefix).0</AssemblyVersion>
+    <FileVersion>$(SRNCCVersionPrefix).0</FileVersion>
+    <InformationalVersion>$(SRNCCVersionPrefix)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Product>$(SRNCCProductName)</Product>
+    <Company>$(SRNCCCompany)</Company>
+  </PropertyGroup>
 </Project>

@@ -26,14 +26,17 @@ namespace SRN.CC.CorpusTests.Render;
 /// </para>
 /// <list type="bullet">
 /// <item><description><c>SRNCC_RUN_CORPUS=1</c> and <c>SRNCC_CORPUS_ROOT</c> pointing at a valid
-/// directory — the existing convention shared with <c>CorpusIndexAcceptanceTests</c>.</description></item>
-/// <item><description><b><c>SRNCC_RUN_GPU=1</c></b> — a NEW guard introduced by this slice,
+/// directory — the existing convention shared with <c>CorpusIndexAcceptanceTests</c>, now resolved
+/// centrally by <see cref="CorpusGate.RequireCorpusRoot"/>. Milestone 7's S8 additionally wired
+/// <c>SRNCC_REQUIRE_CORPUS</c> (<c>PLAN.md:229</c>), which had been documented since milestone 1 but
+/// never read: with it set, a missing corpus root is a hard failure rather than an
+/// ignore.</description></item>
+/// <item><description><b><c>SRNCC_RUN_GPU=1</c></b> — a guard introduced by milestone 6's S17,
 /// specifically for
-/// <see cref="RealGpuContext_CannotBeConstructedInThisRepositorysTestInfrastructure_DocumentedGap"/>.
-/// Unlike the repo's already-documented-but-never-wired <c>SRNCC_REQUIRE_CORPUS</c>
-/// (<c>PLAN.md:229</c>), this guard is genuinely wired: it is read and branched on at runtime (see
-/// <see cref="IsEnvFlagSet"/> and its one call site below), so setting it actually changes which code
-/// path that test executes, rather than merely being described in a comment.</description></item>
+/// <see cref="RealGpuContext_CannotBeConstructedInThisRepositorysTestInfrastructure_DocumentedGap"/>,
+/// and now checked through <see cref="CorpusGate.RequireGpu"/>. It is read and branched on at
+/// runtime, so setting it actually changes which code path that test executes, rather than merely
+/// being described in a comment.</description></item>
 /// </list>
 /// <para>
 /// <c>tools/VerifyBuild.ps1</c>'s <c>--filter 'Category!=Corpus&amp;Category!=Performance'</c> keeps
@@ -48,16 +51,7 @@ public class ModelPreviewCorpusTests
     private string? _corpusRoot;
 
     [SetUp]
-    public void SetUp()
-    {
-        _corpusRoot = Environment.GetEnvironmentVariable("SRNCC_CORPUS_ROOT");
-        bool runCorpus = IsEnvFlagSet("SRNCC_RUN_CORPUS");
-
-        if (!runCorpus || string.IsNullOrWhiteSpace(_corpusRoot) || !Directory.Exists(_corpusRoot))
-        {
-            Assert.Ignore("Corpus tests are ignored unless SRNCC_RUN_CORPUS=1 and SRNCC_CORPUS_ROOT points to a valid directory.");
-        }
-    }
+    public void SetUp() => _corpusRoot = CorpusGate.RequireCorpusRoot();
 
     [Test]
     public async Task RepresentativeCorpusMdl_ParsedThroughRealPipeline_ProducesSemanticallyValidScene()
@@ -193,18 +187,13 @@ public class ModelPreviewCorpusTests
     /// and recorded as a real, run-once-you-opt-in test result (<see cref="Assert.Inconclusive(string)"/>)
     /// rather than only ever written in a comment nobody runs — and so <c>SRNCC_RUN_GPU</c> is a
     /// genuinely wired guard (it controls whether this investigation executes at all) instead of a
-    /// documented-but-inert flag, which is exactly the mistake this repo's own
-    /// <c>SRNCC_REQUIRE_CORPUS</c> made per <c>PLAN.md:229</c>.
+    /// documented-but-inert flag, which is the mistake this repo's own <c>SRNCC_REQUIRE_CORPUS</c>
+    /// made per <c>PLAN.md:229</c> until milestone 7's S8 wired it in <see cref="CorpusGate"/>.
     /// </summary>
     [Test]
     public void RealGpuContext_CannotBeConstructedInThisRepositorysTestInfrastructure_DocumentedGap()
     {
-        if (!IsEnvFlagSet("SRNCC_RUN_GPU"))
-        {
-            Assert.Ignore(
-                "Set SRNCC_RUN_GPU=1 (in addition to SRNCC_RUN_CORPUS=1 / SRNCC_CORPUS_ROOT) to run " +
-                "the real-GPU-context investigation this test performs.");
-        }
+        CorpusGate.RequireGpu();
 
         Assert.Inconclusive(
             "A real SilkGlDevice requires a live Func<string, IntPtr> proc-address delegate from an " +
@@ -219,13 +208,6 @@ public class ModelPreviewCorpusTests
             "corpus scale, plus tests/SRN.CC.Tests/Preview/Render/Gl/ and " +
             "tests/SRN.CC.Tests/Scenarios/ModelPreviewScenarioTests.cs at unit scale — remains the " +
             "deepest achievable coverage of the CPU-scene -> GPU-upload seam today.");
-    }
-
-    private static bool IsEnvFlagSet(string name)
-    {
-        string? value = Environment.GetEnvironmentVariable(name);
-        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
     }
 
     private static MdlPreviewProvider CreateProvider() =>

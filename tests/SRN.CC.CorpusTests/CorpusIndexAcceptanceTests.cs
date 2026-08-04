@@ -17,21 +17,9 @@ namespace SRN.CC.CorpusTests;
 public class CorpusIndexAcceptanceTests
 {
     private string? _corpusRoot;
-    private bool _runCorpus;
 
     [SetUp]
-    public void SetUp()
-    {
-        _corpusRoot = Environment.GetEnvironmentVariable("SRNCC_CORPUS_ROOT");
-        string? runCorpusEnv = Environment.GetEnvironmentVariable("SRNCC_RUN_CORPUS");
-        _runCorpus = string.Equals(runCorpusEnv, "1", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(runCorpusEnv, "true", StringComparison.OrdinalIgnoreCase);
-
-        if (!_runCorpus || string.IsNullOrWhiteSpace(_corpusRoot) || !Directory.Exists(_corpusRoot))
-        {
-            Assert.Ignore("Corpus tests are ignored unless SRNCC_RUN_CORPUS=1 and SRNCC_CORPUS_ROOT points to a valid directory.");
-        }
-    }
+    public void SetUp() => _corpusRoot = CorpusGate.RequireCorpusRoot();
 
     [Test]
     public async Task VerifyCorpusIndexing_ExactCountsAndPerformanceAcceptance()

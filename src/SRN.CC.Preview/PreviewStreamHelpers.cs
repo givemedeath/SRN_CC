@@ -16,6 +16,11 @@ internal static class PreviewStreamHelpers
     public const long AudioPayloadBudgetBytes = 64L * 1024 * 1024;
     public const long TreePayloadBudgetBytes = 32L * 1024 * 1024;
     public const long MdlPayloadBudgetBytes = 64L * 1024 * 1024;
+    public const long ModelSceneCpuBudgetBytes = 48L * 1024 * 1024;
+    public const long ModelSceneCacheBudgetBytes = 128L * 1024 * 1024;
+    public const long ModelTextureSetBudgetBytes = 32L * 1024 * 1024;
+    public const int ModelMaxTextures = 64;
+    public const int ModelMaxDrawCalls = 4096;
 
     public sealed record BoundedReadResult(byte[] Bytes, bool IsTruncated, IReadOnlyList<string> Diagnostics);
 

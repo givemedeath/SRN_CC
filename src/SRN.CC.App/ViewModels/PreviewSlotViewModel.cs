@@ -181,6 +181,9 @@ public partial class PreviewSlotViewModel : ObservableObject, IDisposable
                 case AudioPlaybackState.Stopped:
                 case AudioPlaybackState.Idle:
                     StopPlayback();
+                    // StopPlayback() always lands on Stopped; restore Idle here so a linked
+                    // slot converges to the origin's exact state instead of always "Stopped".
+                    PlaybackState = state;
                     break;
             }
         });
@@ -412,7 +415,13 @@ public partial class PreviewSlotViewModel : ObservableObject, IDisposable
 
     private void StartPlayback()
     {
-        if (_wavePlayer == null || _waveReader == null) return;
+        // No player means either nothing is loaded or setup already failed (e.g. no audio device) —
+        // either way there's nothing to play, so reflect that in state rather than leaving it stale.
+        if (_wavePlayer == null || _waveReader == null)
+        {
+            PlaybackState = AudioPlaybackState.Idle;
+            return;
+        }
 
         try
         {
@@ -429,7 +438,11 @@ public partial class PreviewSlotViewModel : ObservableObject, IDisposable
 
     private void PausePlayback()
     {
-        if (_wavePlayer == null) return;
+        if (_wavePlayer == null)
+        {
+            PlaybackState = AudioPlaybackState.Idle;
+            return;
+        }
 
         try
         {
@@ -445,11 +458,9 @@ public partial class PreviewSlotViewModel : ObservableObject, IDisposable
 
     private void StopPlayback()
     {
-        if (_wavePlayer == null) return;
-
         try
         {
-            _wavePlayer.Stop();
+            _wavePlayer?.Stop();
             if (_waveReader != null)
             {
                 _waveReader.CurrentTime = TimeSpan.Zero;

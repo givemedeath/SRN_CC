@@ -101,7 +101,7 @@ public sealed class ImagePreviewProvider : IPreviewProvider
             byte[] bgra = ConvertRgbaToBgra(image.Pixels, image.Width, image.Height);
             string formatted = PreviewStreamHelpers.FormatDimensions(image.Width, image.Height);
             diagnostics.Add("TGA image decoded via SWLOR.NWN.Formats.TgaReader.");
-            return Success(request, formatted, bgra, diagnostics);
+            return Success(request, formatted, bgra, diagnostics, image.Width, image.Height);
         }
         catch (NwnFormatException ex)
         {
@@ -167,7 +167,7 @@ public sealed class ImagePreviewProvider : IPreviewProvider
             string formatted = PreviewStreamHelpers.FormatDimensions(image.Width, image.Height);
             diagnostics.Add(
                 $"DDS format '{image.Format}', compressed={image.Compressed}, stride={image.Stride}.");
-            return Success(request, formatted, bgra, diagnostics);
+            return Success(request, formatted, bgra, diagnostics, image.Width, image.Height);
         }
         catch (NotSupportedException ex)
         {
@@ -227,7 +227,7 @@ public sealed class ImagePreviewProvider : IPreviewProvider
 
             diagnostics.Add("PLT parsed using default recolor table (palette not embedded).");
             string formatted = PreviewStreamHelpers.FormatDimensions(plt.Width, plt.Height);
-            return Success(request, formatted, bgra, diagnostics);
+            return Success(request, formatted, bgra, diagnostics, plt.Width, plt.Height);
         }
         catch (NwnFormatException ex)
         {
@@ -243,7 +243,9 @@ public sealed class ImagePreviewProvider : IPreviewProvider
         PreviewRequest request,
         string formatted,
         byte[] bgra,
-        List<string> diagnostics)
+        List<string> diagnostics,
+        int width,
+        int height)
     {
         if (bgra.Length > PreviewStreamHelpers.ImagePixelBudgetBytes)
         {
@@ -263,7 +265,9 @@ public sealed class ImagePreviewProvider : IPreviewProvider
             RawPayload: bgra,
             FormattedContent: formatted,
             ErrorMessage: null,
-            Diagnostics: diagnostics);
+            Diagnostics: diagnostics,
+            Width: width,
+            Height: height);
     }
 
     private static PreviewResult Failure(string reason, PreviewRequest request, IReadOnlyList<string> diagnostics) =>

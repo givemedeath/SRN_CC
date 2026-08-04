@@ -6,6 +6,7 @@ using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Preview;
 using SRN.CC.Core.Resolution;
 using SRN.CC.Core.Sources;
+using SRN.CC.Infrastructure.Cache;
 using SRN.CC.Preview;
 
 namespace SRN.CC.App.ViewModels;
@@ -27,19 +28,63 @@ public partial class ComparisonPanelViewModel : ObservableObject
     [ObservableProperty]
     private ComparisonMode _mode = ComparisonMode.OccurrenceMode;
 
+    [ObservableProperty]
+    private bool _isLinkedNavigationEnabled = true;
+
     public ObservableCollection<PreviewSlotViewModel> Slots { get; } = new();
     private bool _allowPin = true;
 
     public ComparisonPanelViewModel(
         PreviewEngine previewEngine,
-        Func<AssetOccurrence, Task> onPinRequested)
+        Func<AssetOccurrence, Task> onPinRequested,
+        ISqliteCacheService? cacheService = null)
     {
         _previewEngine = previewEngine ?? throw new ArgumentNullException(nameof(previewEngine));
         _onPinRequested = onPinRequested ?? throw new ArgumentNullException(nameof(onPinRequested));
 
         for (int i = 0; i < 3; i++)
         {
-            Slots.Add(new PreviewSlotViewModel(i, _previewEngine, _onPinRequested));
+            var slot = new PreviewSlotViewModel(i, _previewEngine, _onPinRequested, cacheService);
+            slot.ZoomPanChanged += OnSlotZoomPanChanged;
+            slot.AudioStateChanged += OnSlotAudioStateChanged;
+            Slots.Add(slot);
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleLink() => IsLinkedNavigationEnabled = !IsLinkedNavigationEnabled;
+
+    private void OnSlotZoomPanChanged(object? sender, EventArgs e)
+    {
+        if (!IsLinkedNavigationEnabled) return;
+        if (sender is not PreviewSlotViewModel origin) return;
+        if (origin.PreferredFamily != PreviewFamily.Image) return;
+
+        foreach (var slot in Slots)
+        {
+            if (slot == origin) continue;
+            if (!slot.IsActive) continue;
+            if (slot.PreferredFamily != PreviewFamily.Image) continue;
+
+            slot.ApplyLinkedZoomPan(origin.ZoomScale, origin.PanX, origin.PanY);
+        }
+    }
+
+    private void OnSlotAudioStateChanged(object? sender, EventArgs e)
+    {
+        if (!IsLinkedNavigationEnabled) return;
+        if (sender is not PreviewSlotViewModel origin) return;
+
+        var activeSlots = Slots.Where(s => s.IsActive).ToArray();
+        if (activeSlots.Length == 0 || activeSlots.Any(s => s.PreferredFamily != PreviewFamily.Audio))
+        {
+            return;
+        }
+
+        foreach (var slot in activeSlots)
+        {
+            if (slot == origin) continue;
+            slot.ApplyLinkedAudioState(origin.PlaybackState, origin.PositionProgress);
         }
     }
 

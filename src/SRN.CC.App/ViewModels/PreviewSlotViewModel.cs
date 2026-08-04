@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SRN.CC.App.ViewModels.Preview;
@@ -190,13 +191,70 @@ public partial class PreviewSlotViewModel : ObservableObject
     /// Every assignment to <see cref="Content"/> — including to <c>null</c> — routes through here
     /// before the new value takes effect, so the previous content is always disposed exactly once,
     /// regardless of which code path (empty slot, success, failure) performed the assignment.
+    /// Also unsubscribes from a departing <see cref="ModelViewportViewModel"/>'s
+    /// <see cref="INotifyPropertyChanged.PropertyChanged"/> before it is disposed, matching the
+    /// subscription added in <see cref="OnContentChanged"/> below.
     /// </summary>
     partial void OnContentChanging(PreviewContentViewModel? oldValue, PreviewContentViewModel? newValue)
     {
-        if (!ReferenceEquals(oldValue, newValue))
+        if (ReferenceEquals(oldValue, newValue))
         {
-            oldValue?.Dispose();
+            return;
         }
+
+        if (oldValue is ModelViewportViewModel oldViewport)
+        {
+            oldViewport.PropertyChanged -= OnModelViewportContentPropertyChanged;
+        }
+
+        oldValue?.Dispose();
+    }
+
+    /// <summary>
+    /// Observes a newly-assigned <see cref="ModelViewportViewModel"/> for
+    /// <see cref="ModelViewportViewModel.RenderUnavailableReason"/> becoming non-null (a GPU
+    /// capability shortfall, shader link failure, or the viewport-concurrency backstop refusing a
+    /// fourth viewport — see <c>ModelViewportControl</c>/<c>ModelViewportRegistry</c>, slice S11) and
+    /// degrades the slot to its text preview when that happens, per architecture decision A4.
+    /// </summary>
+    partial void OnContentChanged(PreviewContentViewModel? value)
+    {
+        if (value is ModelViewportViewModel viewport)
+        {
+            viewport.PropertyChanged += OnModelViewportContentPropertyChanged;
+
+            if (viewport.RenderUnavailableReason is { } reasonAlreadySet)
+            {
+                DegradeModelViewportToText(reasonAlreadySet);
+            }
+        }
+    }
+
+    private void OnModelViewportContentPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ModelViewportViewModel.RenderUnavailableReason))
+        {
+            return;
+        }
+
+        if (sender is ModelViewportViewModel { RenderUnavailableReason: { } reason })
+        {
+            DegradeModelViewportToText(reason);
+        }
+    }
+
+    /// <summary>
+    /// Swaps <see cref="Content"/> from an unavailable <see cref="ModelViewportViewModel"/> back to
+    /// the reliable <see cref="TextContentViewModel"/> degradation target (the same
+    /// <see cref="FormattedContent"/> the provider already produced), folding the unavailability
+    /// reason into <see cref="DiagnosticsText"/> so it stays visible to the user.
+    /// </summary>
+    private void DegradeModelViewportToText(string reason)
+    {
+        Content = new TextContentViewModel(PreviewFamily.Model, FormattedContent);
+        DiagnosticsText = string.IsNullOrEmpty(DiagnosticsText)
+            ? reason
+            : $"{DiagnosticsText}\n{reason}";
     }
 
     private void UpdatePinAvailability()

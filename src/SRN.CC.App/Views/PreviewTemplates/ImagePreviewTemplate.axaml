@@ -1,0 +1,15 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:previewVm="using:SRN.CC.App.ViewModels.Preview"
+                    xmlns:previewViews="using:SRN.CC.App.Views.PreviewTemplates">
+    <!--
+        Template for ImageContentViewModel, per architecture decision A3. The pointer-wheel-zoom /
+        drag-to-pan interaction is implemented entirely in code (ImagePreviewTemplate.axaml.cs,
+        ImagePreviewCanvas : Border) rather than as AXAML event handlers on a code-behind-bound
+        ResourceDictionary, so instantiation here is a single, low-risk element reference - all
+        bindings to Bitmap/ZoomScale/PanX/PanY happen inside ImagePreviewCanvas itself.
+    -->
+    <DataTemplate x:Key="{x:Type previewVm:ImageContentViewModel}" DataType="previewVm:ImageContentViewModel">
+        <previewViews:ImagePreviewCanvas/>
+    </DataTemplate>
+</ResourceDictionary>

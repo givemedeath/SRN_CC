@@ -1,4 +1,5 @@
 using SRN.CC.Core.Preview;
+using SRN.CC.Preview.Render;
 
 namespace SRN.CC.App.ViewModels.Preview;
 
@@ -33,7 +34,9 @@ public static class PreviewContentFactory
 
         return result.Payload switch
         {
-            // NEXT EXTENSION POINT (S11/S12/S13): insert new arms here, above the default.
+            ModelScenePayload scene => new ModelViewportViewModel(scene.Scene),
+            _ when result.Family == PreviewFamily.Image => new ImageContentViewModel(result),
+            _ when result.Family == PreviewFamily.Audio => new AudioContentViewModel(result),
 
             _ => new TextContentViewModel(result.Family, result.FormattedContent),
         };

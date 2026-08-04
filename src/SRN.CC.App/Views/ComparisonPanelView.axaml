@@ -12,6 +12,9 @@
                      below) without touching this file's shared visual content or the other
                      families' entries. -->
                 <ResourceInclude Source="avares://SRN.CC.App/Views/PreviewTemplates/TextPreviewTemplate.axaml"/>
+                <ResourceInclude Source="avares://SRN.CC.App/Views/PreviewTemplates/ImagePreviewTemplate.axaml"/>
+                <ResourceInclude Source="avares://SRN.CC.App/Views/PreviewTemplates/AudioPreviewTemplate.axaml"/>
+                <ResourceInclude Source="avares://SRN.CC.App/Views/PreviewTemplates/ModelPreviewTemplate.axaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </UserControl.Resources>
@@ -26,6 +29,9 @@
             content itself always lives in that family's own PreviewTemplates/*.axaml file.
         -->
         <StaticResource ResourceKey="{x:Type previewVm:TextContentViewModel}"/>
+        <StaticResource ResourceKey="{x:Type previewVm:ImageContentViewModel}"/>
+        <StaticResource ResourceKey="{x:Type previewVm:AudioContentViewModel}"/>
+        <StaticResource ResourceKey="{x:Type previewVm:ModelViewportViewModel}"/>
     </UserControl.DataTemplates>
     <Grid RowDefinitions="Auto,*">
         <!-- Comparison Header & Mode Switcher -->

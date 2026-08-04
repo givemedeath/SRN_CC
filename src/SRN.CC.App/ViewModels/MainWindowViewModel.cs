@@ -28,6 +28,7 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly PreviewEngine? _previewEngine;
     private readonly IResourceTypeRegistry? _registry;
     private readonly ISourceReaderDispatcher? _dispatcher;
+    private readonly TextureSourceHolder? _textureSourceHolder;
 
     private WorkspaceState? _workspaceState;
     private string? _currentProjectPath;
@@ -43,6 +44,14 @@ public partial class MainWindowViewModel : ObservableObject
     public StatusBarViewModel StatusBar { get; }
 
     public ObservableCollection<AssetRowViewModel> Items => AssetTable.FilteredRows;
+
+    /// <summary>
+    /// The <see cref="ITextureSource"/> for the currently loaded workspace, or null before any
+    /// workspace has loaded (including the designer-preview constructor, which never receives a
+    /// <see cref="TextureSourceHolder"/>). Mirrors <see cref="TextureSourceHolder.Current"/> —
+    /// exposed here mainly so tests can observe the wiring without reaching into App.axaml.cs.
+    /// </summary>
+    public ITextureSource? CurrentTextureSource => _textureSourceHolder?.Current;
 
     // Parameterless constructor for XAML designer preview & synthetic performance probe
     public MainWindowViewModel()
@@ -78,7 +87,8 @@ public partial class MainWindowViewModel : ObservableObject
         IArtifactPublisher artifactPublisher,
         PreviewEngine previewEngine,
         IResourceTypeRegistry registry,
-        ISourceReaderDispatcher dispatcher)
+        ISourceReaderDispatcher dispatcher,
+        TextureSourceHolder? textureSourceHolder = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
@@ -88,6 +98,7 @@ public partial class MainWindowViewModel : ObservableObject
         _previewEngine = previewEngine ?? throw new ArgumentNullException(nameof(previewEngine));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        _textureSourceHolder = textureSourceHolder;
 
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
@@ -111,10 +122,33 @@ public partial class MainWindowViewModel : ObservableObject
             OnPinRequestedAsync);
     }
 
+    /// <summary>
+    /// Rebuilds <see cref="_textureSourceHolder"/>'s <c>Current</c> value from the current
+    /// <see cref="_workspaceState"/> per architecture decision A7's late-bound accessor pattern.
+    /// Called after every <c>_workspaceState</c> reassignment (not only
+    /// <see cref="LoadWorkspaceStateAsync"/>) so <c>MdlPreviewProvider</c>'s texture-source
+    /// accessor never observes a workspace that has been superseded — e.g. a pin changing which
+    /// occurrence a resref resolves to. A missing holder, dispatcher, or registry (the
+    /// designer-preview constructor) leaves the holder untouched/null, which the accessor treats
+    /// as "no texture source available" rather than a failure.
+    /// </summary>
+    private void RefreshTextureSource()
+    {
+        if (_textureSourceHolder is null)
+        {
+            return;
+        }
+
+        _textureSourceHolder.Current = _workspaceState != null && _dispatcher != null && _registry != null
+            ? new WorkspaceTextureSource(_workspaceState, _dispatcher, _registry, baseGameCatalog: null)
+            : null;
+    }
+
     public async Task LoadWorkspaceStateAsync(WorkspaceState state, string? projectPath = null)
     {
         await _pendingSelectionUpdate.ConfigureAwait(true);
         _workspaceState = state;
+        RefreshTextureSource();
         _currentProjectPath = projectPath;
 
         AssetTable.SelectedRows.Clear();
@@ -242,6 +276,7 @@ public partial class MainWindowViewModel : ObservableObject
         var sourceOrders = SourceStack.Sources.Select(s => s.Source.Id).ToList();
         var (newState, _) = await _workspaceService.ReorderSourcesAsync(sourceOrders).ConfigureAwait(true);
         _workspaceState = newState;
+        RefreshTextureSource();
 
         var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
@@ -262,6 +297,7 @@ public partial class MainWindowViewModel : ObservableObject
                 var currentSelection = _workspaceService.CurrentState.SelectionState;
                 var newSelectionState = currentSelection.SetOverride(row.Identity, row.IsSelected);
                 _workspaceState = await _workspaceService.UpdateSelectionAsync(newSelectionState).ConfigureAwait(true);
+                RefreshTextureSource();
             }
         }
         finally
@@ -288,6 +324,7 @@ public partial class MainWindowViewModel : ObservableObject
                 currentSelection = currentSelection.SetOverride(r.Identity, selected);
             }
             _workspaceState = await _workspaceService.UpdateSelectionAsync(currentSelection).ConfigureAwait(true);
+            RefreshTextureSource();
         }
         finally
         {
@@ -355,6 +392,7 @@ public partial class MainWindowViewModel : ObservableObject
 
         var pin = new WinnerPin(occurrence.Identity, occurrence.SourceId, occurrence.Locator, pinHash);
         _workspaceState = await _workspaceService.PinAsync(pin).ConfigureAwait(true);
+        RefreshTextureSource();
 
         var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
@@ -553,6 +591,7 @@ public partial class MainWindowViewModel : ObservableObject
             _workspaceState.Pins,
             updatedPreferences,
             _workspaceState.IsReadOnly);
+        RefreshTextureSource();
     }
 
     private void ApplySavedFilterSettings(JsonNode? savedFilters)

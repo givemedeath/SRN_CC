@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using SRN.CC.App.Services;
 using SRN.CC.App.ViewModels;
 using SRN.CC.App.Views;
 using SRN.CC.Core.Project;
@@ -49,12 +50,17 @@ public partial class App : Application
 
             var orchestrator = new BuildOrchestrator(packer, verifier, manifestGen, publisher, registry, dispatcher);
 
-            // MdlSceneBuilder/ModelSceneCache are process-lifetime singletons; the texture-source
-            // accessor is left null here as an interim stopgap so the solution keeps compiling
-            // across milestone-6 waves. Slice S15 replaces this with a late-bound accessor over
-            // the loaded workspace's texture source per architecture decision A7.
+            // MdlSceneBuilder/ModelSceneCache are process-lifetime singletons. The texture-source
+            // accessor is late-bound over textureSourceHolder.Current per architecture decision
+            // A7: this provider array is built before MainWindowViewModel exists, so the holder
+            // is the shared mutable slot both sides close over. MainWindowViewModel refreshes
+            // holder.Current from the loaded workspace inside LoadWorkspaceStateAsync (and every
+            // other path that reassigns its workspace state). A null Current — before any
+            // workspace loads, or in the designer-preview constructor — yields an untextured
+            // scene plus a diagnostic rather than a failure.
             var mdlSceneBuilder = new MdlSceneBuilder();
             var modelSceneCache = new ModelSceneCache();
+            var textureSourceHolder = new TextureSourceHolder();
 
             var previewEngine = new PreviewEngine(dispatcher, new IPreviewProvider[]
             {
@@ -63,7 +69,7 @@ public partial class App : Application
                 new TextPreviewProvider(registry),
                 new AudioPreviewProvider(registry),
                 new TreePreviewProvider(registry),
-                new MdlPreviewProvider(registry, mdlSceneBuilder, modelSceneCache),
+                new MdlPreviewProvider(registry, mdlSceneBuilder, modelSceneCache, () => textureSourceHolder.Current),
                 new BoundedHexPreviewProvider()
             });
 
@@ -75,7 +81,8 @@ public partial class App : Application
                 publisher,
                 previewEngine,
                 registry,
-                dispatcher);
+                dispatcher,
+                textureSourceHolder);
 
             desktop.MainWindow = new MainWindow
             {

@@ -769,6 +769,29 @@ public partial class MainWindowViewModel : ObservableObject
             if (confirmed)
             {
                 OperationLog.AddEntry("INFO", "User confirmed dependency closure.");
+
+                if (_workspaceService != null && _workspaceState != null && !_workspaceState.IsReadOnly && closure.Resolved.Count > 0)
+                {
+                    await _selectionLock.WaitAsync().ConfigureAwait(true);
+                    try
+                    {
+                        var currentSelection = _workspaceService.CurrentState.SelectionState;
+                        foreach (var identity in closure.Resolved)
+                        {
+                            currentSelection = currentSelection.SetOverride(identity, true);
+                        }
+                        _workspaceState = await _workspaceService.UpdateSelectionAsync(currentSelection).ConfigureAwait(true);
+
+                        var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
+                        AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+                    }
+                    finally
+                    {
+                        _selectionLock.Release();
+                    }
+
+                    OperationLog.AddEntry("INFO", $"Added {closure.Resolved.Count} resolved dependencies to the workspace selection.");
+                }
             }
             else
             {

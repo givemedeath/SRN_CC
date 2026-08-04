@@ -481,8 +481,8 @@
       "version": "0.11.4",
       "scope": "runtime",
       "license": {
-        "type": "expression",
-        "value": "MIT"
+        "type": "url",
+        "value": "https://raw.githubusercontent.com/nickbabcock/Pfim/master/LICENSE.txt"
       },
       "repositoryUrl": "https://github.com/nickbabcock/Pfim",
       "reviewDate": "2026-08-04",

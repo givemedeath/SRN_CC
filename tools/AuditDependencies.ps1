@@ -246,6 +246,11 @@ if (-not $packagesPath -or -not (Test-Path $packagesPath)) {
                     Add-Violation "Reviewed license-file hash changed for '$key'."
                 }
             }
+        } elseif ($approved.license.type -eq "url") {
+            $licenseUrl = [string]$metadata.licenseUrl
+            if ($licenseUrl.TrimEnd('/') -ne $approved.license.value.TrimEnd('/')) {
+                Add-Violation "Reviewed license URL changed for '$key'. Expected '$($approved.license.value)', got '$licenseUrl'."
+            }
         } else {
             Add-Violation "Package '$key' has unsupported license review type '$($approved.license.type)'."
         }

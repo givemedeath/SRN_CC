@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SRN.CC.App.Services;
 using SRN.CC.Core.Identity;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Project;
@@ -696,43 +697,20 @@ public partial class MainWindowViewModel : ObservableObject
 
         try
         {
-            // Create a map of all occurrences in the workspace for fast lookup
-            var occurrenceMap = new Dictionary<SRN.CC.Core.Identity.AssetIdentity, AssetOccurrence>();
-            foreach (var curatedAsset in _workspaceState.CuratedAssets)
+            // Create stream opener function
+            async Task<Stream> StreamOpener(AssetSource source, AssetOccurrence occ, Stream fallback, CancellationToken ct)
             {
-                foreach (var occurrence in curatedAsset.AllOccurrences)
-                {
-                    if (!occurrenceMap.ContainsKey(occurrence.Identity))
-                    {
-                        occurrenceMap[occurrence.Identity] = occurrence;
-                    }
-                }
-            }
-
-            // Create locator function that resolves assets from the workspace
-            async Task<AssetOccurrence?> Locator(SRN.CC.Core.Identity.AssetIdentity id, CancellationToken ct)
-            {
-                return occurrenceMap.TryGetValue(id, out var occ) ? occ : null;
-            }
-
-            // Create stream provider function
-            async Task<Stream> StreamProvider(AssetOccurrence occ, Stream fallback, CancellationToken ct)
-            {
-                var source = _workspaceState.Sources.FirstOrDefault(s => s.Id == occ.SourceId);
-                if (source != null && _dispatcher != null)
+                if (_dispatcher != null)
                 {
                     return await _dispatcher.OpenOccurrenceAsync(source, occ, ct).ConfigureAwait(false);
                 }
                 return fallback;
             }
 
-            // Create and execute the dependency command
+            // Create resolver and command
+            var resolver = new DependencyLocator(_workspaceState, StreamOpener);
             var analyzer = new DependencyAnalyzer(_registry);
-            var command = new Commands.AddAvailableDependenciesCommand(
-                analyzer,
-                _registry,
-                Locator,
-                StreamProvider);
+            var command = new Commands.AddAvailableDependenciesCommand(analyzer, _registry, resolver);
 
             var occurrences = selectedRows
                 .Select(r => r.CuratedAsset.ResolvedOccurrence)

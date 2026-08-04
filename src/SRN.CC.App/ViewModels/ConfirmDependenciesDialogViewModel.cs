@@ -19,6 +19,8 @@ public partial class ConfirmDependenciesDialogViewModel : ObservableObject
     [ObservableProperty]
     private bool isDialogOpen;
 
+    private TaskCompletionSource<bool>? _dialogCompletionSource;
+
     public ConfirmDependenciesDialogViewModel()
     {
         // Default constructor for XAML designer
@@ -26,13 +28,16 @@ public partial class ConfirmDependenciesDialogViewModel : ObservableObject
 
     /// <summary>
     /// Sets the closure summary and opens the dialog for user confirmation.
+    /// Returns a task that completes when the user confirms or cancels.
     /// </summary>
-    public void ShowDialog(ClosureSummary summary)
+    public Task<bool> ShowDialogAsync(ClosureSummary summary)
     {
         ArgumentNullException.ThrowIfNull(summary);
         Summary = summary;
         IsConfirmed = false;
+        _dialogCompletionSource = new TaskCompletionSource<bool>();
         IsDialogOpen = true;
+        return _dialogCompletionSource.Task;
     }
 
     [RelayCommand]
@@ -52,5 +57,6 @@ public partial class ConfirmDependenciesDialogViewModel : ObservableObject
     private void CloseDialog()
     {
         IsDialogOpen = false;
+        _dialogCompletionSource?.TrySetResult(IsConfirmed);
     }
 }

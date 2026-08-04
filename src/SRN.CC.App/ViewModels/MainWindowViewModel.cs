@@ -723,13 +723,11 @@ public partial class MainWindowViewModel : ObservableObject
 
             OperationLog.AddEntry("INFO", $"Dependency analysis complete: {closure.Resolved.Count} resolved, {closure.UnresolvedGroups.Sum(g => g.Count)} unresolved.");
 
-            // Show confirmation dialog
+            // Show confirmation dialog and wait for user response
             var dialogVm = new ConfirmDependenciesDialogViewModel();
-            dialogVm.ShowDialog(closure);
+            var confirmed = await dialogVm.ShowDialogAsync(closure).ConfigureAwait(true);
 
-            // In a real implementation, this would show the dialog and wait for user confirmation
-            // For now, we'll log the results
-            if (dialogVm.IsConfirmed)
+            if (confirmed)
             {
                 OperationLog.AddEntry("INFO", "User confirmed dependency closure.");
             }

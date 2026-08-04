@@ -10,5 +10,7 @@ public sealed record PreviewResult(
     byte[]? RawPayload,
     string? FormattedContent,
     string? ErrorMessage,
-    IReadOnlyList<string> Diagnostics
+    IReadOnlyList<string> Diagnostics,
+    int? Width = null,
+    int? Height = null
 );

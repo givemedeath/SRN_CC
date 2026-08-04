@@ -1,11 +1,20 @@
 # Milestone 5 - Phase 5: Verification and Validation
 
+> [!NOTE]
+> Reconciled during the Milestone 5 completion pass. Automated Testing is done — full suite is
+> 249 passed / 2 skipped (both skips are NAudio playback assertions that need a live audio output
+> device and are not reliable headlessly) / 0 failed, 251 total. `TextPreviewProvider` and
+> `TreePreviewProvider` test coverage predates this pass and was left as-is. Manual Verification and
+> Non-functional Checks were **not** performed in this session (no interactive desktop/audio-device
+> testing was done) — those checkboxes are left unchecked intentionally; do not treat this milestone
+> as fully verified until someone runs that pass.
+
 ## Scope
 Validate correctness, parsing behavior, and UI workflows before milestone completion.
 
 ## Automated Testing
-- [ ] Run `dotnet test` at each phase boundary, not only at end of milestone.
-- [ ] Add unit tests in `SRN.CC.Tests`:
+- [x] Run `dotnet test` at each phase boundary, not only at end of milestone.
+- [x] Add unit tests in `SRN.CC.Tests`:
   - `ImagePreviewProvider` with mock streams:
     - valid TGA/DDS/PLT samples.
     - oversize image rejection.
@@ -31,7 +40,7 @@ Validate correctness, parsing behavior, and UI workflows before milestone comple
   - `ComparisonPanelViewModel`:
     - link toggle propagation.
     - deterministic audio propagation behavior.
-- [ ] Add fixture strategy:
+- [x] Add fixture strategy:
   - valid, malformed, and edge-boundary files per family.
   - minimal synthetic fixtures for deterministic tests.
   - clear byte budgets for limit assertions.
@@ -69,18 +78,19 @@ Validate correctness, parsing behavior, and UI workflows before milestone comple
   - unresolved list communicates source and reason.
 
 ## Completion Criteria
-- [ ] Phases 1-4 are complete and merged behind stable interfaces.
-- [ ] Automated tests covering each provider and dependency path pass.
+- [x] Phases 1-4 are complete and merged behind stable interfaces.
+- [x] Automated tests covering each provider and dependency path pass.
 - [ ] UI behavior is correct for:
   - linked image navigation
   - linked audio behavior
   - dependency selection + prompt flow.
-- [ ] Safety/validation limits enforced:
+  (requires the manual verification pass above, not yet performed)
+- [x] Safety/validation limits enforced:
   - 4096x4096 max image dimension
   - 64 MiB max decoded image
   - 8 MiB max text preview payload
-- [ ] No regression in existing core and existing preview flows.
-- [ ] Unresolved dependency list is complete for traceability across all transitive dependencies.
+- [x] No regression in existing core and existing preview flows.
+- [x] Unresolved dependency list is complete for traceability across all transitive dependencies.
 
 ## Optional follow-up
 - If milestone is split for another release, add migration notes for persisted cache behavior and user settings defaults.

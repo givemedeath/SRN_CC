@@ -12,6 +12,7 @@ using SRN.CC.Core.Selection;
 using SRN.CC.Core.Services;
 using SRN.CC.Core.Sources;
 using SRN.CC.Core.Workspace;
+using SRN.CC.Infrastructure.Cache;
 using SRN.CC.Preview;
 
 namespace SRN.CC.App.ViewModels;
@@ -78,7 +79,8 @@ public partial class MainWindowViewModel : ObservableObject
         IArtifactPublisher artifactPublisher,
         PreviewEngine previewEngine,
         IResourceTypeRegistry registry,
-        ISourceReaderDispatcher dispatcher)
+        ISourceReaderDispatcher dispatcher,
+        ISqliteCacheService? cacheService = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
@@ -108,7 +110,8 @@ public partial class MainWindowViewModel : ObservableObject
 
         ComparisonPanel = new ComparisonPanelViewModel(
             _previewEngine,
-            OnPinRequestedAsync);
+            OnPinRequestedAsync,
+            cacheService);
     }
 
     public async Task LoadWorkspaceStateAsync(WorkspaceState state, string? projectPath = null)
@@ -730,6 +733,29 @@ public partial class MainWindowViewModel : ObservableObject
             if (confirmed)
             {
                 OperationLog.AddEntry("INFO", "User confirmed dependency closure.");
+
+                if (_workspaceService != null && _workspaceState != null && !_workspaceState.IsReadOnly && closure.Resolved.Count > 0)
+                {
+                    await _selectionLock.WaitAsync().ConfigureAwait(true);
+                    try
+                    {
+                        var currentSelection = _workspaceService.CurrentState.SelectionState;
+                        foreach (var identity in closure.Resolved)
+                        {
+                            currentSelection = currentSelection.SetOverride(identity, true);
+                        }
+                        _workspaceState = await _workspaceService.UpdateSelectionAsync(currentSelection).ConfigureAwait(true);
+
+                        var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
+                        AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+                    }
+                    finally
+                    {
+                        _selectionLock.Release();
+                    }
+
+                    OperationLog.AddEntry("INFO", $"Added {closure.Resolved.Count} resolved dependencies to the workspace selection.");
+                }
             }
             else
             {

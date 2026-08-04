@@ -67,7 +67,8 @@ public partial class App : Application
                 publisher,
                 previewEngine,
                 registry,
-                dispatcher);
+                dispatcher,
+                cache);
 
             desktop.MainWindow = new MainWindow
             {

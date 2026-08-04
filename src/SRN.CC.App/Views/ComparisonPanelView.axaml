@@ -1,14 +1,25 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:SRN.CC.App.ViewModels"
+             xmlns:conv="using:SRN.CC.App.Converters"
              x:Class="SRN.CC.App.Views.ComparisonPanelView"
-             x:DataType="vm:ComparisonPanelViewModel">
+             x:DataType="vm:ComparisonPanelViewModel"
+             x:Name="Root">
+    <UserControl.Resources>
+        <conv:EnumEqualsConverter x:Key="EnumEquals"/>
+        <conv:PlainTextFamilyConverter x:Key="IsPlainTextFamily"/>
+    </UserControl.Resources>
     <Grid RowDefinitions="Auto,*">
         <!-- Comparison Header & Mode Switcher -->
         <Border Grid.Row="0" Background="#252526" Padding="8">
-            <Grid ColumnDefinitions="*,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto">
                 <TextBlock Text="Preview &amp; Comparison Slots" FontWeight="Bold" VerticalAlignment="Center" Foreground="#DDDDDD"/>
-                <Button Grid.Column="1" Command="{Binding ToggleModeCommand}" Content="{Binding Mode, StringFormat='Mode: {0}'}"/>
+                <ToggleButton Grid.Column="1" Margin="0,0,4,0"
+                              IsChecked="{Binding IsLinkedNavigationEnabled}"
+                              Command="{Binding ToggleLinkCommand}"
+                              ToolTip.Tip="Linked zoom/pan and audio playback across slots"
+                              Content="{Binding IsLinkedNavigationEnabled, StringFormat='🔗 Linked: {0}'}"/>
+                <Button Grid.Column="2" Command="{Binding ToggleModeCommand}" Content="{Binding Mode, StringFormat='Mode: {0}'}"/>
             </Grid>
         </Border>
 
@@ -24,9 +35,12 @@
                     <Border Margin="4" Padding="6" Background="#1E1E1E" BorderBrush="#333333" BorderThickness="1" CornerRadius="4">
                         <Grid RowDefinitions="Auto,*">
                             <!-- Slot Header -->
-                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto">
                                 <TextBlock Text="{Binding SlotTitle}" FontWeight="Bold" Foreground="#007ACC" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                <TextBlock Grid.Column="1" Text="🔗" Margin="0,0,4,0" VerticalAlignment="Center"
+                                           ToolTip.Tip="Participates in linked navigation"
+                                           IsVisible="{Binding #Root.DataContext.IsLinkedNavigationEnabled}"/>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
                                     <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Metadata" FontSize="11">Meta</Button>
                                     <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Image" FontSize="11">Image</Button>
                                     <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Text" FontSize="11">Text</Button>
@@ -35,14 +49,47 @@
                                     <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Model" FontSize="11">Model</Button>
                                     <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Hex" FontSize="11">Hex</Button>
                                 </StackPanel>
-                                <Button Grid.Column="2" Command="{Binding PinThisOccurrenceCommand}" Margin="4,0,0,0" IsEnabled="{Binding IsPinEnabled}" ToolTip.Tip="Pin Occurrence" Content="📌 Pin" />
+                                <Button Grid.Column="3" Command="{Binding PinThisOccurrenceCommand}" Margin="4,0,0,0" IsEnabled="{Binding IsPinEnabled}" ToolTip.Tip="Pin Occurrence" Content="📌 Pin" />
                             </Grid>
 
                             <!-- Slot Content -->
                             <Grid Grid.Row="1" Margin="0,4,0,0">
                                 <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsLoading}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
 
-                                <ScrollViewer IsVisible="{Binding FormattedContent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <!-- Image family: zoom/pan canvas -->
+                                <Border Background="#0A0A0A" ClipToBounds="True"
+                                        PointerWheelChanged="ImageSurface_PointerWheelChanged"
+                                        PointerPressed="ImageSurface_PointerPressed"
+                                        PointerMoved="ImageSurface_PointerMoved"
+                                        PointerReleased="ImageSurface_PointerReleased"
+                                        IsVisible="{Binding PreferredFamily, Converter={StaticResource EnumEquals}, ConverterParameter=Image}">
+                                    <Image Source="{Binding RawImageBitmap}" Stretch="None" RenderOptions.BitmapInterpolationMode="LowQuality"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Image.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform ScaleX="{Binding ZoomScale}" ScaleY="{Binding ZoomScale}"/>
+                                                <TranslateTransform X="{Binding PanX}" Y="{Binding PanY}"/>
+                                            </TransformGroup>
+                                        </Image.RenderTransform>
+                                    </Image>
+                                </Border>
+
+                                <!-- Audio family: transport controls + metadata -->
+                                <DockPanel IsVisible="{Binding PreferredFamily, Converter={StaticResource EnumEquals}, ConverterParameter=Audio}">
+                                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="0,0,0,4">
+                                        <Button Command="{Binding PlayCommand}" Content="▶ Play"/>
+                                        <Button Command="{Binding PauseCommand}" Content="⏸ Pause"/>
+                                        <Button Command="{Binding StopCommand}" Content="⏹ Stop"/>
+                                        <TextBlock Text="{Binding PlaybackState}" VerticalAlignment="Center" Foreground="#999999" Margin="8,0,0,0"/>
+                                    </StackPanel>
+                                    <ProgressBar DockPanel.Dock="Top" Minimum="0" Maximum="1" Value="{Binding PositionProgress}" Margin="0,0,0,4"/>
+                                    <ScrollViewer IsVisible="{Binding FormattedContent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <TextBox Text="{Binding FormattedContent}" IsReadOnly="True" FontFamily="Consolas,Courier New" FontSize="12" Background="#111111" Foreground="#CCCCCC"/>
+                                    </ScrollViewer>
+                                </DockPanel>
+
+                                <!-- All other families: plain text preview -->
+                                <ScrollViewer IsVisible="{Binding PreferredFamily, Converter={StaticResource IsPlainTextFamily}}">
                                     <TextBox Text="{Binding FormattedContent}" IsReadOnly="True" FontFamily="Consolas,Courier New" FontSize="12" Background="#111111" Foreground="#CCCCCC"/>
                                 </ScrollViewer>
 

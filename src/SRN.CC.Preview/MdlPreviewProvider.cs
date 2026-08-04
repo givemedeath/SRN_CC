@@ -4,6 +4,7 @@ using System.Text;
 using SRN.CC.Core.Preview;
 using SRN.CC.Core.Services;
 using SRN.CC.Core.Occurrences;
+using SRN.CC.Preview.Render;
 using SWLOR.NWN.Formats;
 using SWLOR.NWN.Formats.Mdl;
 
@@ -12,10 +13,20 @@ namespace SRN.CC.Preview;
 public sealed class MdlPreviewProvider : IPreviewProvider
 {
     private readonly IResourceTypeRegistry _registry;
+    private readonly IMdlSceneBuilder _sceneBuilder;
+    private readonly ModelSceneCache _sceneCache;
+    private readonly Func<ITextureSource?>? _textureSourceAccessor;
 
-    public MdlPreviewProvider(IResourceTypeRegistry registry)
+    public MdlPreviewProvider(
+        IResourceTypeRegistry registry,
+        IMdlSceneBuilder sceneBuilder,
+        ModelSceneCache sceneCache,
+        Func<ITextureSource?>? textureSourceAccessor = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _sceneBuilder = sceneBuilder ?? throw new ArgumentNullException(nameof(sceneBuilder));
+        _sceneCache = sceneCache ?? throw new ArgumentNullException(nameof(sceneCache));
+        _textureSourceAccessor = textureSourceAccessor;
     }
 
     public PreviewFamily Family => PreviewFamily.Model;
@@ -48,21 +59,16 @@ public sealed class MdlPreviewProvider : IPreviewProvider
             return Failure("Model payload is empty.", request, diagnostics);
         }
 
+        bool isAscii;
+        MdlModel parsed;
+        string formatted;
+
         try
         {
-            bool isAscii = IsLikelyAsciiFormat(read.Bytes);
-            MdlModel parsed = new MdlReader().Parse(read.Bytes);
+            isAscii = IsLikelyAsciiFormat(read.Bytes);
+            parsed = new MdlReader().Parse(read.Bytes);
 
-            string formatted = BuildModelFormatted(request.Occurrence, parsed, isAscii, diagnostics, isFallback: false, parseWarning: null);
-            return new PreviewResult(
-                Occurrence: request.Occurrence,
-                Family: PreviewFamily.Model,
-                IsSuccess: true,
-                MetadataText: null,
-                RawPayload: null,
-                FormattedContent: formatted,
-                ErrorMessage: null,
-                Diagnostics: diagnostics);
+            formatted = BuildModelFormatted(request.Occurrence, parsed, isAscii, diagnostics, isFallback: false, parseWarning: null);
         }
         catch (NwnFormatException ex)
         {
@@ -74,7 +80,7 @@ public sealed class MdlPreviewProvider : IPreviewProvider
                     diagnostics.Add(warning);
                 }
 
-                string formatted = BuildModelFormatted(
+                string fallbackFormatted = BuildModelFormatted(
                     request.Occurrence,
                     fallback,
                     IsLikelyAsciiFormat(read.Bytes),
@@ -87,7 +93,7 @@ public sealed class MdlPreviewProvider : IPreviewProvider
                     IsSuccess: true,
                     MetadataText: null,
                     RawPayload: null,
-                    FormattedContent: formatted,
+                    FormattedContent: fallbackFormatted,
                     ErrorMessage: null,
                     Diagnostics: diagnostics);
             }
@@ -97,6 +103,62 @@ public sealed class MdlPreviewProvider : IPreviewProvider
         catch (Exception ex)
         {
             return Failure($"Model parse failed: {ex.Message}", request, diagnostics);
+        }
+
+        // Scene building runs outside the parse try/catch above so that a genuine cancellation of
+        // this request while building the scene propagates as OperationCanceledException (per
+        // PreviewEngine's expectations) instead of being caught by the parse-error handling and
+        // mapped to a Failure result.
+        IPreviewPayload? payload = await TryBuildScenePayloadAsync(request, parsed, isAscii, diagnostics, cancellationToken)
+            .ConfigureAwait(false);
+        return new PreviewResult(
+            Occurrence: request.Occurrence,
+            Family: PreviewFamily.Model,
+            IsSuccess: true,
+            MetadataText: null,
+            RawPayload: null,
+            FormattedContent: formatted,
+            ErrorMessage: null,
+            Diagnostics: diagnostics,
+            Payload: payload);
+    }
+
+    /// <summary>
+    /// Builds (or reuses, via <see cref="_sceneCache"/>) a <see cref="RenderScene"/> for a
+    /// successfully-parsed primary model and wraps it as a <see cref="ModelScenePayload"/>. Only
+    /// called on the primary parse-success path — never on the header-fallback path, which has no
+    /// real geometry to build from. Never throws: a scene-build failure is degraded to a
+    /// diagnostic and a null payload so the text preview remains the reliable fallback (A4).
+    /// </summary>
+    private async Task<IPreviewPayload?> TryBuildScenePayloadAsync(
+        PreviewRequest request,
+        MdlModel parsed,
+        bool isAscii,
+        List<string> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            ModelSceneCacheKey cacheKey = ModelSceneCacheKey.FromOccurrence(request.Occurrence);
+            ITextureSource? textureSource = _textureSourceAccessor?.Invoke();
+            SceneBuildBudget budget = new(
+                PreviewStreamHelpers.ModelSceneCpuBudgetBytes,
+                PreviewStreamHelpers.ModelTextureSetBudgetBytes,
+                PreviewStreamHelpers.ModelMaxTextures,
+                PreviewStreamHelpers.ModelMaxDrawCalls);
+
+            RenderScene scene = await _sceneCache
+                .GetOrBuildAsync(
+                    cacheKey,
+                    () => _sceneBuilder.BuildAsync(parsed, isAscii, textureSource, budget, cancellationToken))
+                .ConfigureAwait(false);
+
+            return new ModelScenePayload { Scene = scene };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            diagnostics.Add($"Scene build failed: {ex.Message}");
+            return null;
         }
     }
 

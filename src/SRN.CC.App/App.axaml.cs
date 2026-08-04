@@ -14,6 +14,7 @@ using SRN.CC.Infrastructure.Cache;
 using SRN.CC.Infrastructure.Persistence;
 using SRN.CC.Infrastructure.Services;
 using SRN.CC.Preview;
+using SRN.CC.Preview.Render;
 
 namespace SRN.CC.App;
 
@@ -48,6 +49,13 @@ public partial class App : Application
 
             var orchestrator = new BuildOrchestrator(packer, verifier, manifestGen, publisher, registry, dispatcher);
 
+            // MdlSceneBuilder/ModelSceneCache are process-lifetime singletons; the texture-source
+            // accessor is left null here as an interim stopgap so the solution keeps compiling
+            // across milestone-6 waves. Slice S15 replaces this with a late-bound accessor over
+            // the loaded workspace's texture source per architecture decision A7.
+            var mdlSceneBuilder = new MdlSceneBuilder();
+            var modelSceneCache = new ModelSceneCache();
+
             var previewEngine = new PreviewEngine(dispatcher, new IPreviewProvider[]
             {
                 new MetadataPreviewProvider(registry),
@@ -55,7 +63,7 @@ public partial class App : Application
                 new TextPreviewProvider(registry),
                 new AudioPreviewProvider(registry),
                 new TreePreviewProvider(registry),
-                new MdlPreviewProvider(registry),
+                new MdlPreviewProvider(registry, mdlSceneBuilder, modelSceneCache),
                 new BoundedHexPreviewProvider()
             });
 

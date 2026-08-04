@@ -69,6 +69,24 @@ public sealed class ModelSceneCache
     }
 
     /// <summary>
+    /// Drops every cached and in-flight entry and resets the tracked byte total. Callers that already
+    /// hold a reference to an in-flight build's <see cref="Task{RenderScene}"/> are unaffected — that
+    /// build still completes normally — but a subsequent <see cref="GetOrBuildAsync"/> call for the
+    /// same key will miss and start a fresh build. Intended for the one case scene identity alone
+    /// cannot capture: the late-bound <see cref="SRN.CC.Core.Services.ITextureSource"/> a scene was
+    /// built against changing (e.g. a workspace loading after an untextured scene was already cached).
+    /// </summary>
+    public void Clear()
+    {
+        lock (_gate)
+        {
+            _entries.Clear();
+            _lruOrder.Clear();
+            _totalApproximateBytes = 0;
+        }
+    }
+
+    /// <summary>
     /// Returns the cached <see cref="Task{RenderScene}"/> for <paramref name="key"/>, or registers
     /// and starts <paramref name="factory"/> as the in-flight build when no entry exists yet.
     /// Every caller — including concurrent ones racing for the same key — receives a reference to
@@ -137,6 +155,7 @@ public sealed class ModelSceneCache
                     if (_entries.TryGetValue(key, out CacheEntry? current) && ReferenceEquals(current, entry))
                     {
                         entry.ApproximateByteSize = scene.ApproximateByteSize;
+                        entry.IsBuilt = true;
                         _totalApproximateBytes += scene.ApproximateByteSize;
                         EvictIfOverBudgetLocked(key);
                     }
@@ -184,9 +203,15 @@ public sealed class ModelSceneCache
     }
 
     /// <summary>
-    /// Evicts least-recently-used entries (other than <paramref name="justInsertedKey"/>) until the
-    /// running total is back under budget, or no more evictable entries remain. Caller must hold
-    /// <see cref="_gate"/>.
+    /// Evicts least-recently-used, fully-built entries (other than <paramref name="justInsertedKey"/>)
+    /// until the running total is back under budget, or no more evictable entries remain. An entry
+    /// whose build is still in flight (<see cref="CacheEntry.IsBuilt"/> false) is never evicted here —
+    /// only a finalized build's <see cref="RunBuild"/> continuation reaches this method under the
+    /// still-in-flight entry's own key, which the <paramref name="justInsertedKey"/> guard already
+    /// protects; any OTHER entry considered here must likewise be left alone while it is still
+    /// building, or a concurrent <see cref="GetOrBuildAsync"/> call for that key would see a spurious
+    /// cache miss and start a duplicate build, violating the "one parse and one build" guarantee.
+    /// Caller must hold <see cref="_gate"/>.
     /// </summary>
     private void EvictIfOverBudgetLocked(ModelSceneCacheKey justInsertedKey)
     {
@@ -196,7 +221,9 @@ public sealed class ModelSceneCache
             LinkedListNode<ModelSceneCacheKey>? next = node.Next;
             ModelSceneCacheKey candidateKey = node.Value;
 
-            if (!candidateKey.Equals(justInsertedKey) && _entries.TryGetValue(candidateKey, out CacheEntry? candidateEntry))
+            if (!candidateKey.Equals(justInsertedKey)
+                && _entries.TryGetValue(candidateKey, out CacheEntry? candidateEntry)
+                && candidateEntry.IsBuilt)
             {
                 _entries.Remove(candidateKey);
                 _lruOrder.Remove(node);
@@ -217,6 +244,8 @@ public sealed class ModelSceneCache
         public Task<RenderScene> SceneTask { get; }
 
         public long ApproximateByteSize { get; set; }
+
+        public bool IsBuilt { get; set; }
 
         public LinkedListNode<ModelSceneCacheKey>? LruNode { get; set; }
     }

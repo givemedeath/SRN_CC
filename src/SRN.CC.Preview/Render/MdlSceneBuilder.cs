@@ -89,7 +89,7 @@ public sealed class MdlSceneBuilder : IMdlSceneBuilder
             float[] normals = node.Normals is { Length: > 0 } sourceNormals && sourceNormals.Length == node.Vertices.Length
                 ? FlattenVector3(sourceNormals)
                 : GenerateNormals(node.Vertices, node.Faces);
-            ushort[] indices = FlattenIndices(node.Faces);
+            ushort[] indices = FlattenIndices(node.Faces, node.Vertices.Length, node.Name, diagnostics);
             int[] faceSurfaceIds = node.IsWalkmesh ? ExtractSurfaceIds(node.Faces) : Array.Empty<int>();
 
             long meshBytes = (long)positions.Length * sizeof(float)
@@ -323,14 +323,45 @@ public sealed class MdlSceneBuilder : IMdlSceneBuilder
         return result;
     }
 
-    private static ushort[] FlattenIndices(MdlFace[] faces)
+    /// <summary>
+    /// Flattens face indices for the GL index buffer, collapsing any face whose vertex index is
+    /// beyond <paramref name="vertexCount"/> to a degenerate (0,0,0) triangle instead of passing the
+    /// raw, unvalidated value through — a malformed binary MDL can contain out-of-range indices (see
+    /// <see cref="GenerateNormals"/>'s equivalent guard), and an unvalidated index reaching
+    /// <c>glDrawElements</c> is an out-of-bounds GPU vertex-buffer read.
+    /// </summary>
+    private static ushort[] FlattenIndices(MdlFace[] faces, int vertexCount, string nodeName, List<string> diagnostics)
     {
+        if (vertexCount == 0)
+        {
+            if (faces.Length > 0)
+            {
+                diagnostics.Add($"Node '{nodeName}': {faces.Length} face(s) reference vertices but the node has none; faces were dropped.");
+            }
+
+            return Array.Empty<ushort>();
+        }
+
         ushort[] result = new ushort[faces.Length * 3];
+        int outOfRangeCount = 0;
         for (int i = 0; i < faces.Length; i++)
         {
-            result[(i * 3) + 0] = faces[i].VertexIndex0;
-            result[(i * 3) + 1] = faces[i].VertexIndex1;
-            result[(i * 3) + 2] = faces[i].VertexIndex2;
+            MdlFace face = faces[i];
+            bool valid = face.VertexIndex0 < vertexCount && face.VertexIndex1 < vertexCount && face.VertexIndex2 < vertexCount;
+            if (!valid)
+            {
+                outOfRangeCount++;
+            }
+
+            result[(i * 3) + 0] = valid ? face.VertexIndex0 : (ushort)0;
+            result[(i * 3) + 1] = valid ? face.VertexIndex1 : (ushort)0;
+            result[(i * 3) + 2] = valid ? face.VertexIndex2 : (ushort)0;
+        }
+
+        if (outOfRangeCount > 0)
+        {
+            diagnostics.Add(
+                $"Node '{nodeName}': {outOfRangeCount} face(s) referenced an out-of-range vertex index and were collapsed to a degenerate triangle.");
         }
 
         return result;

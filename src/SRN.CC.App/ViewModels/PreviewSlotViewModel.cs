@@ -124,8 +124,15 @@ public partial class PreviewSlotViewModel : ObservableObject
             IsLoading = false;
             if (res.IsSuccess)
             {
+                // Build the content VM before touching any observable state: if PreviewContentFactory.Create
+                // throws (e.g. a malformed audio payload a provider's own validation missed), the catch
+                // block below must not be reached with FormattedContent already holding this attempt's
+                // value — it was already reset to null before the request started, so leaving it untouched
+                // here keeps ErrorMessage and FormattedContent from disagreeing about whether this attempt
+                // succeeded.
+                PreviewContentViewModel content = PreviewContentFactory.Create(res);
                 FormattedContent = res.FormattedContent;
-                Content = PreviewContentFactory.Create(res);
+                Content = content;
                 ErrorMessage = null;
                 DiagnosticsText = res.Diagnostics.Count > 0 ? string.Join("\n", res.Diagnostics) : null;
             }

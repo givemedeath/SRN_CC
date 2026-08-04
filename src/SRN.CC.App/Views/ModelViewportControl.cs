@@ -174,6 +174,11 @@ public sealed class ModelViewportControl : OpenGlControlBase
         _renderer = null;
         _device = null;
 
+        // Nothing else re-triggers OnOpenGlInit after a context loss, so without reporting here the
+        // slot would keep showing a dead, stale frame with no diagnostic (matching the degrade-to-text
+        // behavior already applied to init failure and registry refusal, above).
+        ReportUnavailable("The 3D rendering context was lost.");
+
         base.OnOpenGlLost();
     }
 

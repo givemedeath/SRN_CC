@@ -16,5 +16,29 @@ namespace SRN.CC.App.Services;
 /// </summary>
 public sealed class TextureSourceHolder
 {
-    public ITextureSource? Current { get; set; }
+    private ITextureSource? _current;
+
+    public ITextureSource? Current
+    {
+        get => _current;
+        set
+        {
+            if (ReferenceEquals(_current, value))
+            {
+                return;
+            }
+
+            _current = value;
+            Changed?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// Raised whenever <see cref="Current"/> is reassigned to a different instance (including to or
+    /// from null). A scene built while one texture source was current has that source baked into its
+    /// resolved textures — this signal is what lets a consumer (e.g. <c>App.axaml.cs</c> wiring a
+    /// <c>ModelSceneCache</c>) invalidate anything cached against the previous source instead of
+    /// serving stale texture state forever.
+    /// </summary>
+    public event Action? Changed;
 }

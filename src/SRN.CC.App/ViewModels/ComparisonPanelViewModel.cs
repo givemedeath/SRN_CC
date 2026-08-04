@@ -328,39 +328,24 @@ public partial class ComparisonPanelViewModel : ObservableObject
     /// <see cref="ImageContentViewModel.PanY"/> from <paramref name="source"/> to every other active
     /// slot currently hosting an <see cref="ImageContentViewModel"/>.
     /// </summary>
-    private void PropagateImageNavigation(ImageContentViewModel source)
-    {
-        _isApplyingLinkedUpdate = true;
-        try
+    private void PropagateImageNavigation(ImageContentViewModel source) =>
+        PropagateLinked(source, static (target, source) =>
         {
-            foreach (PreviewSlotViewModel slot in Slots)
+            if (!target.ZoomScale.Equals(source.ZoomScale))
             {
-                if (!slot.IsActive || slot.Content is not ImageContentViewModel target || ReferenceEquals(target, source))
-                {
-                    continue;
-                }
-
-                if (!target.ZoomScale.Equals(source.ZoomScale))
-                {
-                    target.ZoomScale = source.ZoomScale;
-                }
-
-                if (!target.PanX.Equals(source.PanX))
-                {
-                    target.PanX = source.PanX;
-                }
-
-                if (!target.PanY.Equals(source.PanY))
-                {
-                    target.PanY = source.PanY;
-                }
+                target.ZoomScale = source.ZoomScale;
             }
-        }
-        finally
-        {
-            _isApplyingLinkedUpdate = false;
-        }
-    }
+
+            if (!target.PanX.Equals(source.PanX))
+            {
+                target.PanX = source.PanX;
+            }
+
+            if (!target.PanY.Equals(source.PanY))
+            {
+                target.PanY = source.PanY;
+            }
+        });
 
     /// <summary>
     /// 3D camera linking, unconditional whenever applicable (<c>PLAN.md:120</c>: "link ... compatible
@@ -369,29 +354,14 @@ public partial class ComparisonPanelViewModel : ObservableObject
     /// instances). Copies <see cref="ModelViewportViewModel.Camera"/> only - <see cref="ModelViewportViewModel.ShowWalkmesh"/>
     /// is deliberately left untouched, since the plan asks for camera state, not the walkmesh toggle.
     /// </summary>
-    private void PropagateCamera(ModelViewportViewModel source)
-    {
-        _isApplyingLinkedUpdate = true;
-        try
+    private void PropagateCamera(ModelViewportViewModel source) =>
+        PropagateLinked(source, static (target, source) =>
         {
-            foreach (PreviewSlotViewModel slot in Slots)
+            if (target.Camera != source.Camera)
             {
-                if (!slot.IsActive || slot.Content is not ModelViewportViewModel target || ReferenceEquals(target, source))
-                {
-                    continue;
-                }
-
-                if (target.Camera != source.Camera)
-                {
-                    target.Camera = source.Camera;
-                }
+                target.Camera = source.Camera;
             }
-        }
-        finally
-        {
-            _isApplyingLinkedUpdate = false;
-        }
-    }
+        });
 
     /// <summary>
     /// Audio position linking, conditional (<c>PLAN.md:120</c>: "link audio position only when every
@@ -407,20 +377,37 @@ public partial class ComparisonPanelViewModel : ObservableObject
             return;
         }
 
+        PropagateLinked(source, static (target, source) =>
+        {
+            if (!target.PositionProgress.Equals(source.PositionProgress))
+            {
+                target.PositionProgress = source.PositionProgress;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Shared shape behind <see cref="PropagateImageNavigation"/>/<see cref="PropagateCamera"/>/
+    /// <see cref="PropagateAudioPosition"/>: set the re-entrancy guard, walk every active slot whose
+    /// content is the same concrete type as <paramref name="source"/> (skipping <paramref name="source"/>
+    /// itself), and hand each matching target/source pair to <paramref name="copyIfDifferent"/>. Any
+    /// family-specific precondition (e.g. <see cref="AllSlotsAreAudio"/>) is the caller's
+    /// responsibility to check before calling this, since it must run outside the guard.
+    /// </summary>
+    private void PropagateLinked<TContent>(TContent source, Action<TContent, TContent> copyIfDifferent)
+        where TContent : PreviewContentViewModel
+    {
         _isApplyingLinkedUpdate = true;
         try
         {
             foreach (PreviewSlotViewModel slot in Slots)
             {
-                if (!slot.IsActive || slot.Content is not AudioContentViewModel target || ReferenceEquals(target, source))
+                if (!slot.IsActive || slot.Content is not TContent target || ReferenceEquals(target, source))
                 {
                     continue;
                 }
 
-                if (!target.PositionProgress.Equals(source.PositionProgress))
-                {
-                    target.PositionProgress = source.PositionProgress;
-                }
+                copyIfDifferent(target, source);
             }
         }
         finally

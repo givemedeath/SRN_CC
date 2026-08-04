@@ -62,6 +62,12 @@ public partial class App : Application
             var modelSceneCache = new ModelSceneCache();
             var textureSourceHolder = new TextureSourceHolder();
 
+            // A cached RenderScene has whichever ITextureSource was current at build time baked into
+            // its resolved textures. Without this, a model previewed before a workspace loads (or
+            // while a different workspace's texture source is current) stays cached untextured/stale
+            // forever, since ModelSceneCacheKey deliberately does not include texture-source identity.
+            textureSourceHolder.Changed += modelSceneCache.Clear;
+
             var previewEngine = new PreviewEngine(dispatcher, new IPreviewProvider[]
             {
                 new MetadataPreviewProvider(registry),

@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SRN.CC.App.ViewModels.Preview;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Preview;
 using SRN.CC.Core.Resolution;
@@ -41,6 +42,17 @@ public partial class PreviewSlotViewModel : ObservableObject
     [ObservableProperty]
     private string? _formattedContent;
 
+    /// <summary>
+    /// The polymorphic content this slot hosts (architecture decision A3). Additive alongside
+    /// <see cref="FormattedContent"/> in this slice — the AXAML template now renders through this
+    /// property, but <see cref="FormattedContent"/> is kept exactly as-is for compatibility until a
+    /// later cleanup removes it. Every reassignment (including to <c>null</c> when the slot is
+    /// cleared or a preview fails) disposes whatever was previously here; see
+    /// <see cref="OnContentChanging"/>.
+    /// </summary>
+    [ObservableProperty]
+    private PreviewContentViewModel? _content;
+
     [ObservableProperty]
     private string? _errorMessage;
 
@@ -80,6 +92,7 @@ public partial class PreviewSlotViewModel : ObservableObject
             IsLoading = false;
             SlotTitle = $"Slot {SlotIndex + 1} [Empty]";
             FormattedContent = "No asset assigned to this slot.";
+            Content = new TextContentViewModel(PreferredFamily, FormattedContent);
             ErrorMessage = null;
             DiagnosticsText = null;
             IsPinned = false;
@@ -94,6 +107,7 @@ public partial class PreviewSlotViewModel : ObservableObject
         IsLoading = true;
         UpdatePinAvailability();
         FormattedContent = null;
+        Content = null;
         ErrorMessage = null;
         DiagnosticsText = null;
 
@@ -110,12 +124,14 @@ public partial class PreviewSlotViewModel : ObservableObject
             if (res.IsSuccess)
             {
                 FormattedContent = res.FormattedContent;
+                Content = PreviewContentFactory.Create(res);
                 ErrorMessage = null;
                 DiagnosticsText = res.Diagnostics.Count > 0 ? string.Join("\n", res.Diagnostics) : null;
             }
             else
             {
                 FormattedContent = null;
+                Content = null;
                 ErrorMessage = res.ErrorMessage;
                 DiagnosticsText = string.Join("\n", res.Diagnostics);
             }
@@ -169,6 +185,19 @@ public partial class PreviewSlotViewModel : ObservableObject
 
     partial void OnIsActiveChanged(bool value) => UpdatePinAvailability();
     partial void OnAssignedOccurrenceChanged(AssetOccurrence? value) => UpdatePinAvailability();
+
+    /// <summary>
+    /// Every assignment to <see cref="Content"/> — including to <c>null</c> — routes through here
+    /// before the new value takes effect, so the previous content is always disposed exactly once,
+    /// regardless of which code path (empty slot, success, failure) performed the assignment.
+    /// </summary>
+    partial void OnContentChanging(PreviewContentViewModel? oldValue, PreviewContentViewModel? newValue)
+    {
+        if (!ReferenceEquals(oldValue, newValue))
+        {
+            oldValue?.Dispose();
+        }
+    }
 
     private void UpdatePinAvailability()
     {

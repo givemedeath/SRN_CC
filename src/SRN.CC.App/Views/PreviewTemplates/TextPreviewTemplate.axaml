@@ -1,0 +1,16 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:previewVm="using:SRN.CC.App.ViewModels.Preview">
+    <!--
+        Shared "plain text" template for TextContentViewModel, per architecture decision A3.
+        TextContentViewModel is reused across every preview family that renders as formatted text
+        (Metadata, Text, Tree, Hex, and Model until a dedicated viewport lands) — one template covers
+        all of them because Avalonia resolves this implicit DataTemplate by the CONCRETE C# type
+        (x:DataType), not by the content's Family property.
+    -->
+    <DataTemplate x:Key="{x:Type previewVm:TextContentViewModel}" DataType="previewVm:TextContentViewModel" x:DataType="previewVm:TextContentViewModel">
+        <ScrollViewer IsVisible="{Binding FormattedContent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <TextBox Text="{Binding FormattedContent}" IsReadOnly="True" FontFamily="Consolas,Courier New" FontSize="12" Background="#111111" Foreground="#CCCCCC"/>
+        </ScrollViewer>
+    </DataTemplate>
+</ResourceDictionary>

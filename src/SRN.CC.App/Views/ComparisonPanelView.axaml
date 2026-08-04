@@ -1,8 +1,32 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:SRN.CC.App.ViewModels"
+             xmlns:previewVm="using:SRN.CC.App.ViewModels.Preview"
              x:Class="SRN.CC.App.Views.ComparisonPanelView"
              x:DataType="vm:ComparisonPanelViewModel">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- One ResourceDictionary per family, per architecture decision A3 - Wave-3 slices
+                     each add their own template file here (and the matching StaticResource line
+                     below) without touching this file's shared visual content or the other
+                     families' entries. -->
+                <ResourceInclude Source="avares://SRN.CC.App/Views/PreviewTemplates/TextPreviewTemplate.axaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <UserControl.DataTemplates>
+        <!--
+            Avalonia only resolves IMPLICIT (by-type) data templates from a control's DataTemplates
+            list (walking the logical tree, then Application.DataTemplates) - never from Resources,
+            even when a resource is keyed by Type. So each family's template, though authored and
+            merged as a keyed resource above, must also be listed here once via StaticResource so
+            ContentControl can find it by TextContentViewModel/ImageContentViewModel/etc.'s runtime
+            type. This list is the ONE place a new family's one-line registration goes; the template
+            content itself always lives in that family's own PreviewTemplates/*.axaml file.
+        -->
+        <StaticResource ResourceKey="{x:Type previewVm:TextContentViewModel}"/>
+    </UserControl.DataTemplates>
     <Grid RowDefinitions="Auto,*">
         <!-- Comparison Header & Mode Switcher -->
         <Border Grid.Row="0" Background="#252526" Padding="8">
@@ -42,9 +66,7 @@
                             <Grid Grid.Row="1" Margin="0,4,0,0">
                                 <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsLoading}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
 
-                                <ScrollViewer IsVisible="{Binding FormattedContent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                    <TextBox Text="{Binding FormattedContent}" IsReadOnly="True" FontFamily="Consolas,Courier New" FontSize="12" Background="#111111" Foreground="#CCCCCC"/>
-                                </ScrollViewer>
+                                <ContentControl Content="{Binding Content}"/>
 
                                 <TextBlock Text="{Binding ErrorMessage}" IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Foreground="#FF4444" VerticalAlignment="Center" TextWrapping="Wrap"/>
                             </Grid>

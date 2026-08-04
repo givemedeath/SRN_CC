@@ -1,68 +1,77 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:SRN.CC.App.ViewModels"
+        xmlns:views="using:SRN.CC.App.Views"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
         x:Class="SRN.CC.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{Binding Title}"
-        Width="1024" Height="768">
+        Width="1280" Height="800">
 
-    <Design.DataContext>
-        <vm:MainWindowViewModel/>
-    </Design.DataContext>
-
-    <Grid RowDefinitions="Auto,*">
-        <Border Grid.Row="0" Background="#1E1E1E" Padding="12">
-            <StackPanel Orientation="Horizontal" Spacing="16">
-                <TextBlock Text="SRN.CC Curation Grid Probe" FontWeight="Bold" FontSize="16" VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding Items.Count, StringFormat='Rows: {0:N0}'}" VerticalAlignment="Center" Foreground="#AAAAAA"/>
+    <Grid RowDefinitions="Auto,*,Auto,Auto">
+        <!-- Top Toolbar -->
+        <Border Grid.Row="0" Background="#333337" Padding="6">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="SRN.CC Asset Curator" FontWeight="Bold" FontSize="15" VerticalAlignment="Center" Margin="8,0,16,0" Foreground="#FFFFFF"/>
+                <Button Content="New Project" Command="{Binding NewProjectCommand}"/>
+                <Button Content="Open..." Command="{Binding OpenProjectCommand}"/>
+                <Button Content="Save" Command="{Binding SaveProjectCommand}"/>
+                <Rectangle Width="1" Height="20" Fill="#555555" Margin="4,0"/>
+                <Button Content="Build HAK" Command="{Binding BuildHakCommand}" Background="#007ACC" Foreground="#FFFFFF" FontWeight="Bold"/>
             </StackPanel>
         </Border>
 
-        <!-- Virtualized TableView -->
-        <TableView Name="MainTableView"
-                   Grid.Row="1"
-                   ItemsSource="{Binding Items}"
-                   SelectionMode="Multiple">
-            <TableView.Columns>
-                <TableViewColumn Header="ID" Width="80">
-                    <TableViewColumn.CellTemplate>
-                        <DataTemplate x:DataType="vm:AssetRowItem">
-                            <TextBlock Text="{Binding Id}" VerticalAlignment="Center"/>
+        <!-- Main 3-Pane Layout -->
+        <Grid Grid.Row="1" ColumnDefinitions="280,4,*,4,380">
+            <!-- Left: Source Stack -->
+            <views:SourceStackView Grid.Column="0" DataContext="{Binding SourceStack}"/>
+
+            <GridSplitter Grid.Column="1" Width="4" Background="#333333"/>
+
+            <!-- Center: Asset Grid Table -->
+            <views:AssetTableView Grid.Column="2" DataContext="{Binding AssetTable}"/>
+
+            <GridSplitter Grid.Column="3" Width="4" Background="#333333"/>
+
+            <!-- Right: Comparison & Preview Panel -->
+            <views:ComparisonPanelView Grid.Column="4" DataContext="{Binding ComparisonPanel}"/>
+        </Grid>
+
+        <!-- Expandable Operation Log Drawer -->
+        <Border Grid.Row="2" Background="#1E1E1E" BorderBrush="#333333" BorderThickness="0,1,0,0" IsVisible="{Binding OperationLog.IsExpanded}">
+            <Grid RowDefinitions="Auto,120">
+                <Border Grid.Row="0" Padding="8,4" Background="#2D2D30">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Operation &amp; Diagnostic Log" FontWeight="Bold" Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Command="{Binding OperationLog.ClearLogCommand}">Clear Log</Button>
+                    </Grid>
+                </Border>
+                <ListBox Grid.Row="1" ItemsSource="{Binding OperationLog.Entries}" Background="#111111">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:LogEntryItem">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{Binding Timestamp, StringFormat='[{0:HH:mm:ss}]'}" Foreground="#666666" FontFamily="Consolas"/>
+                                <TextBlock Text="{Binding Level}" FontWeight="Bold" Foreground="#007ACC" Width="50"/>
+                                <TextBlock Text="{Binding Message}" Foreground="#CCCCCC"/>
+                            </StackPanel>
                         </DataTemplate>
-                    </TableViewColumn.CellTemplate>
-                </TableViewColumn>
-                <TableViewColumn Header="Resref" Width="160">
-                    <TableViewColumn.CellTemplate>
-                        <DataTemplate x:DataType="vm:AssetRowItem">
-                            <TextBlock Text="{Binding Resref}" VerticalAlignment="Center"/>
-                        </DataTemplate>
-                    </TableViewColumn.CellTemplate>
-                </TableViewColumn>
-                <TableViewColumn Header="Type" Width="140">
-                    <TableViewColumn.CellTemplate>
-                        <DataTemplate x:DataType="vm:AssetRowItem">
-                            <TextBlock Text="{Binding ResourceType}" VerticalAlignment="Center"/>
-                        </DataTemplate>
-                    </TableViewColumn.CellTemplate>
-                </TableViewColumn>
-                <TableViewColumn Header="Source HAK" Width="200">
-                    <TableViewColumn.CellTemplate>
-                        <DataTemplate x:DataType="vm:AssetRowItem">
-                            <TextBlock Text="{Binding SourceHak}" VerticalAlignment="Center"/>
-                        </DataTemplate>
-                    </TableViewColumn.CellTemplate>
-                </TableViewColumn>
-                <TableViewColumn Header="Size (Bytes)" Width="120">
-                    <TableViewColumn.CellTemplate>
-                        <DataTemplate x:DataType="vm:AssetRowItem">
-                            <TextBlock Text="{Binding SizeBytes}" VerticalAlignment="Center"/>
-                        </DataTemplate>
-                    </TableViewColumn.CellTemplate>
-                </TableViewColumn>
-            </TableView.Columns>
-        </TableView>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- Bottom Status Bar -->
+        <Border Grid.Row="3" Background="#007ACC" Padding="8,4">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding StatusBar.StatusMessage}" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+                <ProgressBar Grid.Column="1" Value="{Binding StatusBar.ProgressFraction}" Minimum="0" Maximum="1" Width="150" IsVisible="{Binding StatusBar.IsBusy}" Margin="8,0"/>
+                <Button Grid.Column="2" Command="{Binding StatusBar.CancelActiveOperationCommand}" IsVisible="{Binding StatusBar.IsBusy}" Margin="8,0">Cancel</Button>
+                <Button Grid.Column="3" Command="{Binding OperationLog.ToggleDrawerCommand}" Margin="8,0">
+                    <TextBlock Text="{Binding OperationLog.WarningCount, StringFormat='Log ({0} Warnings)'}" Foreground="#FFFFFF"/>
+                </Button>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

@@ -16,6 +16,7 @@ public interface IWorkspaceService
         IReadOnlyList<WinnerPin>? pins = null,
         SelectionState? selectionState = null,
         ProjectPreferences? preferences = null,
+        bool isReadOnly = false,
         CancellationToken cancellationToken = default);
 
     Task<(WorkspaceState State, ChangedInputReport Report)> ReorderSourcesAsync(

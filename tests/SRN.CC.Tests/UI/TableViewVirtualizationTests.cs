@@ -32,7 +32,9 @@ public class TableViewVirtualizationTests
             window.Show();
             window.UpdateLayout();
 
-            TableView table = window.FindControl<TableView>("MainTableView")!;
+            TableView table = window.FindControl<TableView>("MainTableView")
+                ?? window.GetVisualDescendants().OfType<TableView>().FirstOrDefault()!;
+
             table.Should().NotBeNull();
             AssertBoundedRealization(window, 0);
 

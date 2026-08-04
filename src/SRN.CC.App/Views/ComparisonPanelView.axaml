@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SRN.CC.App.ViewModels"
+             x:Class="SRN.CC.App.Views.ComparisonPanelView"
+             x:DataType="vm:ComparisonPanelViewModel">
+    <Grid RowDefinitions="Auto,*">
+        <!-- Comparison Header & Mode Switcher -->
+        <Border Grid.Row="0" Background="#252526" Padding="8">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="Preview &amp; Comparison Slots" FontWeight="Bold" VerticalAlignment="Center" Foreground="#DDDDDD"/>
+                <Button Grid.Column="1" Command="{Binding ToggleModeCommand}" Content="{Binding Mode, StringFormat='Mode: {0}'}"/>
+            </Grid>
+        </Border>
+
+        <!-- 3 Comparison Slots -->
+        <ItemsControl Grid.Row="1" ItemsSource="{Binding Slots}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <UniformGrid Rows="3"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:PreviewSlotViewModel">
+                    <Border Margin="4" Padding="6" Background="#1E1E1E" BorderBrush="#333333" BorderThickness="1" CornerRadius="4">
+                        <Grid RowDefinitions="Auto,*">
+                            <!-- Slot Header -->
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto">
+                                <TextBlock Text="{Binding SlotTitle}" FontWeight="Bold" Foreground="#007ACC" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                    <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Metadata" FontSize="11">Meta</Button>
+                                    <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Hex" FontSize="11">Hex</Button>
+                                </StackPanel>
+                                <Button Grid.Column="2" Command="{Binding PinThisOccurrenceCommand}" Margin="4,0,0,0" IsEnabled="{Binding IsPinEnabled}" ToolTip.Tip="Pin Occurrence" Content="📌 Pin" />
+                            </Grid>
+
+                            <!-- Slot Content -->
+                            <Grid Grid.Row="1" Margin="0,4,0,0">
+                                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsLoading}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+
+                                <ScrollViewer IsVisible="{Binding FormattedContent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                    <TextBox Text="{Binding FormattedContent}" IsReadOnly="True" FontFamily="Consolas,Courier New" FontSize="12" Background="#111111" Foreground="#CCCCCC"/>
+                                </ScrollViewer>
+
+                                <TextBlock Text="{Binding ErrorMessage}" IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Foreground="#FF4444" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Grid>
+</UserControl>
+

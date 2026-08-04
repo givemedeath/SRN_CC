@@ -245,3 +245,24 @@ S16.** Reasoning:
 hard-coded 40/8 counts stay untouched), and no new file under
 `src/SRN.CC.Formats/Vendored/`. `MdlPartComposer.cs` (deferred separately by A5, not gated on this
 spike) is unaffected by this verdict either way.
+
+## S16 (Wave 4, "Vendoring execution") — closed as a no-op per this NO-GO
+
+Per the plan's own text: "If NO-GO: the slice becomes a two-paragraph rationale appended to
+`docs/MILESTONE-6-0-VENDORING-DECISION.md` and nothing else changes." This section is that closure.
+
+`MdlSceneBuilder` (`src/SRN.CC.Preview/Render/MdlSceneBuilder.cs`, landed in Wave 1 as slice S6b)
+was built entirely first-party from the start against this spike's NO-GO expectation, and Wave 1's
+own texture-pipeline slice (S7) independently converged on an identical `TextureResolver` contract
+without needing any vendored mesh-building code — so no rework was required when this verdict
+landed. Re-verified before closing: `tools/AuditVendoredSources.ps1` still reports exactly 40
+vendored format sources and 8 portable test files (unchanged from before Milestone 6 began), and
+`eng/vendored-sources-manifest.json` carries no new entry for `MdlMeshBuilder.cs` or
+`MdlAnimationPose.cs`. Reopening this decision — vendoring either file — requires, at minimum: an
+updated `docs/compliance/swlor-post-attestation-delta-review.md` entry recording the correct
+`SWLOR.Toolset.Domain/Render/` upstream paths for both files, a fresh independent-author/reviewer
+disposition per architecture decision A5 (since the existing "Accept (Verbatim)" disposition was
+written against a different upstream path and does not cover `MdlAnimationPose.cs` at all), and only
+then the mechanical manifest/audit-count changes this slice was originally scoped to make. None of
+that is milestone-6 MVP scope; it is explicitly out of scope here and left for a future milestone to
+pick up if desired.

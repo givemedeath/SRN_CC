@@ -11,6 +11,5 @@ public sealed record PreviewResult(
     string? FormattedContent,
     string? ErrorMessage,
     IReadOnlyList<string> Diagnostics,
-    int? Width = null,
-    int? Height = null
+    IPreviewPayload? Payload = null
 );

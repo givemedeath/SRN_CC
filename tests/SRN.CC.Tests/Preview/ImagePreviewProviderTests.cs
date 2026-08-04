@@ -44,8 +44,7 @@ public class ImagePreviewProviderTests
 
         Assert.That(result.IsSuccess, Is.True, result.ErrorMessage);
         Assert.That(result.Family, Is.EqualTo(PreviewFamily.Image));
-        Assert.That(result.Width, Is.EqualTo(2));
-        Assert.That(result.Height, Is.EqualTo(2));
+        Assert.That(result.FormattedContent, Is.EqualTo("2:2"));
         Assert.That(result.RawPayload, Is.Not.Null);
         Assert.That(result.RawPayload!.Length, Is.EqualTo(2 * 2 * 4));
         Assert.That(result.RawPayload, Is.EqualTo(pixelBytes));
@@ -68,8 +67,7 @@ public class ImagePreviewProviderTests
         PreviewResult result = await provider.GeneratePreviewAsync(request, stream);
 
         Assert.That(result.IsSuccess, Is.True, result.ErrorMessage);
-        Assert.That(result.Width, Is.EqualTo(2));
-        Assert.That(result.Height, Is.EqualTo(1));
+        Assert.That(result.FormattedContent, Is.EqualTo("2:1"));
         Assert.That(result.RawPayload, Is.Not.Null);
         byte[] expected = [1, 2, 3, 255, 4, 5, 6, 255];
         Assert.That(result.RawPayload, Is.EqualTo(expected));
@@ -183,8 +181,7 @@ public class ImagePreviewProviderTests
         PreviewResult result = await provider.GeneratePreviewAsync(request, stream);
 
         Assert.That(result.IsSuccess, Is.True, result.ErrorMessage);
-        Assert.That(result.Width, Is.EqualTo(width));
-        Assert.That(result.Height, Is.EqualTo(height));
+        Assert.That(result.FormattedContent, Is.EqualTo($"{width}:{height}"));
         Assert.That(result.RawPayload, Is.Not.Null);
         Assert.That(result.RawPayload!.Length, Is.EqualTo(width * height * 4));
     }
@@ -212,8 +209,7 @@ public class ImagePreviewProviderTests
         PreviewResult result = await provider.GeneratePreviewAsync(request, stream);
 
         Assert.That(result.IsSuccess, Is.True, result.ErrorMessage);
-        Assert.That(result.Width, Is.EqualTo(2));
-        Assert.That(result.Height, Is.EqualTo(1));
+        Assert.That(result.FormattedContent, Is.EqualTo("2:1"));
         Assert.That(result.RawPayload, Is.Not.Null);
         Assert.That(result.RawPayload!.Length, Is.EqualTo(2 * 1 * 4));
         Assert.That(result.Diagnostics, Has.Some.Contains("default recolor table"));

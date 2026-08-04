@@ -26,6 +26,11 @@ upstream license is distributed as
 | HarfBuzzSharp and Win32 native assets | 8.3.1.3 | MIT | Microsoft and contributors; `THIRD-PARTY-LICENSES/HARFBUZZSHARP-LICENSE.txt` |
 | MicroCom.Runtime | 0.11.6 | MIT | MicroCom contributors; https://github.com/kekekeks/MicroCom |
 | Microsoft.Data.Sqlite and Core | 10.0.10 | MIT | Microsoft and contributors; https://github.com/dotnet/dotnet |
+| Microsoft.DotNet.PlatformAbstractions | 3.1.6 | MIT | Microsoft Corporation; git://github.com/dotnet/core-setup |
+| Microsoft.Extensions.DependencyModel | 9.0.9 | MIT | Microsoft Corporation; https://github.com/dotnet/runtime |
+| NAudio and platform audio backends (NAudio.Asio, NAudio.Core, NAudio.Midi, NAudio.Wasapi, NAudio.WinMM) | 2.3.0 | MIT | Mark Heath and contributors; https://github.com/naudio/NAudio |
+| Pfim | 0.11.4 | MIT | Nick Babcock; license text at https://raw.githubusercontent.com/nickbabcock/Pfim/master/LICENSE.txt |
+| Silk.NET.Core, Silk.NET.Maths, Silk.NET.OpenGL | 2.23.0 | MIT | .NET Foundation and Contributors; https://github.com/dotnet/Silk.NET |
 | SkiaSharp and Win32 native assets | 3.119.4 | MIT | Microsoft and contributors; `THIRD-PARTY-LICENSES/SKIASHARP-LICENSE.txt` |
 | SQLitePCLRaw family | 2.1.12 | Apache-2.0 | Eric Sink and contributors; https://github.com/ericsink/SQLitePCL.raw |
 | Tmds.DBus.Protocol | 0.94.1 | MIT | Tmds.DBus contributors; https://github.com/tmds/Tmds.DBus |

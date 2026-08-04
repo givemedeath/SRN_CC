@@ -402,6 +402,7 @@
           "Avalonia.Desktop": "[12.1.0, )",
           "Avalonia.Themes.Fluent": "[12.1.0, )",
           "CommunityToolkit.Mvvm": "[8.4.2, )",
+          "NAudio": "[2.3.0, )",
           "SRN.CC.Core": "[1.0.0, )",
           "SRN.CC.Infrastructure": "[1.0.0, )",
           "SRN.CC.Preview": "[1.0.0, )"

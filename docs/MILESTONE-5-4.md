@@ -8,6 +8,12 @@
 > a disabled-state affordance for not-ready providers, persisted linked-navigation preference (no
 > settings infrastructure exists yet to persist into), and the "late provider load while linked" edge
 > case (untested).
+>
+> Re-reconciled during the Milestone 6 merge: linking (image zoom/pan, 3D camera, conditional audio
+> position) is implemented and always on by default, but the standalone toggle UI control and the
+> per-slot "linked" badge from this pass were superseded by Milestone 6's `ComparisonPanelView.axaml`
+> and not carried forward — `LinkNavigationEnabled` exists on `ComparisonPanelViewModel` but has no
+> bound control yet.
 
 ## Scope
 Wire preview providers into the UI runtime, add slot isolation, caching, linked navigation, and media playback controls.
@@ -77,16 +83,16 @@ Wire preview providers into the UI runtime, add slot isolation, caching, linked 
   - text scroll box
   - image canvas with render transforms
   - audio player UI (play/pause/stop, progress slider)
-- [x] Add linked navigation toggle UI control.
+- [ ] Add linked navigation toggle UI control.
 - [x] Add manual slot family selector.
 - [x] Ensure bindings are virtualization-safe and do not recreate heavy controls on every property change.
-- [x] Add visual affordance for "linked" state (icon or badge).
+- [ ] Add visual affordance for "linked" state (icon or badge).
 - [ ] Add disabled-state behavior when provider not ready.
 
 ### User Requirements
 - [x] Apply default linked navigation behavior:
   - zoom/pan actions in one image slot propagate to other image slots.
-- [x] Keep a UI-visible toggle to disable/enable linked behavior.
+- [ ] Keep a UI-visible toggle to disable/enable linked behavior.
 - [ ] Persist user choice for linked navigation if settings infrastructure exists.
 
 ## Edge cases

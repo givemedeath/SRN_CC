@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using SRN.CC.App.Services;
 using SRN.CC.App.ViewModels;
 using SRN.CC.App.Views;
 using SRN.CC.Core.Project;
@@ -14,6 +15,7 @@ using SRN.CC.Infrastructure.Cache;
 using SRN.CC.Infrastructure.Persistence;
 using SRN.CC.Infrastructure.Services;
 using SRN.CC.Preview;
+using SRN.CC.Preview.Render;
 
 namespace SRN.CC.App;
 
@@ -48,6 +50,24 @@ public partial class App : Application
 
             var orchestrator = new BuildOrchestrator(packer, verifier, manifestGen, publisher, registry, dispatcher);
 
+            // MdlSceneBuilder/ModelSceneCache are process-lifetime singletons. The texture-source
+            // accessor is late-bound over textureSourceHolder.Current per architecture decision
+            // A7: this provider array is built before MainWindowViewModel exists, so the holder
+            // is the shared mutable slot both sides close over. MainWindowViewModel refreshes
+            // holder.Current from the loaded workspace inside LoadWorkspaceStateAsync (and every
+            // other path that reassigns its workspace state). A null Current — before any
+            // workspace loads, or in the designer-preview constructor — yields an untextured
+            // scene plus a diagnostic rather than a failure.
+            var mdlSceneBuilder = new MdlSceneBuilder();
+            var modelSceneCache = new ModelSceneCache();
+            var textureSourceHolder = new TextureSourceHolder();
+
+            // A cached RenderScene has whichever ITextureSource was current at build time baked into
+            // its resolved textures. Without this, a model previewed before a workspace loads (or
+            // while a different workspace's texture source is current) stays cached untextured/stale
+            // forever, since ModelSceneCacheKey deliberately does not include texture-source identity.
+            textureSourceHolder.Changed += modelSceneCache.Clear;
+
             var previewEngine = new PreviewEngine(dispatcher, new IPreviewProvider[]
             {
                 new MetadataPreviewProvider(registry),
@@ -55,7 +75,7 @@ public partial class App : Application
                 new TextPreviewProvider(registry),
                 new AudioPreviewProvider(registry),
                 new TreePreviewProvider(registry),
-                new MdlPreviewProvider(registry),
+                new MdlPreviewProvider(registry, mdlSceneBuilder, modelSceneCache, () => textureSourceHolder.Current),
                 new BoundedHexPreviewProvider()
             });
 
@@ -68,7 +88,7 @@ public partial class App : Application
                 previewEngine,
                 registry,
                 dispatcher,
-                cache);
+                textureSourceHolder);
 
             desktop.MainWindow = new MainWindow
             {

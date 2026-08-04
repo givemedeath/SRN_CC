@@ -1,0 +1,14 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:previewVm="using:SRN.CC.App.ViewModels.Preview"
+                    xmlns:views="using:SRN.CC.App.Views">
+    <!--
+        Template for ModelViewportViewModel, per architecture decision A3. Hosts ModelViewportControl
+        (an OpenGlControlBase, per architecture decision A4) directly - camera/walkmesh-toggle state,
+        pointer-driven orbit/pan/dolly, and GPU lifetime management all live in that control's own
+        code (ModelViewportControl.cs) and its bound ModelViewportViewModel, not here.
+    -->
+    <DataTemplate x:Key="{x:Type previewVm:ModelViewportViewModel}" DataType="previewVm:ModelViewportViewModel">
+        <views:ModelViewportControl/>
+    </DataTemplate>
+</ResourceDictionary>

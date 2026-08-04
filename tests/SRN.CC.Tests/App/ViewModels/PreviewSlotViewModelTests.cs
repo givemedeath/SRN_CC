@@ -1,5 +1,7 @@
+using FluentAssertions;
 using NUnit.Framework;
 using SRN.CC.App.ViewModels;
+using SRN.CC.App.ViewModels.Preview;
 using SRN.CC.Core.Identity;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Preview;
@@ -9,159 +11,189 @@ using SRN.CC.Preview;
 
 namespace SRN.CC.Tests.App.ViewModels;
 
+/// <summary>
+/// Covers the S10 slot-content-surface refactor (architecture decision A3):
+/// <see cref="PreviewSlotViewModel.Content"/> is populated from a successful preview via
+/// <see cref="PreviewContentFactory"/>, and every reassignment disposes whatever content was
+/// previously hosted, regardless of which code path performed the assignment.
+/// </summary>
 [TestFixture]
 public class PreviewSlotViewModelTests
 {
-    private static PreviewEngine CreateEngine(params IPreviewProvider[] providers) =>
-        new PreviewEngine(new StubDispatcher(), providers);
-
-    private static PreviewSlotViewModel CreateSlot(PreviewEngine? engine = null, int slotIndex = 0) =>
-        new PreviewSlotViewModel(
-            slotIndex,
-            engine ?? CreateEngine(),
-            _ => Task.CompletedTask);
-
-    // ---- Zoom / Pan ----
-
     [Test]
-    public void SetZoomPan_UpdatesPropertiesAndRaisesEventExactlyOnce()
+    public async Task AssignOccurrenceAsync_SuccessfulTextPreview_SetsTextContentViewModelWithExpectedText()
     {
-        var slot = CreateSlot();
-        int raiseCount = 0;
-        slot.ZoomPanChanged += (_, _) => raiseCount++;
+        var provider = new FakeProvider
+        {
+            Family = PreviewFamily.Text,
+            ResultToReturn = new PreviewResult(
+                Occurrence: CreateOccurrence(),
+                Family: PreviewFamily.Text,
+                IsSuccess: true,
+                MetadataText: null,
+                RawPayload: null,
+                FormattedContent: "hello world",
+                ErrorMessage: null,
+                Diagnostics: Array.Empty<string>()),
+        };
+        PreviewSlotViewModel slot = CreateSlot(provider);
+        slot.PreferredFamily = PreviewFamily.Text;
 
-        slot.SetZoomPan(2.0, 10, -5);
+        await slot.AssignOccurrenceAsync(null, CreateOccurrence(), CreateSource());
 
-        Assert.That(slot.ZoomScale, Is.EqualTo(2.0));
-        Assert.That(slot.PanX, Is.EqualTo(10));
-        Assert.That(slot.PanY, Is.EqualTo(-5));
-        Assert.That(raiseCount, Is.EqualTo(1));
+        slot.Content.Should().BeOfType<TextContentViewModel>();
+        var content = (TextContentViewModel)slot.Content!;
+        content.FormattedContent.Should().Be("hello world");
+        content.Family.Should().Be(PreviewFamily.Text);
+
+        // FormattedContent stays populated too - Content is additive in this slice, not a
+        // replacement (existing bindings/callers must keep working unchanged).
+        slot.FormattedContent.Should().Be("hello world");
     }
 
     [Test]
-    public void ApplyLinkedZoomPan_UpdatesPropertiesButDoesNotRaiseEvent()
+    public async Task AssignOccurrenceAsync_FailedPreview_LeavesContentNullAndSetsErrorMessage()
     {
-        var slot = CreateSlot();
-        int raiseCount = 0;
-        slot.ZoomPanChanged += (_, _) => raiseCount++;
+        var provider = new FakeProvider
+        {
+            Family = PreviewFamily.Text,
+            ResultToReturn = new PreviewResult(
+                Occurrence: CreateOccurrence(),
+                Family: PreviewFamily.Text,
+                IsSuccess: false,
+                MetadataText: null,
+                RawPayload: null,
+                FormattedContent: null,
+                ErrorMessage: "boom",
+                Diagnostics: Array.Empty<string>()),
+        };
+        PreviewSlotViewModel slot = CreateSlot(provider);
+        slot.PreferredFamily = PreviewFamily.Text;
 
-        slot.ApplyLinkedZoomPan(3.0, 1, 1);
+        await slot.AssignOccurrenceAsync(null, CreateOccurrence(), CreateSource());
 
-        Assert.That(slot.ZoomScale, Is.EqualTo(3.0));
-        Assert.That(slot.PanX, Is.EqualTo(1));
-        Assert.That(slot.PanY, Is.EqualTo(1));
-        Assert.That(raiseCount, Is.EqualTo(0));
+        // Design decision: a failed preview keeps Content null (nothing renders through the
+        // content template) so only the pre-existing ErrorMessage TextBlock shows - matching the
+        // pre-refactor behavior where FormattedContent stayed null on failure.
+        slot.Content.Should().BeNull();
+        slot.ErrorMessage.Should().Be("boom");
     }
 
     [Test]
-    public void SetZoomPan_ThenApplyLinkedZoomPan_OnlyFirstRaisesEvent()
+    public async Task AssignOccurrenceAsync_EmptySlot_SetsPlaceholderTextContent()
     {
-        var slot = CreateSlot();
-        int raiseCount = 0;
-        slot.ZoomPanChanged += (_, _) => raiseCount++;
+        // Design decision: a cleared/unassigned slot gets a TextContentViewModel wrapping the
+        // existing placeholder message, rather than Content == null, so the visual behavior through
+        // the new ContentControl/TextPreviewTemplate path matches what the old inline TextBox bound
+        // directly to FormattedContent used to show for an empty slot.
+        PreviewSlotViewModel slot = CreateSlot(new FakeProvider());
 
-        slot.SetZoomPan(2.0, 10, -5);
-        slot.ApplyLinkedZoomPan(3.0, 1, 1);
+        await slot.AssignOccurrenceAsync(null, null, null);
 
-        Assert.That(slot.ZoomScale, Is.EqualTo(3.0));
-        Assert.That(slot.PanX, Is.EqualTo(1));
-        Assert.That(slot.PanY, Is.EqualTo(1));
-        Assert.That(raiseCount, Is.EqualTo(1));
+        slot.Content.Should().BeOfType<TextContentViewModel>();
+        ((TextContentViewModel)slot.Content!).FormattedContent.Should().Be("No asset assigned to this slot.");
+        slot.FormattedContent.Should().Be("No asset assigned to this slot.");
     }
 
     [Test]
-    public void SetZoomPan_WithNaNOrInfiniteInputs_IsSanitizedAndDoesNotThrow()
+    public void Content_ReassignedToNewInstance_DisposesThePreviousInstance()
     {
-        var slot = CreateSlot();
+        PreviewSlotViewModel slot = CreateSlot(new FakeProvider());
+        var first = new TrackingContent();
+        slot.Content = first;
 
-        Assert.DoesNotThrow(() => slot.SetZoomPan(double.NaN, double.PositiveInfinity, double.NegativeInfinity));
+        slot.Content = new TrackingContent();
 
-        Assert.That(double.IsNaN(slot.ZoomScale), Is.False);
-        Assert.That(double.IsInfinity(slot.PanX), Is.False);
-        Assert.That(double.IsInfinity(slot.PanY), Is.False);
-
-        // Zoom falls back to 1.0 when NaN, pan falls back to 0.0 when NaN/Infinity.
-        Assert.That(slot.ZoomScale, Is.EqualTo(1.0));
-        Assert.That(slot.PanX, Is.EqualTo(0.0));
-        Assert.That(slot.PanY, Is.EqualTo(0.0));
+        first.Disposed.Should().BeTrue();
     }
 
     [Test]
-    public void SetZoomPan_ClampsZoomToConfiguredRange()
+    public void Content_ReassignedToNull_DisposesThePreviousInstance()
     {
-        var slot = CreateSlot();
+        PreviewSlotViewModel slot = CreateSlot(new FakeProvider());
+        var first = new TrackingContent();
+        slot.Content = first;
 
-        slot.SetZoomPan(1000.0, 0, 0);
-        Assert.That(slot.ZoomScale, Is.LessThanOrEqualTo(8.0));
+        slot.Content = null;
 
-        slot.SetZoomPan(-5.0, 0, 0);
-        Assert.That(slot.ZoomScale, Is.GreaterThanOrEqualTo(0.1));
-    }
-
-    // ---- Audio state (indirect, via ApplyLinkedAudioState) ----
-
-    [Test]
-    public void ApplyLinkedAudioState_StoppedWithNoAudioLoaded_IsNoOpAndDoesNotThrow()
-    {
-        var slot = CreateSlot();
-        int raiseCount = 0;
-        slot.AudioStateChanged += (_, _) => raiseCount++;
-
-        Assert.DoesNotThrow(() => slot.ApplyLinkedAudioState(AudioPlaybackState.Stopped, 0.0));
-
-        Assert.That(raiseCount, Is.EqualTo(0));
+        first.Disposed.Should().BeTrue();
     }
 
     [Test]
-    public void ApplyLinkedAudioState_IdleWithNoAudioLoaded_IsNoOpAndDoesNotThrow()
+    public void Content_ReassignedToSameInstance_DoesNotDisposeIt()
     {
-        var slot = CreateSlot();
-        int raiseCount = 0;
-        slot.AudioStateChanged += (_, _) => raiseCount++;
+        PreviewSlotViewModel slot = CreateSlot(new FakeProvider());
+        var only = new TrackingContent();
+        slot.Content = only;
 
-        Assert.DoesNotThrow(() => slot.ApplyLinkedAudioState(AudioPlaybackState.Idle, 0.5));
+        slot.Content = only;
 
-        Assert.That(raiseCount, Is.EqualTo(0));
+        only.Disposed.Should().BeFalse();
     }
 
-    [Test]
-    public void ApplyLinkedAudioState_PlayingWithNoAudioLoaded_DoesNotThrow()
-    {
-        // With no wave player wired up, StartPlayback/SeekToProgress are no-ops guarded by null checks.
-        var slot = CreateSlot();
+    // -------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------
 
-        Assert.DoesNotThrow(() => slot.ApplyLinkedAudioState(AudioPlaybackState.Playing, 0.25));
-        Assert.That(slot.PlaybackState, Is.EqualTo(AudioPlaybackState.Idle));
+    private static PreviewSlotViewModel CreateSlot(IPreviewProvider provider)
+    {
+        var engine = new PreviewEngine(new FakeDispatcher(), new[] { provider });
+        return new PreviewSlotViewModel(0, engine, _ => Task.CompletedTask);
     }
 
-    [Test]
-    [Ignore("Exercising PlayCommand/PauseCommand/StopCommand against a real WaveOutEvent requires a live audio output device, which is not reliably available in a headless CI test environment and can hang or throw depending on the host.")]
-    public void PlayPauseStopCommands_DriveRealPlaybackState()
+    private static AssetOccurrence CreateOccurrence() => new(
+        identity: new AssetIdentity("test_resref", 2000),
+        sourceId: Guid.NewGuid(),
+        locator: new HakEntryLocator(1),
+        originalName: "test_resref.txt",
+        size: 10,
+        validationState: ValidationState.Valid,
+        extensionMetadata: null,
+        sha256: null);
+
+    private static AssetSource CreateSource() => AssetSource.CreateHak("c:/test/source.hak", 0);
+
+    private sealed class FakeDispatcher : ISourceReaderDispatcher
     {
+        public Task<Stream> OpenOccurrenceAsync(
+            AssetSource source,
+            AssetOccurrence occurrence,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Stream>(new MemoryStream(new byte[] { 1, 2, 3 }));
     }
 
-    // ---- Dispose ----
-
-    [Test]
-    public void Dispose_DoesNotThrow()
+    private sealed class FakeProvider : IPreviewProvider
     {
-        var slot = CreateSlot();
-        Assert.DoesNotThrow(() => slot.Dispose());
+        public PreviewFamily Family { get; init; } = PreviewFamily.Text;
+
+        public PreviewResult? ResultToReturn { get; set; }
+
+        public bool CanPreview(PreviewRequest request) => true;
+
+        public Task<PreviewResult> GeneratePreviewAsync(
+            PreviewRequest request,
+            Stream payloadStream,
+            CancellationToken cancellationToken = default)
+        {
+            PreviewResult result = ResultToReturn ?? new PreviewResult(
+                Occurrence: request.Occurrence,
+                Family: request.PreferredFamily,
+                IsSuccess: true,
+                MetadataText: null,
+                RawPayload: null,
+                FormattedContent: "default",
+                ErrorMessage: null,
+                Diagnostics: Array.Empty<string>());
+            return Task.FromResult(result);
+        }
     }
 
-    [Test]
-    public void Dispose_CalledTwice_IsIdempotent()
+    private sealed class TrackingContent : PreviewContentViewModel
     {
-        var slot = CreateSlot();
-        slot.Dispose();
-        Assert.DoesNotThrow(() => slot.Dispose());
-    }
+        public override PreviewFamily Family => PreviewFamily.Text;
 
-    // ---- Test doubles ----
+        public bool Disposed { get; private set; }
 
-    private sealed class StubDispatcher : ISourceReaderDispatcher
-    {
-        public Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default)
-            => Task.FromResult<Stream>(new MemoryStream(new byte[] { 1, 2, 3, 4 }));
+        public override void Dispose() => Disposed = true;
     }
 }

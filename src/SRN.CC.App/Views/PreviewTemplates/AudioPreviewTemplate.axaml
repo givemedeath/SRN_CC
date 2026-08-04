@@ -1,0 +1,36 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:previewVm="using:SRN.CC.App.ViewModels.Preview">
+    <!--
+        Audio transport template for AudioContentViewModel, per architecture decision A3. Closes the
+        milestone-5 UI debt: Play/Pause/Stop transport controls bound to the view model's commands,
+        a progress bar bound to PositionProgress (0.0-1.0), and the formatted WAV metadata block
+        (format/channels/sample rate/bit depth) shown underneath. Color conventions match the rest of
+        ComparisonPanelView.axaml (#1E1E1E slot background, #007ACC accent, #CCCCCC body text,
+        #FF4444 error red).
+    -->
+    <DataTemplate x:Key="{x:Type previewVm:AudioContentViewModel}" DataType="previewVm:AudioContentViewModel" x:DataType="previewVm:AudioContentViewModel">
+        <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="4">
+            <!-- Transport controls -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                <Button Command="{Binding PlayCommand}" Content="▶ Play" Background="#007ACC" Foreground="White"/>
+                <Button Command="{Binding PauseCommand}" Content="⏸ Pause"/>
+                <Button Command="{Binding StopCommand}" Content="⏹ Stop"/>
+            </StackPanel>
+
+            <!-- Position slider + time readout -->
+            <Grid Grid.Row="1" Margin="0,6,0,0" ColumnDefinitions="*,Auto">
+                <ProgressBar Grid.Column="0" Minimum="0" Maximum="1" Value="{Binding PositionProgress}" VerticalAlignment="Center" Foreground="#007ACC" Background="#333333"/>
+                <TextBlock Grid.Column="1" Text="{Binding PositionText}" Margin="8,0,0,0" Foreground="#CCCCCC" FontFamily="Consolas,Courier New" FontSize="11" VerticalAlignment="Center"/>
+            </Grid>
+
+            <!-- Playback error, if any -->
+            <TextBlock Grid.Row="2" Margin="0,4,0,0" Text="{Binding ErrorMessage}" IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Foreground="#FF4444" TextWrapping="Wrap"/>
+
+            <!-- Formatted WAV metadata (format/channels/sample rate/bit depth/duration) -->
+            <ScrollViewer Grid.Row="3" Margin="0,6,0,0" IsVisible="{Binding FormattedContent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <TextBox Text="{Binding FormattedContent}" IsReadOnly="True" FontFamily="Consolas,Courier New" FontSize="12" Background="#111111" Foreground="#CCCCCC" BorderThickness="0"/>
+            </ScrollViewer>
+        </Grid>
+    </DataTemplate>
+</ResourceDictionary>

@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
+    <!-- Required by SilkGlDevice (Render/Gl/) for direct Silk.NET.OpenGL pointer-taking overloads
+         (glDrawElements element-buffer offsets, glGetString marshaling). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

@@ -5,6 +5,7 @@ using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Services;
 using SRN.CC.Core.Sources;
 using SRN.CC.Preview;
+using SWLOR.NWN.Formats.Common;
 
 namespace SRN.CC.Tests.Preview;
 
@@ -194,7 +195,7 @@ model_real";
 rows 1
 0 0 0";
 
-        var occurrence = CreateOccurrence("tex_diffuse", 2022, txiContent.Length); // TXI type
+        var occurrence = CreateOccurrence("tex_diffuse", ResourceTypes.FromExtension("txi"), txiContent.Length);
         var txiPayload = Encoding.UTF8.GetBytes(txiContent);
 
         // Act
@@ -203,6 +204,125 @@ rows 1
 
         // Assert
         // Companion files have no internal dependencies
+        Assert.That(dependencies, Is.Empty);
+    }
+
+    #endregion
+
+    #region Regression: DLG/ITP vs DWK/PWK/WOK type-ID routing (S4 fix)
+
+    // Historically this dispatch checked `resourceType == 2022 || 2016 || 2029 || 2030`, intending
+    // TXI/WOK/PWK/DWK, but 2029/2030 are actually DLG/ITP per ResourceTypes.cs - so .dlg/.itp were
+    // misrouted into companion extraction while real .dwk (2052) / .pwk (2053) walkmesh companions
+    // fell through to "unsupported". These tests pin the type-ID table directly against
+    // SWLOR.NWN.Formats.Common.ResourceTypes (never hardcoded duplicate literals) and prove the
+    // corrected routing predicate: run this test against the pre-fix predicate
+    // (`resourceType is 2022 or 2016 or 2029 or 2030`) and IsDlg/IsItp assert True while they must
+    // assert False here, and vice versa for Dwk/Pwk.
+
+    [Test]
+    public void TypeIdTable_CompanionRoutingPredicates_MatchResourceTypesCs()
+    {
+        Assert.Multiple(() =>
+        {
+            // TXI/WOK/DWK/PWK must route to companion extraction.
+            Assert.That(DependencyAnalyzer.IsTxiCompanionResourceType(ResourceTypes.FromExtension("txi")), Is.True, "txi");
+            Assert.That(DependencyAnalyzer.IsWalkmeshCompanionResourceType(ResourceTypes.FromExtension("wok")), Is.True, "wok");
+            Assert.That(DependencyAnalyzer.IsWalkmeshCompanionResourceType(ResourceTypes.FromExtension("dwk")), Is.True, "dwk");
+            Assert.That(DependencyAnalyzer.IsWalkmeshCompanionResourceType(ResourceTypes.FromExtension("pwk")), Is.True, "pwk");
+
+            // DLG/ITP must NOT route to companion extraction (the historical bug).
+            Assert.That(DependencyAnalyzer.IsTxiCompanionResourceType(ResourceTypes.FromExtension("dlg")), Is.False, "dlg (txi check)");
+            Assert.That(DependencyAnalyzer.IsWalkmeshCompanionResourceType(ResourceTypes.FromExtension("dlg")), Is.False, "dlg (walkmesh check)");
+            Assert.That(DependencyAnalyzer.IsTxiCompanionResourceType(ResourceTypes.FromExtension("itp")), Is.False, "itp (txi check)");
+            Assert.That(DependencyAnalyzer.IsWalkmeshCompanionResourceType(ResourceTypes.FromExtension("itp")), Is.False, "itp (walkmesh check)");
+
+            // Sanity: the real numeric values are what we expect them to be.
+            Assert.That(ResourceTypes.FromExtension("dlg"), Is.EqualTo((ushort)2029));
+            Assert.That(ResourceTypes.FromExtension("itp"), Is.EqualTo((ushort)2030));
+            Assert.That(ResourceTypes.FromExtension("wok"), Is.EqualTo((ushort)2016));
+            Assert.That(ResourceTypes.FromExtension("dwk"), Is.EqualTo((ushort)2052));
+            Assert.That(ResourceTypes.FromExtension("pwk"), Is.EqualTo((ushort)2053));
+        });
+    }
+
+    [Test]
+    public async Task AnalyzeDlgOccurrence_DoesNotEnterCompanionExtraction()
+    {
+        // Arrange - a .dlg (2029) occurrence must no longer be treated as a companion file.
+        var dlgResourceType = ResourceTypes.FromExtension("dlg");
+        Assert.That(DependencyAnalyzer.IsTxiCompanionResourceType(dlgResourceType), Is.False);
+        Assert.That(DependencyAnalyzer.IsWalkmeshCompanionResourceType(dlgResourceType), Is.False);
+
+        var dlgContent = "arbitrary dlg-shaped payload; dispatch routing is what's under test here";
+        var occurrence = CreateOccurrence("test_dialog", dlgResourceType, dlgContent.Length);
+        var payload = Encoding.UTF8.GetBytes(dlgContent);
+
+        // Act
+        using var stream = new MemoryStream(payload);
+        var dependencies = await _analyzer.AnalyzeDependenciesAsync(occurrence, stream);
+
+        // Assert - falls through to the generic "unsupported family type" path, not companion extraction.
+        Assert.That(dependencies, Is.Empty);
+    }
+
+    [Test]
+    public async Task AnalyzePwkOccurrence_EntersWalkmeshCompanionExtraction()
+    {
+        // Arrange - a .pwk (2053) occurrence must now correctly route to companion extraction.
+        var pwkResourceType = ResourceTypes.FromExtension("pwk");
+        Assert.That(DependencyAnalyzer.IsWalkmeshCompanionResourceType(pwkResourceType), Is.True);
+
+        var pwkContent = "arbitrary pwk-shaped payload; dispatch routing is what's under test here";
+        var occurrence = CreateOccurrence("door_placeable", pwkResourceType, pwkContent.Length);
+        var payload = Encoding.UTF8.GetBytes(pwkContent);
+
+        // Act
+        using var stream = new MemoryStream(payload);
+        var dependencies = await _analyzer.AnalyzeDependenciesAsync(occurrence, stream);
+
+        // Assert - companion extraction is currently a no-op (same-resref relationships are
+        // resolved by the traversal layer), so the observable result is an empty, non-throwing set.
+        Assert.That(dependencies, Is.Empty);
+    }
+
+    [Test]
+    public async Task AnalyzeDwkOccurrence_EntersWalkmeshCompanionExtraction()
+    {
+        // Arrange - a .dwk (2052) occurrence must now correctly route to companion extraction.
+        var dwkResourceType = ResourceTypes.FromExtension("dwk");
+        Assert.That(DependencyAnalyzer.IsWalkmeshCompanionResourceType(dwkResourceType), Is.True);
+
+        var dwkContent = "arbitrary dwk-shaped payload; dispatch routing is what's under test here";
+        var occurrence = CreateOccurrence("door_model", dwkResourceType, dwkContent.Length);
+        var payload = Encoding.UTF8.GetBytes(dwkContent);
+
+        // Act
+        using var stream = new MemoryStream(payload);
+        var dependencies = await _analyzer.AnalyzeDependenciesAsync(occurrence, stream);
+
+        // Assert
+        Assert.That(dependencies, Is.Empty);
+    }
+
+    [Test]
+    public async Task AnalyzeWokOccurrence_EntersWalkmeshCompanionExtraction()
+    {
+        // Arrange - a .wok (2016) occurrence continues to route to companion extraction, now split
+        // into its own walkmesh-companion branch rather than sharing the TXI branch.
+        var wokResourceType = ResourceTypes.FromExtension("wok");
+        Assert.That(DependencyAnalyzer.IsWalkmeshCompanionResourceType(wokResourceType), Is.True);
+        Assert.That(DependencyAnalyzer.IsTxiCompanionResourceType(wokResourceType), Is.False);
+
+        var wokContent = "arbitrary wok-shaped payload; dispatch routing is what's under test here";
+        var occurrence = CreateOccurrence("tile_walkmesh", wokResourceType, wokContent.Length);
+        var payload = Encoding.UTF8.GetBytes(wokContent);
+
+        // Act
+        using var stream = new MemoryStream(payload);
+        var dependencies = await _analyzer.AnalyzeDependenciesAsync(occurrence, stream);
+
+        // Assert
         Assert.That(dependencies, Is.Empty);
     }
 
@@ -355,45 +475,17 @@ bitmap tex_other";
         return payload.ToArray();
     }
 
+    /// <summary>
+    /// Delegates straight to <see cref="ResourceTypes"/> rather than duplicating type-ID literals,
+    /// so this stub cannot silently drift from the canonical table (it previously hardcoded
+    /// pwk/dwk as 2029/2030, which are actually dlg/itp - the same bug being regression-tested
+    /// above).
+    /// </summary>
     private sealed class StubRegistry : IResourceTypeRegistry
     {
-        public bool TryGetType(string extension, out ushort typeId)
-        {
-            typeId = extension.ToLowerInvariant() switch
-            {
-                "mdl" => 2002,
-                "mtr" => 2072,
-                "txi" => 2022,
-                "tga" => 3,
-                "dds" => 2033,
-                "plt" => 6,
-                "wok" => 2016,
-                "pwk" => 2029,
-                "dwk" => 2030,
-                "set" => 2013,
-                _ => 0
-            };
-            return typeId != 0;
-        }
+        public bool TryGetType(string extension, out ushort typeId) => ResourceTypes.TryGetType(extension, out typeId);
 
-        public bool TryGetExtension(ushort typeId, out string extension)
-        {
-            extension = typeId switch
-            {
-                2002 => "mdl",
-                2072 => "mtr",
-                2022 => "txi",
-                3 => "tga",
-                2033 => "dds",
-                6 => "plt",
-                2016 => "wok",
-                2029 => "pwk",
-                2030 => "dwk",
-                2013 => "set",
-                _ => ""
-            };
-            return !string.IsNullOrEmpty(extension);
-        }
+        public bool TryGetExtension(ushort typeId, out string extension) => ResourceTypes.TryGetExtension(typeId, out extension);
     }
 
     private sealed class NonReadableStream : Stream

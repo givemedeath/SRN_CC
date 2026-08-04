@@ -2,6 +2,7 @@ using System.Text;
 using SRN.CC.Core.Identity;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Services;
+using SRN.CC.Preview.Render;
 using SWLOR.NWN.Formats;
 using SWLOR.NWN.Formats.Mdl;
 
@@ -16,12 +17,39 @@ namespace SRN.CC.Preview;
 /// </remarks>
 public sealed class DependencyAnalyzer : IDependencyAnalyzer
 {
+    // Aurora resource type IDs relevant to companion-file dispatch below. These must match
+    // SWLOR.NWN.Formats.Common.ResourceTypes exactly: 2016=wok, 2022=txi, 2029=dlg, 2030=itp,
+    // 2052=dwk, 2053=pwk. A prior version of this dispatch used 2029/2030 (dlg/itp) where it
+    // meant 2052/2053 (dwk/pwk), which misrouted .dlg/.itp into companion extraction while real
+    // .dwk/.pwk walkmesh companions fell through as unsupported.
+    private const ushort MdlResourceType = 2002;
+    private const ushort MtrResourceType = 2072;
+    private const ushort SetResourceType = 2013;
+    private const ushort TxiResourceType = 2022;
+    private const ushort WokResourceType = 2016;
+    private const ushort DwkResourceType = 2052;
+    private const ushort PwkResourceType = 2053;
+
     private readonly IResourceTypeRegistry _registry;
 
     public DependencyAnalyzer(IResourceTypeRegistry registry)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
     }
+
+    /// <summary>
+    /// True for TXI (2022): a texture-info sidecar sharing a resref with a texture image, per
+    /// <c>SWLOR.NWN.Formats.Common.ResourceTypes</c>.
+    /// </summary>
+    public static bool IsTxiCompanionResourceType(ushort resourceType) => resourceType == TxiResourceType;
+
+    /// <summary>
+    /// True for WOK (2016), DWK (2052), PWK (2053): walkmesh companions sharing a resref with the
+    /// owning tile, door, or placeable model, per <c>SWLOR.NWN.Formats.Common.ResourceTypes</c>.
+    /// DLG (2029) and ITP (2030) are deliberately excluded here - see the type-ID note above.
+    /// </summary>
+    public static bool IsWalkmeshCompanionResourceType(ushort resourceType) =>
+        resourceType == WokResourceType || resourceType == DwkResourceType || resourceType == PwkResourceType;
 
     public async Task<IReadOnlySet<AssetIdentity>> AnalyzeDependenciesAsync(
         AssetOccurrence occurrence,
@@ -53,22 +81,29 @@ public sealed class DependencyAnalyzer : IDependencyAnalyzer
             var resourceType = identity.ResourceType;
 
             // Dispatch to family-specific extractor
-            if (resourceType == 2002) // MDL
+            if (resourceType == MdlResourceType)
             {
                 return ExtractMdlDependencies(read.Bytes);
             }
-            else if (resourceType == 2072) // MTR (Material)
+            else if (resourceType == MtrResourceType) // MTR (Material)
             {
                 return ExtractMtrDependencies(read.Bytes);
             }
-            else if (resourceType == 2013) // SET
+            else if (resourceType == SetResourceType) // SET
             {
                 return ExtractSetDependencies(read.Bytes);
             }
-            else if (resourceType == 2022 || resourceType == 2016 || resourceType == 2029 || resourceType == 2030)
+            else if (IsTxiCompanionResourceType(resourceType))
             {
-                // TXI (2022), WOK (2016), PWK (2029), DWK (2030) - extract companion references
-                return ExtractCompanionDependencies(occurrence.Identity.Resref, read.Bytes);
+                // TXI (2022) - texture-info sidecar; resolves against a same-resref texture image.
+                return ExtractTxiCompanionDependencies(read.Bytes);
+            }
+            else if (IsWalkmeshCompanionResourceType(resourceType))
+            {
+                // WOK (2016) / DWK (2052) / PWK (2053) - walkmesh companions; resolve against a
+                // same-resref tile/door/placeable model. Deliberately distinct from the TXI branch
+                // above since a walkmesh companion resolves against a model, not a texture.
+                return ExtractWalkmeshCompanionDependencies(read.Bytes);
             }
 
             // Unsupported family type - return empty set per interface contract
@@ -209,32 +244,18 @@ public sealed class DependencyAnalyzer : IDependencyAnalyzer
 
         try
         {
-            // MTR files are text-based key=value pairs
-            string text = Encoding.UTF8.GetString(bytes);
-            var lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            // Route through the shared MtrDocument parser (architecture decision A8) so this
+            // analyzer and the future texture-resolution pipeline can never disagree about MTR
+            // contents. MtrDocument.Parse never throws; malformed input yields a mostly-empty
+            // document plus diagnostics, which simply means no dependencies get extracted here.
+            var document = MtrDocument.Parse(bytes);
 
-            foreach (var line in lines)
-            {
-                var trimmed = line.Trim();
-                if (trimmed.StartsWith("texture0", StringComparison.OrdinalIgnoreCase) ||
-                    trimmed.StartsWith("texture1", StringComparison.OrdinalIgnoreCase))
-                {
-                    var parts = trimmed.Split(new[] { '=' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 2)
-                    {
-                        string textureName = parts[1].Trim();
-                        if (!string.IsNullOrWhiteSpace(textureName))
-                        {
-                            // Strip extension if present
-                            string textureResref = StripExtension(textureName);
-                            if (TryGetTextureType(textureName, out var textureType))
-                            {
-                                dependencies.Add(new AssetIdentity(textureResref, textureType));
-                            }
-                        }
-                    }
-                }
-            }
+            AddMtrTextureDependency(dependencies, document.Texture0);
+            AddMtrTextureDependency(dependencies, document.Texture1);
+            AddMtrTextureDependency(dependencies, document.Texture2);
+            AddMtrTextureDependency(dependencies, document.Texture3);
+            AddMtrTextureDependency(dependencies, document.BumpMap);
+            AddMtrTextureDependency(dependencies, document.EnvironmentMap);
         }
         catch
         {
@@ -242,6 +263,30 @@ public sealed class DependencyAnalyzer : IDependencyAnalyzer
         }
 
         return dependencies;
+    }
+
+    private void AddMtrTextureDependency(HashSet<AssetIdentity> dependencies, string? textureName)
+    {
+        if (string.IsNullOrWhiteSpace(textureName))
+        {
+            return;
+        }
+
+        // Strip extension if present
+        string textureResref = StripExtension(textureName);
+        if (!TryGetTextureType(textureName, out var textureType))
+        {
+            return;
+        }
+
+        try
+        {
+            dependencies.Add(new AssetIdentity(textureResref, textureType));
+        }
+        catch
+        {
+            // Invalid resref - skip
+        }
     }
 
     private IReadOnlySet<AssetIdentity> ExtractSetDependencies(byte[] bytes)
@@ -301,15 +346,22 @@ public sealed class DependencyAnalyzer : IDependencyAnalyzer
         return dependencies;
     }
 
-    private IReadOnlySet<AssetIdentity> ExtractCompanionDependencies(string resref, byte[] bytes)
+    private static IReadOnlySet<AssetIdentity> ExtractTxiCompanionDependencies(byte[] bytes)
     {
-        var dependencies = new HashSet<AssetIdentity>();
+        // TXI (2022) is a texture-info sidecar: envmaptexture/blending/isbumpmap hints for the
+        // same-resref texture image. It has no dependencies of its own here; the same-resref
+        // relationship to its texture is a traversal-layer concern (per architecture decision A7),
+        // not a direct-extraction concern.
+        return new HashSet<AssetIdentity>();
+    }
 
-        // Companion files (TXI, WOK, PWK, DWK) don't have dependencies within themselves
-        // but they have shared-resref relationships defined in the PLAN
-        // These are handled by the traversal layer, not direct extraction
-
-        return dependencies;
+    private static IReadOnlySet<AssetIdentity> ExtractWalkmeshCompanionDependencies(byte[] bytes)
+    {
+        // WOK/DWK/PWK walkmesh companions carry per-face surface/collision data for the
+        // same-resref tile, door, or placeable model. Like TXI, they have no dependencies of
+        // their own here; the same-resref relationship to the owning model is resolved by the
+        // traversal layer, not by this direct extractor.
+        return new HashSet<AssetIdentity>();
     }
 
     private static bool IsLikelyAsciiFormat(byte[] bytes) =>

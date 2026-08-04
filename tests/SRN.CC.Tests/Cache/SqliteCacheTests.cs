@@ -165,6 +165,21 @@ public class SqliteCacheTests
         GetQuarantinedDatabases().Should().ContainSingle();
     }
 
+    [Test]
+    public void Initialize_CleanDatabase_ReportsAvailableWithNoQuarantineReason()
+    {
+        using SqliteCacheService cacheService = new(_tempDbPath);
+
+        cacheService.IsAvailable.Should().BeTrue();
+        cacheService.LastQuarantineReason.Should().BeNull();
+    }
+
+    [Test]
+    public void DefaultMaxLogicalBytes_IsTwoGibibytes()
+    {
+        SqliteCacheService.DefaultMaxLogicalBytes.Should().Be(2L * 1024 * 1024 * 1024);
+    }
+
     private void CreateDatabase(string commandText)
     {
         using Microsoft.Data.Sqlite.SqliteConnection connection = new($"Data Source={_tempDbPath};Pooling=False");

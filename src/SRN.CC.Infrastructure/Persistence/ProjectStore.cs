@@ -1,29 +1,52 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SRN.CC.Core.Fingerprints;
 using SRN.CC.Core.Identity;
+using SRN.CC.Core.Logging;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Project;
 using SRN.CC.Core.Resolution;
+using SRN.CC.Core.Schema;
 using SRN.CC.Core.Selection;
 using SRN.CC.Core.Services;
 using SRN.CC.Core.Snapshots;
 using SRN.CC.Core.Sources;
 using SRN.CC.Core.Workspace;
+using SRN.CC.Infrastructure.Logging;
 using SRN.CC.Infrastructure.Services;
 
 namespace SRN.CC.Infrastructure.Persistence;
 
 public sealed class ProjectStore : IProjectStore
 {
-    private const int CurrentSchemaVersion = 1;
+    private const string LogCategory = nameof(ProjectStore);
+
+    /// <summary>
+    /// No project migrations exist at schema version 1, so this pipeline is an identity pass. It is
+    /// wired into the load path anyway — and its <em>output</em>, not the parsed input, is what the
+    /// rest of the load reads — so the first real migration is a new class and a registration rather
+    /// than a change to this store.
+    /// </summary>
+    private static readonly SchemaMigrationPipeline Migrations =
+        new(SchemaKind.Project, Array.Empty<IJsonSchemaMigration>());
+
     private readonly IAssetIndexService _indexService;
     private readonly IWorkspaceResolver _resolver;
+    private readonly IAppLogger _logger;
 
-    public ProjectStore(IAssetIndexService indexService, IWorkspaceResolver resolver)
+    /// <summary>Creates a store.</summary>
+    /// <param name="indexService">Indexer used to scan each source during load.</param>
+    /// <param name="resolver">Resolver that turns indexed sources into a workspace.</param>
+    /// <param name="logger">
+    /// Optional sink for the temp-file and schema events this store used to swallow. Trailing and
+    /// optional so no existing call site changes.
+    /// </param>
+    public ProjectStore(IAssetIndexService indexService, IWorkspaceResolver resolver, IAppLogger? logger = null)
     {
         _indexService = indexService ?? throw new ArgumentNullException(nameof(indexService));
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+        _logger = logger ?? NullAppLogger.Instance;
     }
 
     public async Task<WorkspaceState> LoadAsync(string projectPath, CancellationToken cancellationToken = default)
@@ -58,22 +81,88 @@ public sealed class ProjectStore : IProjectStore
         }
 
         int schemaVersion = rootObj["schemaVersion"]?.GetValue<int>() ?? 0;
-        if (schemaVersion < 1)
+        SchemaOpenMode openMode = SchemaVersions.Classify(SchemaKind.Project, schemaVersion);
+        if (openMode == SchemaOpenMode.Unsupported)
         {
+            // Projects are never quarantined (PLAN.md:96 scopes that to settings and cache): the
+            // file is left exactly as found and the caller is told which path failed.
+            _logger.Log(
+                LogLevel.Error,
+                LogCategory,
+                "Project file declares an unsupported schema version; refusing to open and leaving the file untouched.",
+                exception: null,
+                data: new Dictionary<string, string>
+                {
+                    [AppLogger.EventCodeKey] = "project.schema.unsupported",
+                    ["path"] = fullProjectPath,
+                    ["fileSchemaVersion"] = schemaVersion.ToString(CultureInfo.InvariantCulture),
+                    ["supportedSchemaVersion"] = SchemaVersions.Project.ToString(CultureInfo.InvariantCulture)
+                });
+
             throw new InvalidOperationException($"Project file '{fullProjectPath}' has invalid schemaVersion '{schemaVersion}'.");
         }
 
         string projectDir = Path.GetDirectoryName(fullProjectPath)!;
-        bool isReadOnly = schemaVersion > CurrentSchemaVersion;
+        bool isReadOnly = openMode == SchemaOpenMode.ReadOnlyNewer;
+
+        // Bring the document forward before a single field is read, so a future migration is seen by
+        // validation and projection alike. A newer-than-current document is not upgradeable and is
+        // read best-effort from exactly what was on disk.
+        JsonObject documentObj = rootObj;
+        if (!isReadOnly)
+        {
+            if (!Migrations.TryUpgrade(
+                    rootObj,
+                    schemaVersion,
+                    out JsonObject upgraded,
+                    out IReadOnlyList<string> applied,
+                    out string? migrationError))
+            {
+                _logger.Log(
+                    LogLevel.Error,
+                    LogCategory,
+                    "Project file could not be brought forward to the current schema version.",
+                    exception: null,
+                    data: new Dictionary<string, string>
+                    {
+                        [AppLogger.EventCodeKey] = "project.schema.migrationFailed",
+                        ["path"] = fullProjectPath,
+                        ["fileSchemaVersion"] = schemaVersion.ToString(CultureInfo.InvariantCulture),
+                        ["error"] = migrationError ?? string.Empty
+                    });
+
+                throw new InvalidOperationException(
+                    migrationError
+                        ?? $"Project file '{fullProjectPath}' declares schemaVersion '{schemaVersion}' and could not be upgraded.");
+            }
+
+            documentObj = upgraded;
+            documentObj["schemaVersion"] = SchemaVersions.Project;
+
+            if (applied.Count > 0)
+            {
+                _logger.Log(
+                    LogLevel.Info,
+                    LogCategory,
+                    "Applied project schema migrations.",
+                    exception: null,
+                    data: new Dictionary<string, string>
+                    {
+                        [AppLogger.EventCodeKey] = "project.schema.migrated",
+                        ["path"] = fullProjectPath,
+                        ["migrations"] = string.Join(", ", applied)
+                    });
+            }
+        }
 
         // Parse sources
-        if (!isReadOnly && rootObj["sources"] is not JsonArray)
+        if (!isReadOnly && documentObj["sources"] is not JsonArray)
         {
             throw new InvalidOperationException($"Project file '{fullProjectPath}' is missing the required 'sources' JSON array.");
         }
 
         List<AssetSource> sources = new();
-        if (rootObj["sources"] is JsonArray sourcesArray)
+        if (documentObj["sources"] is JsonArray sourcesArray)
         {
             int priorityOrdinal = 0;
             foreach (JsonNode? sourceNode in sourcesArray)
@@ -191,13 +280,13 @@ public sealed class ProjectStore : IProjectStore
         }
 
         // Parse selection state
-        if (!isReadOnly && rootObj["selectionState"] is not JsonObject)
+        if (!isReadOnly && documentObj["selectionState"] is not JsonObject)
         {
             throw new InvalidOperationException($"Project file '{fullProjectPath}' is missing required 'selectionState' object.");
         }
 
         SelectionState selectionState = SelectionState.IncludeAll();
-        if (rootObj["selectionState"] is JsonObject selObj)
+        if (documentObj["selectionState"] is JsonObject selObj)
         {
             if (!isReadOnly)
             {
@@ -249,13 +338,13 @@ public sealed class ProjectStore : IProjectStore
         }
 
         // Parse pins
-        if (!isReadOnly && rootObj["pins"] is not JsonArray)
+        if (!isReadOnly && documentObj["pins"] is not JsonArray)
         {
             throw new InvalidOperationException($"Project file '{fullProjectPath}' is missing required 'pins' JSON array.");
         }
 
         List<WinnerPin> pins = new();
-        if (rootObj["pins"] is JsonArray pinsArray)
+        if (documentObj["pins"] is JsonArray pinsArray)
         {
             foreach (JsonNode? pinNode in pinsArray)
             {
@@ -362,10 +451,10 @@ public sealed class ProjectStore : IProjectStore
 
         // Parse preferences
         ProjectPreferences preferences = new ProjectPreferences(
-            outputSettings: rootObj["outputSettings"],
-            filters: rootObj["filters"],
-            comparisonPreferences: rootObj["comparisonPreferences"],
-            rawRootNode: rootObj,
+            outputSettings: documentObj["outputSettings"],
+            filters: documentObj["filters"],
+            comparisonPreferences: documentObj["comparisonPreferences"],
+            rawRootNode: documentObj,
             rawDocumentText: jsonContent,
             rawDocumentBytes: rawDocumentBytes);
 
@@ -465,7 +554,7 @@ public sealed class ProjectStore : IProjectStore
         string projectDir = Path.GetDirectoryName(projectPath)!;
 
         JsonObject rootObj = state.Preferences.RawRootNode?.DeepClone() as JsonObject ?? new JsonObject();
-        rootObj["schemaVersion"] = CurrentSchemaVersion;
+        rootObj["schemaVersion"] = SchemaVersions.Project;
 
         // Serialize sources overlaying on raw array item nodes
         Dictionary<Guid, JsonObject> rawSourceItems = new();
@@ -611,7 +700,7 @@ public sealed class ProjectStore : IProjectStore
         return fullPath;
     }
 
-    private static async Task WriteJsonAtomicallyAsync(string targetPath, JsonNode rootNode, CancellationToken cancellationToken)
+    private async Task WriteJsonAtomicallyAsync(string targetPath, JsonNode rootNode, CancellationToken cancellationToken)
     {
         string? targetDir = Path.GetDirectoryName(targetPath);
         if (!string.IsNullOrEmpty(targetDir))
@@ -637,17 +726,25 @@ public sealed class ProjectStore : IProjectStore
 
             File.Move(tempPath, targetPath, overwrite: true);
         }
-        catch
+        catch (Exception ex)
         {
+            LogAtomicWriteFailure("json", targetPath, tempPath, ex);
             if (File.Exists(tempPath))
             {
-                try { File.Delete(tempPath); } catch { }
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch (Exception deleteEx)
+                {
+                    LogTempFileCleanupFailure("json", targetPath, tempPath, deleteEx);
+                }
             }
             throw;
         }
     }
 
-    private static async Task WriteTextAtomicallyAsync(string targetPath, string text, CancellationToken cancellationToken)
+    private async Task WriteTextAtomicallyAsync(string targetPath, string text, CancellationToken cancellationToken)
     {
         string? targetDir = Path.GetDirectoryName(targetPath);
         if (!string.IsNullOrEmpty(targetDir))
@@ -669,17 +766,25 @@ public sealed class ProjectStore : IProjectStore
 
             File.Move(tempPath, targetPath, overwrite: true);
         }
-        catch
+        catch (Exception ex)
         {
+            LogAtomicWriteFailure("text", targetPath, tempPath, ex);
             if (File.Exists(tempPath))
             {
-                try { File.Delete(tempPath); } catch { }
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch (Exception deleteEx)
+                {
+                    LogTempFileCleanupFailure("text", targetPath, tempPath, deleteEx);
+                }
             }
             throw;
         }
     }
 
-    private static async Task WriteBytesAtomicallyAsync(string targetPath, byte[] bytes, CancellationToken cancellationToken)
+    private async Task WriteBytesAtomicallyAsync(string targetPath, byte[] bytes, CancellationToken cancellationToken)
     {
         string? targetDir = Path.GetDirectoryName(targetPath);
         if (!string.IsNullOrEmpty(targetDir))
@@ -700,14 +805,63 @@ public sealed class ProjectStore : IProjectStore
 
             File.Move(tempPath, targetPath, overwrite: true);
         }
-        catch
+        catch (Exception ex)
         {
+            LogAtomicWriteFailure("bytes", targetPath, tempPath, ex);
             if (File.Exists(tempPath))
             {
-                try { File.Delete(tempPath); } catch { }
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch (Exception deleteEx)
+                {
+                    LogTempFileCleanupFailure("bytes", targetPath, tempPath, deleteEx);
+                }
             }
             throw;
         }
+    }
+
+    /// <summary>
+    /// Records an atomic-write failure. The exception is rethrown by the caller; this only makes the
+    /// failure visible after the fact, including the temp path that may have been left behind.
+    /// </summary>
+    private void LogAtomicWriteFailure(string writer, string targetPath, string tempPath, Exception ex)
+    {
+        _logger.Log(
+            LogLevel.Error,
+            LogCategory,
+            "Atomic project write failed; the target file is unchanged.",
+            ex,
+            new Dictionary<string, string>
+            {
+                [AppLogger.EventCodeKey] = "project.write.failed",
+                ["writer"] = writer,
+                ["targetPath"] = targetPath,
+                ["tempPath"] = tempPath
+            });
+    }
+
+    /// <summary>
+    /// Records a failed temp-file cleanup. Swallowed by design — the original write failure is the
+    /// one worth propagating — but a stranded <c>.tmp.*</c> sibling is exactly the kind of leak that
+    /// used to be invisible.
+    /// </summary>
+    private void LogTempFileCleanupFailure(string writer, string targetPath, string tempPath, Exception ex)
+    {
+        _logger.Log(
+            LogLevel.Warn,
+            LogCategory,
+            "Could not delete the temporary file left by a failed project write.",
+            ex,
+            new Dictionary<string, string>
+            {
+                [AppLogger.EventCodeKey] = "project.tempFile.cleanupFailed",
+                ["writer"] = writer,
+                ["targetPath"] = targetPath,
+                ["tempPath"] = tempPath
+            });
     }
 
     private static string? TryGetString(JsonNode? node)
@@ -737,7 +891,7 @@ public sealed class ProjectStore : IProjectStore
         return null;
     }
 
-    private static bool TryFromHexString(string? hex, out byte[] bytes)
+    private bool TryFromHexString(string? hex, out byte[] bytes)
     {
         bytes = Array.Empty<byte>();
         if (string.IsNullOrEmpty(hex) || hex.Length % 2 != 0)
@@ -749,8 +903,21 @@ public sealed class ProjectStore : IProjectStore
             bytes = Convert.FromHexString(hex);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            // A malformed digest is a validation outcome, not a crash: the caller decides whether to
+            // reject the document (schema 1) or degrade gracefully (newer, read-only).
+            _logger.Log(
+                LogLevel.Debug,
+                LogCategory,
+                "Project file contains a value that is not a valid hex string.",
+                ex,
+                new Dictionary<string, string>
+                {
+                    [AppLogger.EventCodeKey] = "project.parse.invalidHex",
+                    ["length"] = hex.Length.ToString(CultureInfo.InvariantCulture)
+                });
+
             return false;
         }
     }

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using SRN.CC.Core.Build;
+using SRN.CC.Core.Logging;
 using SRN.CC.Core.Resolution;
 using SRN.CC.Core.Services;
 using SRN.CC.Core.Sources;
@@ -16,15 +17,22 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
     private readonly IArtifactPublisher _publisher;
     private readonly IResourceTypeRegistry _registry;
     private readonly ISourceReaderDispatcher _dispatcher;
+    private readonly IAppLogger _logger;
 
+    /// <param name="logger">
+    /// Optional and last so every existing call site keeps compiling unchanged; defaults to
+    /// <see cref="NullAppLogger.Instance"/>.
+    /// </param>
     public BuildOrchestrator(
         IAssetPacker packer,
         IBuildVerifier verifier,
         ProvenanceManifestGenerator manifestGenerator,
         IArtifactPublisher publisher,
         IResourceTypeRegistry registry,
-        ISourceReaderDispatcher dispatcher)
+        ISourceReaderDispatcher dispatcher,
+        IAppLogger? logger = null)
     {
+        _logger = logger ?? NullAppLogger.Instance;
         _packer = packer ?? throw new ArgumentNullException(nameof(packer));
         _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
         _manifestGenerator = manifestGenerator ?? throw new ArgumentNullException(nameof(manifestGenerator));
@@ -182,8 +190,40 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
         }
         finally
         {
-            if (File.Exists(tempHakPath)) { try { File.Delete(tempHakPath); } catch { } }
-            if (File.Exists(tempManifestPath)) { try { File.Delete(tempManifestPath); } catch { } }
+            TryDeleteTempFile(tempHakPath);
+            TryDeleteTempFile(tempManifestPath);
+        }
+    }
+
+    /// <summary>
+    /// Removes one build temp file, reporting rather than swallowing a failure.
+    /// </summary>
+    /// <remarks>
+    /// Deletion must never displace the outcome of the build itself — a successful publication that
+    /// leaked a temp file is still a successful publication — so this cannot rethrow. It logs
+    /// instead: an undeleted temp file left the destination directory dirty, and before this the
+    /// only evidence was the file.
+    /// </remarks>
+    private void TryDeleteTempFile(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            // Deliberately as broad as the bare `catch { }` this replaced: narrowing it here would be
+            // a behaviour change smuggled in behind a logging change.
+            _logger.Log(
+                LogLevel.Warn,
+                nameof(BuildOrchestrator),
+                $"Failed to delete build temp file '{path}'.",
+                ex);
         }
     }
 

@@ -2,15 +2,32 @@ using Microsoft.Data.Sqlite;
 using SRN.CC.Core.Diagnostics;
 using SRN.CC.Core.Fingerprints;
 using SRN.CC.Core.Identity;
+using SRN.CC.Core.Logging;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Records;
+using SRN.CC.Core.Schema;
 using SRN.CC.Core.Snapshots;
 using SRN.CC.Core.Sources;
+using SRN.CC.Core.Startup;
 
 namespace SRN.CC.Infrastructure.Cache;
 
 public interface ISqliteCacheService
 {
+    /// <summary>
+    /// Whether the backing database could be opened or rebuilt. The cache is a rebuildable derived
+    /// artefact, so a machine whose cache is corrupt and whose data directory refuses the quarantine
+    /// rename degrades to a permanent miss rather than failing startup.
+    /// </summary>
+    bool IsAvailable { get; }
+
+    /// <summary>
+    /// Why the database was quarantined, or <see langword="null"/> when it opened cleanly. Set
+    /// whether or not the quarantine itself succeeded, so the startup preflight can name the cause
+    /// to the operator in both cases.
+    /// </summary>
+    string? LastQuarantineReason { get; }
+
     Task<SourceIndexSnapshot?> TryGetSnapshotAsync(AssetSource source, SourceFingerprint fingerprint, CancellationToken cancellationToken = default);
     Task SaveSnapshotAsync(SourceIndexSnapshot snapshot, CancellationToken cancellationToken = default);
     Task<PreviewCachePayload?> TryGetPreviewAsync(SourceFingerprint sourceFingerprint, AssetOccurrence occurrence, CancellationToken cancellationToken = default);
@@ -24,34 +41,68 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
 {
     public const long DefaultMaxLogicalBytes = 2L * 1024 * 1024 * 1024; // 2 GiB
     private const int EvictionBatchSize = 50;
+    private const string LogCategory = nameof(SqliteCacheService);
     private readonly string _dbPath;
     private readonly long _maxLogicalBytes;
+    private readonly IAppLogger _logger;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _isDisposed;
 
     public string DatabasePath => _dbPath;
 
-    public SqliteCacheService(string? dbPath = null, long maxLogicalBytes = DefaultMaxLogicalBytes)
+    /// <inheritdoc />
+    public bool IsAvailable { get; private set; } = true;
+
+    /// <inheritdoc />
+    public string? LastQuarantineReason { get; private set; }
+
+    /// <summary>
+    /// Opens or creates the cache database. This constructor never throws: it runs before the first
+    /// window is shown, so any failure here would otherwise surface as a silent startup crash.
+    /// </summary>
+    /// <param name="dbPath">Database file path; defaults to <see cref="AppPaths.Default"/>'s cache path.</param>
+    /// <param name="maxLogicalBytes">LRU budget across snapshots and cached previews.</param>
+    /// <param name="logger">Optional logger; trailing and optional so existing call sites are untouched.</param>
+    public SqliteCacheService(
+        string? dbPath = null,
+        long maxLogicalBytes = DefaultMaxLogicalBytes,
+        IAppLogger? logger = null)
     {
+        _logger = logger ?? NullAppLogger.Instance;
+
         if (string.IsNullOrWhiteSpace(dbPath))
         {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string directory = Path.Combine(localAppData, "SRN.CC");
-            Directory.CreateDirectory(directory);
-            _dbPath = Path.Combine(directory, "cache-v1.sqlite");
+            AppPaths paths = AppPaths.Default;
+            _dbPath = paths.CacheDatabasePath;
+            TryCreateDirectory(paths.Root);
         }
         else
         {
-            string? dir = Path.GetDirectoryName(Path.GetFullPath(dbPath));
+            _dbPath = Path.GetFullPath(dbPath);
+            string? dir = Path.GetDirectoryName(_dbPath);
             if (!string.IsNullOrEmpty(dir))
             {
-                Directory.CreateDirectory(dir);
+                TryCreateDirectory(dir);
             }
-            _dbPath = Path.GetFullPath(dbPath);
         }
 
         _maxLogicalBytes = maxLogicalBytes;
         EnsureDatabaseInitialized();
+    }
+
+    /// <summary>
+    /// Creates the data directory, degrading instead of throwing when the location is unwritable.
+    /// </summary>
+    private void TryCreateDirectory(string directory)
+    {
+        try
+        {
+            Directory.CreateDirectory(directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            MarkUnavailable($"Cache directory '{directory}' could not be created: {ex.Message}", ex);
+        }
     }
 
     private string GetConnectionString()
@@ -69,23 +120,39 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
     private SqliteConnection CreateConnection()
     {
         SqliteConnection conn = new(GetConnectionString());
-        conn.Open();
-        using (SqliteCommand cmd = conn.CreateCommand())
+        try
         {
-            cmd.CommandText = @"
-                PRAGMA journal_mode=WAL;
-                PRAGMA foreign_keys=ON;
-                PRAGMA synchronous=NORMAL;
-                PRAGMA busy_timeout=5000;
-                PRAGMA auto_vacuum=INCREMENTAL;
-            ";
-            cmd.ExecuteNonQuery();
+            conn.Open();
+            using (SqliteCommand cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    PRAGMA journal_mode=WAL;
+                    PRAGMA foreign_keys=ON;
+                    PRAGMA synchronous=NORMAL;
+                    PRAGMA busy_timeout=5000;
+                    PRAGMA auto_vacuum=INCREMENTAL;
+                ";
+                cmd.ExecuteNonQuery();
+            }
         }
+        catch
+        {
+            // A connection that fails its opening pragmas is still holding the file open. Without
+            // this the subsequent quarantine rename fails with a sharing violation on Windows.
+            conn.Dispose();
+            throw;
+        }
+
         return conn;
     }
 
     private void EnsureDatabaseInitialized()
     {
+        if (!IsAvailable)
+        {
+            return;
+        }
+
         string? quarantineReason = null;
         try
         {
@@ -120,9 +187,16 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
                 else
                 {
                     int version = Convert.ToInt32(verObj);
-                    if (version != 1)
+
+                    // The cache is derived data, so — unlike the project and settings documents — a
+                    // schema written by a newer build is discarded rather than opened read-only.
+                    // Rebuilding costs a rescan; carrying an unreadable schema forward costs correctness.
+                    SchemaOpenMode openMode = SchemaVersions.Classify(SchemaKind.Cache, version);
+                    if (openMode != SchemaOpenMode.Current)
                     {
-                        quarantineReason = $"Unsupported cache schema version {verObj}.";
+                        quarantineReason = openMode == SchemaOpenMode.ReadOnlyNewer
+                            ? $"Cache schema version {version} is newer than supported version {SchemaVersions.Cache}."
+                            : $"Unsupported cache schema version {version}.";
                     }
                     else if (!HasCompleteVersionOneBaseSchema(conn))
                     {
@@ -141,11 +215,51 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         }
 
         // The initialization connection must be disposed before a Windows rename.
-        if (quarantineReason != null)
+        if (quarantineReason == null)
+        {
+            return;
+        }
+
+        LastQuarantineReason = quarantineReason;
+
+        try
         {
             QuarantineCorruptedDatabase(quarantineReason);
+            _logger.Log(
+                LogLevel.Warn,
+                LogCategory,
+                $"Corrupted cache quarantined and rebuilt: {quarantineReason}",
+                data: BuildQuarantineData());
+        }
+        catch (Exception ex)
+        {
+            // The quarantine rename or the rebuild failed — typically an unwritable data directory or
+            // another process holding the corrupt file. Degrade to a permanent miss so startup lives.
+            MarkUnavailable($"{quarantineReason} Quarantine failed: {ex.Message}", ex);
         }
     }
+
+    /// <summary>
+    /// Records a degradation and reports it once, so the startup preflight can surface a cause
+    /// instead of the operator meeting an unexplained crash.
+    /// </summary>
+    private void MarkUnavailable(string reason, Exception? exception)
+    {
+        IsAvailable = false;
+        LastQuarantineReason = reason;
+        _logger.Log(
+            LogLevel.Error,
+            LogCategory,
+            $"Cache unavailable; operating as a permanent miss: {reason}",
+            exception,
+            BuildQuarantineData());
+    }
+
+    private IReadOnlyDictionary<string, string> BuildQuarantineData() => new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["diagnosticCode"] = nameof(DiagnosticCode.CorruptedCacheQuarantined),
+        ["databasePath"] = _dbPath
+    };
 
     private static bool HasCompleteVersionOneBaseSchema(SqliteConnection conn)
     {
@@ -252,7 +366,7 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         CREATE INDEX idx_source_snapshots_lru ON source_snapshots(last_access_utc ASC);
         CREATE UNIQUE INDEX idx_preview_cache_source_locator ON preview_cache(source_fingerprint, locator);
         CREATE INDEX idx_preview_cache_last_access ON preview_cache(last_access_utc ASC);
-        {(includeSchemaInfo ? "INSERT INTO schema_info VALUES (1);" : string.Empty)}
+        {(includeSchemaInfo ? $"INSERT INTO schema_info VALUES ({SchemaVersions.Cache});" : string.Empty)}
     ";
 
     private static string GetCurrentTimestampUtc() => DateTime.UtcNow.ToString("o");
@@ -266,7 +380,10 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
             string timeStamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ");
             string corruptSuffix = $".corrupt-{timeStamp}";
 
-            MoveSidecarIfExists(_dbPath, _dbPath + corruptSuffix);
+            // The main file's rename is deliberately not best-effort: if it fails the corrupt
+            // database is still in place, and recreating over it would either fail confusingly or
+            // hand back the same corruption. Let the caller degrade instead.
+            File.Move(_dbPath, _dbPath + corruptSuffix, overwrite: true);
             MoveSidecarIfExists(_dbPath + "-wal", _dbPath + "-wal" + corruptSuffix);
             MoveSidecarIfExists(_dbPath + "-shm", _dbPath + "-shm" + corruptSuffix);
         }
@@ -278,7 +395,11 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         cmd.ExecuteNonQuery();
     }
 
-    private static void MoveSidecarIfExists(string source, string destination)
+    /// <summary>
+    /// Moves a WAL or SHM sidecar aside. Sidecars are worthless without their database, so a failure
+    /// here is logged and ignored rather than aborting an otherwise successful quarantine.
+    /// </summary>
+    private void MoveSidecarIfExists(string source, string destination)
     {
         try
         {
@@ -287,9 +408,14 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
                 File.Move(source, destination, overwrite: true);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Best effort quarantine
+            _logger.Log(
+                LogLevel.Warn,
+                LogCategory,
+                $"Cache sidecar '{source}' could not be quarantined; leaving it in place.",
+                ex,
+                BuildQuarantineData());
         }
     }
 
@@ -297,6 +423,11 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(fingerprint);
+
+        if (!IsAvailable)
+        {
+            return null; // A degraded cache must look like a cold cache, not like an error.
+        }
 
         byte[] fpBytes = fingerprint.Digest.ToArray();
         using SqliteConnection conn = CreateConnection();
@@ -410,6 +541,11 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
     public async Task SaveSnapshotAsync(SourceIndexSnapshot snapshot, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+
+        if (!IsAvailable)
+        {
+            return; // Nothing is persisted; the next read is a miss, exactly as for a cold cache.
+        }
 
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -546,6 +682,11 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         ArgumentNullException.ThrowIfNull(sourceFingerprint);
         ArgumentNullException.ThrowIfNull(occurrence);
 
+        if (!IsAvailable)
+        {
+            return null; // A degraded cache must look like a cold cache, not like an error.
+        }
+
         if (!TryFormatPreviewLocator(occurrence, out string locator))
         {
             return null;
@@ -607,6 +748,12 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         if (!TryFormatPreviewLocator(occurrence, out string locator))
         {
             throw new NotSupportedException($"Preview cache does not support locator type '{occurrence.Locator.GetType().Name}'.");
+        }
+
+        // Argument contracts are checked first: a degraded cache excuses persistence, not a caller bug.
+        if (!IsAvailable)
+        {
+            return;
         }
 
         byte[] fpBytes = sourceFingerprint.Digest.ToArray();
@@ -768,6 +915,11 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
 
     public async Task ClearCacheAsync(CancellationToken cancellationToken = default)
     {
+        if (!IsAvailable)
+        {
+            return; // An unreachable cache is already empty from every caller's point of view.
+        }
+
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {

@@ -32,11 +32,14 @@ public class SettingsStoreTests
         string settingsPath = Path.Combine(_tempDir, "nonexistent.json");
         SettingsStore store = new SettingsStore();
 
-        ApplicationSettings settings = await store.LoadAsync(settingsPath);
+        SettingsLoadResult result = await store.LoadAsync(settingsPath);
 
-        settings.LastProjectPath.Should().BeNull();
-        settings.RecentProjectPaths.Should().BeEmpty();
-        settings.NwnInstallOverride.Should().BeNull();
+        result.Status.Should().Be(SettingsLoadStatus.Loaded);
+        result.QuarantinedPath.Should().BeNull();
+        result.Settings.LastProjectPath.Should().BeNull();
+        result.Settings.RecentProjectPaths.Should().BeEmpty();
+        result.Settings.NwnInstallOverride.Should().BeNull();
+        result.Settings.IsReadOnly.Should().BeFalse();
     }
 
     [Test]
@@ -54,11 +57,16 @@ public class SettingsStoreTests
 
         File.Exists(settingsPath).Should().BeTrue();
 
-        ApplicationSettings loaded = await store.LoadAsync(settingsPath);
+        SettingsLoadResult result = await store.LoadAsync(settingsPath);
 
+        result.Status.Should().Be(SettingsLoadStatus.Loaded);
+        result.QuarantinedPath.Should().BeNull();
+
+        ApplicationSettings loaded = result.Settings;
         loaded.LastProjectPath.Should().Be("c:/proj/my.srnccproj");
         loaded.RecentProjectPaths.Should().Equal("c:/proj/my.srnccproj", "c:/proj/other.srnccproj");
         loaded.NwnInstallOverride.Should().Be("c:/nwn");
+        loaded.IsReadOnly.Should().BeFalse();
     }
 
     [Test]
@@ -69,13 +77,16 @@ public class SettingsStoreTests
 
         SettingsStore store = new SettingsStore();
 
-        ApplicationSettings loaded = await store.LoadAsync(settingsPath);
+        SettingsLoadResult result = await store.LoadAsync(settingsPath);
 
-        loaded.LastProjectPath.Should().BeNull("Corrupt file should return default settings");
+        result.Status.Should().Be(SettingsLoadStatus.RebuiltAfterQuarantine);
+        result.Settings.LastProjectPath.Should().BeNull("Corrupt file should return default settings");
 
         File.Exists(settingsPath).Should().BeFalse("Corrupt file should have been renamed/quarantined");
 
         string[] corruptFiles = Directory.GetFiles(_tempDir, "corrupt_settings.json.corrupt.*");
         corruptFiles.Should().HaveCount(1, "Corrupt file should be renamed with a timestamp suffix");
+
+        result.QuarantinedPath.Should().Be(corruptFiles[0], "the quarantine path is reported, not swallowed");
     }
 }

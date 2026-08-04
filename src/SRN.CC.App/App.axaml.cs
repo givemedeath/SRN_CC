@@ -31,6 +31,9 @@ public partial class App : Application
             var registry = new ResourceTypeRegistry();
             var cache = new SqliteCacheService();
             var indexService = new AssetIndexService(cache, registry);
+            // Composition-root service binding
+            IDependencyAnalyzer dependencyAnalyzer = new DefaultDependencyAnalyzer();
+            _ = dependencyAnalyzer;
             var dispatcher = new SourceReaderDispatcher(typeRegistry: registry);
             var hashService = new StreamingHashService(dispatcher);
             var resolver = new WorkspaceResolver(hashService);

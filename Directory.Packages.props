@@ -23,6 +23,11 @@
     <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
     <PackageVersion Include="SQLitePCLRaw.provider.dynamic_cdecl" Version="2.1.12" />
 
+    <!-- Media / preview package stack -->
+    <PackageVersion Include="NAudio" Version="2.3.0" />
+    <PackageVersion Include="Pfim" Version="0.11.4" />
+    <PackageVersion Include="Silk.NET.OpenGL" Version="2.23.0" />
+
     <!-- Testing Packages -->
     <PackageVersion Include="FluentAssertions" Version="7.2.2" />
     <PackageVersion Include="NUnit" Version="4.6.1" />

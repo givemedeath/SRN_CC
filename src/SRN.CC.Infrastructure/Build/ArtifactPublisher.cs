@@ -40,8 +40,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         {
             await using (await AcquirePublicationLockAsync(publicationLockPath, cancellationToken).ConfigureAwait(false))
             {
-                bool hakExisted = File.Exists(plan.DestinationHakPath);
-                bool manifestExisted = File.Exists(plan.DestinationManifestPath);
+                hakExisted = File.Exists(plan.DestinationHakPath);
+                manifestExisted = File.Exists(plan.DestinationManifestPath);
 
                 journal = new PublicationJournal
                 {
@@ -127,7 +127,7 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         }
         catch (OperationCanceledException)
         {
-            if (journal.State != PublicationState.Committed)
+            if (journal != null && journal.State != PublicationState.Committed)
             {
                 await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
             }

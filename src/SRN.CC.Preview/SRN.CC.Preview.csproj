@@ -7,4 +7,10 @@
     <ProjectReference Include="..\SRN.CC.Core\SRN.CC.Core.csproj" />
     <ProjectReference Include="..\SRN.CC.Formats\SRN.CC.Formats.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Pfim" />
+    <PackageReference Include="NAudio" />
+    <PackageReference Include="Silk.NET.OpenGL" />
+  </ItemGroup>
 </Project>

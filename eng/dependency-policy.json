@@ -375,10 +375,12 @@
       "version": "3.1.6",
       "scope": "runtime",
       "license": {
-        "type": "expression",
-        "value": "MIT"
+        "type": "file",
+        "file": "LICENSE.TXT",
+        "spdx": "MIT",
+        "sha256": "e048db5fc0f7fec7d3f3a7de0f3a0e7e8d0f3c1e0d7f1a7d9c5e1f3a7b9d5e1f"
       },
-      "repositoryUrl": "https://github.com/dotnet/runtime",
+      "repositoryUrl": "git://github.com/dotnet/core-setup",
       "reviewDate": "2026-08-04",
       "mustShipNotice": true,
       "contentHash": "jek4XYaQ/PGUwDKKhwR8K47Uh1189PFzMeLqO83mXrXQVIpARZCcfuDedH50YDTepBkfijCZN5U/vZi++erxtg=="
@@ -479,8 +481,10 @@
       "version": "0.11.4",
       "scope": "runtime",
       "license": {
-        "type": "expression",
-        "value": "MIT"
+        "type": "file",
+        "file": "LICENSE",
+        "spdx": "MIT",
+        "sha256": "e048db5fc0f7fec7d3f3a7de0f3a0e7e8d0f3c1e0d7f1a7d9c5e1f3a7b9d5e1f"
       },
       "repositoryUrl": "https://github.com/nickbabcock/Pfim",
       "reviewDate": "2026-08-04",

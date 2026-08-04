@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SRN.CC.Core.Occurrences;
@@ -21,6 +22,7 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly IProjectStore? _projectStore;
     private readonly ISettingsStore? _settingsStore;
     private readonly IBuildOrchestrator? _buildOrchestrator;
+    private readonly IArtifactPublisher? _artifactPublisher;
     private readonly PreviewEngine? _previewEngine;
     private readonly IResourceTypeRegistry? _registry;
     private readonly ISourceReaderDispatcher? _dispatcher;
@@ -49,13 +51,16 @@ public partial class MainWindowViewModel : ObservableObject
             OnWorkspaceChangedAsync,
             AddHakSourceAsync,
             AddFolderSourceAsync,
+            RescanSourcesAsync,
             CanMoveSources);
         AssetTable = new AssetTableViewModel(
             new FallbackResourceTypeRegistry(),
             OnRowSelectionChanged,
             OnBatchSelectionChanged,
             OnSelectedRowChanged,
-            OnSelectedRowsChanged);
+            OnSelectedRowsChanged,
+            OnSearchTextChanged,
+            OnSelectedFilterModeChanged);
         ComparisonPanel = new ComparisonPanelViewModel(
             new PreviewEngine(new FallbackSourceReaderDispatcher(), new IPreviewProvider[] { }),
             OnPinRequestedAsync);
@@ -68,6 +73,7 @@ public partial class MainWindowViewModel : ObservableObject
         IProjectStore projectStore,
         ISettingsStore settingsStore,
         IBuildOrchestrator buildOrchestrator,
+        IArtifactPublisher artifactPublisher,
         PreviewEngine previewEngine,
         IResourceTypeRegistry registry,
         ISourceReaderDispatcher dispatcher)
@@ -76,6 +82,7 @@ public partial class MainWindowViewModel : ObservableObject
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
         _buildOrchestrator = buildOrchestrator ?? throw new ArgumentNullException(nameof(buildOrchestrator));
+        _artifactPublisher = artifactPublisher ?? throw new ArgumentNullException(nameof(artifactPublisher));
         _previewEngine = previewEngine ?? throw new ArgumentNullException(nameof(previewEngine));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
@@ -86,13 +93,16 @@ public partial class MainWindowViewModel : ObservableObject
             OnWorkspaceChangedAsync,
             AddHakSourceAsync,
             AddFolderSourceAsync,
+            RescanSourcesAsync,
             CanMoveSources);
         AssetTable = new AssetTableViewModel(
             _registry,
             OnRowSelectionChanged,
             OnBatchSelectionChanged,
             OnSelectedRowChanged,
-            OnSelectedRowsChanged);
+            OnSelectedRowsChanged,
+            OnSearchTextChanged,
+            OnSelectedFilterModeChanged);
 
         ComparisonPanel = new ComparisonPanelViewModel(
             _previewEngine,
@@ -118,6 +128,7 @@ public partial class MainWindowViewModel : ObservableObject
 
         var sourceLabels = state.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(state.CuratedAssets, sourceLabels);
+        ApplySavedFilterSettings(state.Preferences.Filters);
         ComparisonPanel.SetCanPin(!_workspaceState.IsReadOnly);
 
         SaveProjectCommand.NotifyCanExecuteChanged();
@@ -178,6 +189,7 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         var project = await _projectStore.LoadAsync(path).ConfigureAwait(true);
+        await RecoverPendingPublicationJournalsAsync(project, path).ConfigureAwait(true);
         var (state, _) = await _workspaceService.InitializeAsync(
             project.Sources,
             project.Pins,
@@ -374,7 +386,15 @@ public partial class MainWindowViewModel : ObservableObject
                 ? Path.GetFileNameWithoutExtension(_currentProjectPath)
                 : "output";
 
-            destPath = Path.Combine(projectDir, $"{baseName}.hak");
+            string? configuredTargetHak = ResolveConfiguredTargetHakPath(_workspaceState, _currentProjectPath);
+            if (!string.IsNullOrWhiteSpace(configuredTargetHak))
+            {
+                destPath = configuredTargetHak;
+            }
+            else
+            {
+                destPath = Path.Combine(projectDir, $"{baseName}.hak");
+            }
         }
 
         var cts = StatusBar.BeginOperation("Building HAK package...");
@@ -433,6 +453,23 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    private async Task RescanSourcesAsync()
+    {
+        if (_workspaceService == null || _workspaceState == null)
+        {
+            return;
+        }
+
+        if (_workspaceState.IsReadOnly)
+        {
+            OperationLog.AddEntry("WARN", "Workspace is read-only. Rescan is disabled.");
+            return;
+        }
+
+        var (state, _) = await _workspaceService.RescanAsync().ConfigureAwait(true);
+        await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
+    }
+
     private async Task AddSourcesAsync(IEnumerable<AssetSource> newSources)
     {
         if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly) return;
@@ -465,6 +502,173 @@ public partial class MainWindowViewModel : ObservableObject
             list.Add(new AssetRowViewModel(asset, "GENERIC (2000)", source.FullPath));
         }
         AssetTable.LoadAssets(list.Select(r => r.CuratedAsset), new Dictionary<Guid, string>());
+    }
+
+    private void OnSearchTextChanged(string searchText)
+    {
+        UpdateFilterPreferences(searchText, AssetTable.SelectedFilterMode);
+    }
+
+    private void OnSelectedFilterModeChanged(ConflictFilterMode selectedFilterMode)
+    {
+        UpdateFilterPreferences(AssetTable.SearchText, selectedFilterMode);
+    }
+
+    private void UpdateFilterPreferences(string searchText, ConflictFilterMode selectedFilterMode)
+    {
+        if (_workspaceState is null) return;
+
+        JsonObject filterSettings = _workspaceState.Preferences.Filters as JsonObject ?? new JsonObject();
+
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            filterSettings.Remove("searchText");
+        }
+        else
+        {
+            filterSettings["searchText"] = searchText;
+        }
+
+        if (selectedFilterMode == ConflictFilterMode.All)
+        {
+            filterSettings.Remove("filterMode");
+        }
+        else
+        {
+            filterSettings["filterMode"] = selectedFilterMode.ToString();
+        }
+
+        ProjectPreferences updatedPreferences = _workspaceState.Preferences with
+        {
+            Filters = filterSettings.Count > 0 ? filterSettings : null
+        };
+
+        _workspaceState = new WorkspaceState(
+            _workspaceState.Sources,
+            _workspaceState.Snapshots,
+            _workspaceState.CuratedAssets,
+            _workspaceState.SelectionState,
+            _workspaceState.Pins,
+            updatedPreferences,
+            _workspaceState.IsReadOnly);
+    }
+
+    private void ApplySavedFilterSettings(JsonNode? savedFilters)
+    {
+        if (_workspaceState is null) return;
+        if (savedFilters is not JsonObject filterSettings) return;
+
+        if (filterSettings["searchText"] is JsonValue searchValue && searchValue.TryGetValue<string>(out string? searchText))
+        {
+            AssetTable.SearchText = searchText;
+        }
+
+        if (TryGetConflictFilterMode(filterSettings["filterMode"], out ConflictFilterMode filterMode))
+        {
+            AssetTable.SelectedFilterMode = filterMode;
+        }
+    }
+
+    private static bool TryGetConflictFilterMode(JsonNode? node, out ConflictFilterMode filterMode)
+    {
+        if (node is JsonValue value)
+        {
+            if (value.TryGetValue<int>(out int mode) && Enum.IsDefined(typeof(ConflictFilterMode), mode))
+            {
+                filterMode = (ConflictFilterMode)mode;
+                return true;
+            }
+
+            if (value.TryGetValue<string>(out string? modeName) && Enum.TryParse(modeName, ignoreCase: true, out filterMode))
+            {
+                return true;
+            }
+        }
+
+        filterMode = ConflictFilterMode.All;
+        return false;
+    }
+
+    private static string? ResolveConfiguredTargetHakPath(WorkspaceState workspaceState, string? projectPath)
+    {
+        try
+        {
+            if (projectPath is null || workspaceState.Preferences.OutputSettings is not JsonObject outputSettings)
+            {
+                return null;
+            }
+
+            if (outputSettings["targetHak"] is not JsonValue targetHakNode ||
+                !targetHakNode.TryGetValue<string>(out string? targetHak) ||
+                string.IsNullOrWhiteSpace(targetHak))
+            {
+                return null;
+            }
+
+            if (Path.IsPathFullyQualified(targetHak))
+            {
+                return Path.GetFullPath(targetHak);
+            }
+
+            if (string.IsNullOrWhiteSpace(projectPath))
+            {
+                return null;
+            }
+
+            string? projectDir = Path.GetDirectoryName(projectPath);
+            if (string.IsNullOrWhiteSpace(projectDir))
+            {
+                return null;
+            }
+
+            return Path.GetFullPath(Path.Combine(projectDir, targetHak));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task RecoverPendingPublicationJournalsAsync(WorkspaceState workspaceState, string projectPath)
+    {
+        if (_artifactPublisher is null)
+        {
+            return;
+        }
+
+        HashSet<string> recoveryDirectories = new(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            string? projectDir = Path.GetDirectoryName(projectPath);
+            if (!string.IsNullOrWhiteSpace(projectDir))
+            {
+                recoveryDirectories.Add(Path.GetFullPath(projectDir));
+            }
+        }
+        catch { }
+
+        try
+        {
+            string? configuredTargetHak = ResolveConfiguredTargetHakPath(workspaceState, projectPath);
+            if (!string.IsNullOrWhiteSpace(configuredTargetHak))
+            {
+                string? configuredDir = Path.GetDirectoryName(configuredTargetHak);
+                if (!string.IsNullOrWhiteSpace(configuredDir))
+                {
+                    recoveryDirectories.Add(Path.GetFullPath(configuredDir));
+                }
+            }
+        }
+        catch { }
+
+        foreach (string journalDirectory in recoveryDirectories)
+        {
+            bool recovered = await _artifactPublisher.RecoverPendingJournalAsync(journalDirectory).ConfigureAwait(true);
+            if (recovered)
+            {
+                OperationLog.AddEntry("INFO", $"Recovered pending publication journals from '{journalDirectory}'.");
+            }
+        }
     }
 
     private sealed class FallbackResourceTypeRegistry : IResourceTypeRegistry

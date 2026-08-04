@@ -25,6 +25,8 @@ public partial class AssetTableViewModel : ObservableObject
     private readonly Action<IEnumerable<AssetRowViewModel>, bool>? _onBatchSelectionChanged;
     private readonly Action<AssetRowViewModel?>? _onSelectedRowChanged;
     private readonly Action<IReadOnlyList<AssetRowViewModel>>? _onSelectedRowsChanged;
+    private readonly Action<string>? _onSearchTextChanged;
+    private readonly Action<ConflictFilterMode>? _onSelectedFilterModeChanged;
     private List<AssetRowViewModel> _allRows = new();
     private bool _isBatchUpdating;
 
@@ -56,13 +58,17 @@ public partial class AssetTableViewModel : ObservableObject
         Action<AssetRowViewModel>? onRowSelectionChanged = null,
         Action<IEnumerable<AssetRowViewModel>, bool>? onBatchSelectionChanged = null,
         Action<AssetRowViewModel?>? onSelectedRowChanged = null,
-        Action<IReadOnlyList<AssetRowViewModel>>? onSelectedRowsChanged = null)
+        Action<IReadOnlyList<AssetRowViewModel>>? onSelectedRowsChanged = null,
+        Action<string>? onSearchTextChanged = null,
+        Action<ConflictFilterMode>? onSelectedFilterModeChanged = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _onRowSelectionChanged = onRowSelectionChanged;
         _onBatchSelectionChanged = onBatchSelectionChanged;
         _onSelectedRowChanged = onSelectedRowChanged;
         _onSelectedRowsChanged = onSelectedRowsChanged;
+        _onSearchTextChanged = onSearchTextChanged;
+        _onSelectedFilterModeChanged = onSelectedFilterModeChanged;
 
         _selectedRows.CollectionChanged += (s, e) =>
         {
@@ -88,6 +94,7 @@ public partial class AssetTableViewModel : ObservableObject
     {
         if (_isBatchUpdating) return;
         SelectedAssetCount = _allRows.Count(r => r.IsSelected);
+        ApplyFilters();
         _onRowSelectionChanged?.Invoke(row);
     }
 
@@ -96,8 +103,17 @@ public partial class AssetTableViewModel : ObservableObject
         _onSelectedRowChanged?.Invoke(value);
     }
 
-    partial void OnSearchTextChanged(string value) => ApplyFilters();
-    partial void OnSelectedFilterModeChanged(ConflictFilterMode value) => ApplyFilters();
+    partial void OnSearchTextChanged(string value)
+    {
+        ApplyFilters();
+        _onSearchTextChanged?.Invoke(value);
+    }
+
+    partial void OnSelectedFilterModeChanged(ConflictFilterMode value)
+    {
+        ApplyFilters();
+        _onSelectedFilterModeChanged?.Invoke(value);
+    }
 
     public void ApplyFilters()
     {
@@ -143,6 +159,7 @@ public partial class AssetTableViewModel : ObservableObject
             _isBatchUpdating = false;
         }
 
+        ApplyFilters();
         SelectedAssetCount = _allRows.Count(r => r.IsSelected);
         _onBatchSelectionChanged?.Invoke(FilteredRows, true);
     }
@@ -163,6 +180,7 @@ public partial class AssetTableViewModel : ObservableObject
             _isBatchUpdating = false;
         }
 
+        ApplyFilters();
         SelectedAssetCount = _allRows.Count(r => r.IsSelected);
         _onBatchSelectionChanged?.Invoke(FilteredRows, false);
     }

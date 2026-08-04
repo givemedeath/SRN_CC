@@ -161,7 +161,8 @@ foreach ($file in $publishedFiles) {
         if ($searchText.Contains($repoRoot.ToLowerInvariant())) {
             Add-Violation "Workspace absolute path is embedded in '$relPath'."
         }
-        if (($origin.StartsWith("project:") -or $origin.StartsWith("build:")) -and $ascii -match '[A-Za-z]:\\') {
+        $absolutePathPattern = '[A-Za-z]:\\[ -~]{1,60}\\[ -~]{1,60}'
+        if (($origin.StartsWith("project:") -or $origin.StartsWith("build:")) -and ($ascii -match $absolutePathPattern -or $unicode -match $absolutePathPattern)) {
             Add-Violation "First-party output '$relPath' contains an absolute build/source path."
         }
     }

@@ -371,16 +371,29 @@
       "contentHash": "TPCs0ldm7AWqcKmp6f/Xr+14sat7hx4rHfRlS4RgCURBH2thEWbAKEyX7cCWr63zVJVOJIJZTg2cBiUXa8ys6g=="
     },
     {
-      "id": "Microsoft.Extensions.DependencyModel",
-      "version": "9.0.9",
-      "scope": "test",
+      "id": "Microsoft.DotNet.PlatformAbstractions",
+      "version": "3.1.6",
+      "scope": "runtime",
       "license": {
         "type": "expression",
         "value": "MIT"
       },
       "repositoryUrl": "https://github.com/dotnet/runtime",
       "reviewDate": "2026-08-04",
-      "mustShipNotice": false,
+      "mustShipNotice": true,
+      "contentHash": "jek4XYaQ/PGUwDKKhwR8K47Uh1189PFzMeLqO83mXrXQVIpARZCcfuDedH50YDTepBkfijCZN5U/vZi++erxtg=="
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyModel",
+      "version": "9.0.9",
+      "scope": "runtime",
+      "license": {
+        "type": "expression",
+        "value": "MIT"
+      },
+      "repositoryUrl": "https://github.com/dotnet/runtime",
+      "reviewDate": "2026-08-04",
+      "mustShipNotice": true,
       "contentHash": "fNGvKct2De8ghm0Bpfq0iWthtzIWabgOTi+gJhNOPhNJIowXNEUE2eZNW/zNCzrHVA3PXg2yZ+3cWZndC2IqYA=="
     },
     {
@@ -469,7 +482,7 @@
         "type": "expression",
         "value": "MIT"
       },
-      "repositoryUrl": "https://github.com/jbukhari/Pfim",
+      "repositoryUrl": "https://github.com/nickbabcock/Pfim",
       "reviewDate": "2026-08-04",
       "mustShipNotice": true,
       "contentHash": "B3KDFyxY1NTqbeqGEaOM9uE+G71GG2TxWqVSs57e1pWYPf2vNLMIxk+x55MXdkon0iGeaekolFTlLS2CkgktYg=="
@@ -482,7 +495,7 @@
         "type": "expression",
         "value": "MIT"
       },
-      "repositoryUrl": "https://github.com/dotnet/Silk.NET",
+      "repositoryUrl": "https://github.com/dotnet/Silk.NET.git",
       "reviewDate": "2026-08-04",
       "mustShipNotice": true,
       "contentHash": "D7AT/nnwlB+4RZ84XY8QNGBZMJI5z9l4CSSETIJ1wCfRJzRt/341y3MRZ4HbnFz4r/IGaWOEZr86iE+0/65yyQ=="
@@ -495,7 +508,7 @@
         "type": "expression",
         "value": "MIT"
       },
-      "repositoryUrl": "https://github.com/dotnet/Silk.NET",
+      "repositoryUrl": "https://github.com/dotnet/Silk.NET.git",
       "reviewDate": "2026-08-04",
       "mustShipNotice": true,
       "contentHash": "r8PdIVzME8EH0qAgbmRPO87I4GfgR2j8TofT7EMuRJDf1QluoQwnVypDoFJjQ2ZBSRsGYk5unYxxogI05Ogsmw=="
@@ -508,7 +521,7 @@
         "type": "expression",
         "value": "MIT"
       },
-      "repositoryUrl": "https://github.com/dotnet/Silk.NET",
+      "repositoryUrl": "https://github.com/dotnet/Silk.NET.git",
       "reviewDate": "2026-08-04",
       "mustShipNotice": true,
       "contentHash": "CIakUoUqiAyRPykMk54tr1M1XpbJrT/iw12T85HDQcuRCFlBa1cxbX7v3FmtznKO5eM89esfmGNCgqDaKBiWfg=="

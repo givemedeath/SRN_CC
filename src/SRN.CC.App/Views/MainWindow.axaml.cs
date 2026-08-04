@@ -7,6 +7,18 @@ namespace SRN.CC.App.Views;
 
 public partial class MainWindow : Window
 {
+    /// <summary>
+    /// The single project-file picker filter. Both the open and the save picker used to spell the
+    /// extension inline, and both spelled it <c>.srncc</c> while the store, the tests, and the
+    /// startup journal recovery all used <c>.srnccproj</c>; deriving it from
+    /// <see cref="MainWindowViewModel.ProjectFileExtension"/> makes that divergence impossible.
+    /// </summary>
+    private static FilePickerFileType ProjectFileType => new(
+        $"SRN.CC Project Files (*{MainWindowViewModel.ProjectFileExtension})")
+    {
+        Patterns = new[] { $"*{MainWindowViewModel.ProjectFileExtension}" }
+    };
+
     public MainWindow()
     {
         InitializeComponent();
@@ -25,7 +37,7 @@ public partial class MainWindow : Window
                     AllowMultiple = false,
                     FileTypeFilter = new[]
                     {
-                        new FilePickerFileType("SRN.CC Project Files (*.srncc)") { Patterns = new[] { "*.srncc" } },
+                        ProjectFileType,
                         new FilePickerFileType("All Files (*.*)") { Patterns = new[] { "*" } }
                     }
                 });
@@ -37,8 +49,8 @@ public partial class MainWindow : Window
                 var path = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
                 {
                     Title = "Save SRN.CC Project",
-                    SuggestedFileName = "project.srncc",
-                    FileTypeChoices = new[] { new FilePickerFileType("SRN.CC Project Files (*.srncc)") { Patterns = new[] { "*.srncc" } } }
+                    SuggestedFileName = MainWindowViewModel.DefaultProjectFileName,
+                    FileTypeChoices = new[] { ProjectFileType }
                 });
 
                 return path?.Path.LocalPath;

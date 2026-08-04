@@ -5,12 +5,15 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SRN.CC.App.Services;
 using SRN.CC.Core.Identity;
+using SRN.CC.Core.Logging;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Project;
 using SRN.CC.Core.Resolution;
 using SRN.CC.Core.Selection;
 using SRN.CC.Core.Services;
+using SRN.CC.Core.Settings;
 using SRN.CC.Core.Sources;
+using SRN.CC.Core.Startup;
 using SRN.CC.Core.Workspace;
 using SRN.CC.Preview;
 
@@ -20,6 +23,22 @@ public record AssetRowItem(int Id, string Resref, string ResourceType, string So
 
 public partial class MainWindowViewModel : ObservableObject
 {
+    /// <summary>
+    /// Extension of a project file, per the plan. The application previously wrote and filtered on
+    /// <c>.srncc</c> in five places while every test, every fixture, and the startup journal check
+    /// used <c>.srnccproj</c> — see <c>ProjectExtensionTests</c>, which pins the two together.
+    /// </summary>
+    public const string ProjectFileExtension = ".srnccproj";
+
+    /// <summary>Default project file name used when no path is known and no picker is wired.</summary>
+    public const string DefaultProjectFileName = "project" + ProjectFileExtension;
+
+    /// <summary>Ceiling on the persisted recent-project list.</summary>
+    public const int MaxRecentProjectPaths = 10;
+
+    /// <summary>Log category for records this view model emits directly.</summary>
+    public const string LogCategory = nameof(MainWindowViewModel);
+
     private readonly IWorkspaceService? _workspaceService;
     private readonly IProjectStore? _projectStore;
     private readonly ISettingsStore? _settingsStore;
@@ -29,13 +48,37 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly IResourceTypeRegistry? _registry;
     private readonly ISourceReaderDispatcher? _dispatcher;
     private readonly TextureSourceHolder? _textureSourceHolder;
+    private readonly IBaseGameResourceCatalog? _baseGameCatalog;
+    private readonly IAppLogger _logger;
+    private readonly string? _settingsPath;
 
     private WorkspaceState? _workspaceState;
     private string? _currentProjectPath;
     private Task _pendingSelectionUpdate = Task.CompletedTask;
+    private ApplicationSettings _settings = new();
 
     [ObservableProperty]
     private string _title = "SRN.CC Asset Curator";
+
+    /// <summary>
+    /// The project reopened by default when no path and no picker are available. Sourced from
+    /// persisted settings and rewritten on every successful open or save.
+    /// </summary>
+    [ObservableProperty]
+    private string? _lastProjectPath;
+
+    /// <summary>
+    /// The configured game install root, or null to auto-discover. Surfaced read-only here; the
+    /// value is consumed during composition to build the base-game resource catalog.
+    /// </summary>
+    [ObservableProperty]
+    private string? _nwnInstallOverride;
+
+    /// <summary>
+    /// Most-recently-opened projects, newest first, capped at <see cref="MaxRecentProjectPaths"/>.
+    /// Mirrors the persisted settings list.
+    /// </summary>
+    public ObservableCollection<string> RecentProjectPaths { get; } = new();
 
     public SourceStackViewModel SourceStack { get; }
     public AssetTableViewModel AssetTable { get; }
@@ -56,6 +99,7 @@ public partial class MainWindowViewModel : ObservableObject
     // Parameterless constructor for XAML designer preview & synthetic performance probe
     public MainWindowViewModel()
     {
+        _logger = NullAppLogger.Instance;
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
         SourceStack = new SourceStackViewModel(
@@ -88,7 +132,11 @@ public partial class MainWindowViewModel : ObservableObject
         PreviewEngine previewEngine,
         IResourceTypeRegistry registry,
         ISourceReaderDispatcher dispatcher,
-        TextureSourceHolder? textureSourceHolder = null)
+        TextureSourceHolder? textureSourceHolder = null,
+        IBaseGameResourceCatalog? baseGameCatalog = null,
+        IAppLogger? logger = null,
+        ApplicationSettings? initialSettings = null,
+        string? settingsPath = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
@@ -99,6 +147,9 @@ public partial class MainWindowViewModel : ObservableObject
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _textureSourceHolder = textureSourceHolder;
+        _baseGameCatalog = baseGameCatalog;
+        _logger = logger ?? NullAppLogger.Instance;
+        _settingsPath = settingsPath;
 
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
@@ -120,6 +171,144 @@ public partial class MainWindowViewModel : ObservableObject
         ComparisonPanel = new ComparisonPanelViewModel(
             _previewEngine,
             OnPinRequestedAsync);
+
+        ApplySettings(initialSettings ?? new ApplicationSettings());
+    }
+
+    /// <summary>
+    /// Adopts a loaded settings document: the last project, the recent-project list, and the
+    /// configured install override all become live state. Before milestone 7 <c>ISettingsStore</c>
+    /// was injected and never read.
+    /// </summary>
+    public void ApplySettings(ApplicationSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        _settings = settings;
+        LastProjectPath = settings.LastProjectPath;
+        NwnInstallOverride = settings.NwnInstallOverride;
+
+        RecentProjectPaths.Clear();
+        foreach (string path in settings.RecentProjectPaths.Take(MaxRecentProjectPaths))
+        {
+            RecentProjectPaths.Add(path);
+        }
+    }
+
+    /// <summary>
+    /// Renders a completed startup preflight into the operation log, worst outcomes included. This
+    /// is the only place the user learns that their cache was quarantined, their settings were left
+    /// untouched because a newer build owns them, or an interrupted publish was rolled back.
+    /// </summary>
+    public void ReplayStartupReport(StartupReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+
+        foreach (StartupCheckResult result in report.Results)
+        {
+            string level = result.Severity switch
+            {
+                StartupCheckSeverity.Blocking => "ERROR",
+                StartupCheckSeverity.Degraded => "WARN",
+                _ => "INFO"
+            };
+
+            OperationLog.AddEntry(level, $"Startup check '{result.CheckId}': {result.Summary}");
+
+            if (result.Severity == StartupCheckSeverity.Ok)
+            {
+                continue;
+            }
+
+            foreach (string detail in result.Details)
+            {
+                OperationLog.AddEntry(level, $"  {detail}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Promotes <paramref name="projectPath"/> to the front of the recent list, records it as the
+    /// last project, and persists. Never throws: a settings store that refuses the write degrades
+    /// to an in-memory update plus a log record.
+    /// </summary>
+    private async Task RecordProjectPathAsync(string projectPath)
+    {
+        if (string.IsNullOrWhiteSpace(projectPath))
+        {
+            return;
+        }
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(projectPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            full = projectPath;
+        }
+
+        LastProjectPath = full;
+
+        int existing = IndexOfRecent(full);
+        if (existing >= 0)
+        {
+            RecentProjectPaths.RemoveAt(existing);
+        }
+
+        RecentProjectPaths.Insert(0, full);
+        while (RecentProjectPaths.Count > MaxRecentProjectPaths)
+        {
+            RecentProjectPaths.RemoveAt(RecentProjectPaths.Count - 1);
+        }
+
+        _settings = _settings with
+        {
+            LastProjectPath = full,
+            RecentProjectPaths = RecentProjectPaths.ToArray()
+        };
+
+        await PersistSettingsAsync().ConfigureAwait(true);
+    }
+
+    private int IndexOfRecent(string path)
+    {
+        for (int i = 0; i < RecentProjectPaths.Count; i++)
+        {
+            if (string.Equals(RecentProjectPaths[i], path, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private async Task PersistSettingsAsync()
+    {
+        if (_settingsStore is null)
+        {
+            return;
+        }
+
+        if (_settings.IsReadOnly)
+        {
+            // A newer build owns the file. Overwriting it would destroy that build's settings, so
+            // this session keeps its changes in memory only — the startup report already told the
+            // user why.
+            _logger.Log(LogLevel.Debug, LogCategory, "Settings are read-only this session; not persisting.");
+            return;
+        }
+
+        try
+        {
+            await _settingsStore.SaveAsync(_settings, _settingsPath).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Log(LogLevel.Warn, LogCategory, "Could not persist application settings.", ex);
+        }
     }
 
     /// <summary>
@@ -140,7 +329,7 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         _textureSourceHolder.Current = _workspaceState != null && _dispatcher != null && _registry != null
-            ? new WorkspaceTextureSource(_workspaceState, _dispatcher, _registry, baseGameCatalog: null)
+            ? new WorkspaceTextureSource(_workspaceState, _dispatcher, _registry, _baseGameCatalog)
             : null;
     }
 
@@ -215,7 +404,14 @@ public partial class MainWindowViewModel : ObservableObject
 
         if (string.IsNullOrEmpty(path))
         {
-            path = Path.Combine(Directory.GetCurrentDirectory(), "project.srncc");
+            // Settings are live since milestone 7: reopening the last project is the whole point of
+            // having persisted its path.
+            path = LastProjectPath;
+        }
+
+        if (string.IsNullOrEmpty(path))
+        {
+            path = Path.Combine(Directory.GetCurrentDirectory(), DefaultProjectFileName);
         }
 
         if (!File.Exists(path))
@@ -233,6 +429,7 @@ public partial class MainWindowViewModel : ObservableObject
             project.Preferences,
             isReadOnly: project.IsReadOnly).ConfigureAwait(true);
         await LoadWorkspaceStateAsync(state, path).ConfigureAwait(true);
+        await RecordProjectPathAsync(path).ConfigureAwait(true);
     }
 
     [RelayCommand(CanExecute = nameof(CanSaveProject))]
@@ -254,13 +451,14 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         path = string.IsNullOrWhiteSpace(path)
-            ? Path.Combine(Directory.GetCurrentDirectory(), "project.srncc")
+            ? Path.Combine(Directory.GetCurrentDirectory(), DefaultProjectFileName)
             : path;
 
         await _projectStore.SaveAsync(_workspaceState, path).ConfigureAwait(true);
         _currentProjectPath = path;
         Title = $"SRN.CC Asset Curator — {Path.GetFileName(path)}";
         OperationLog.AddEntry("INFO", $"Saved project state to '{path}'.");
+        await RecordProjectPathAsync(path).ConfigureAwait(true);
     }
 
     private bool CanSaveProject() => _workspaceState != null && !_workspaceState.IsReadOnly;
@@ -630,7 +828,7 @@ public partial class MainWindowViewModel : ObservableObject
         return false;
     }
 
-    private static string? ResolveConfiguredTargetHakPath(WorkspaceState workspaceState, string? projectPath)
+    private string? ResolveConfiguredTargetHakPath(WorkspaceState workspaceState, string? projectPath)
     {
         try
         {
@@ -664,8 +862,15 @@ public partial class MainWindowViewModel : ObservableObject
 
             return Path.GetFullPath(Path.Combine(projectDir, targetHak));
         }
-        catch
+        catch (Exception ex)
         {
+            // A configured targetHak that will not resolve to a path is a real project-file problem;
+            // falling back to the default output name silently is what made it invisible.
+            _logger.Log(
+                LogLevel.Warn,
+                LogCategory,
+                $"Could not resolve the configured target HAK path for project '{projectPath}'.",
+                ex);
             return null;
         }
     }
@@ -686,7 +891,14 @@ public partial class MainWindowViewModel : ObservableObject
                 recoveryDirectories.Add(Path.GetFullPath(projectDir));
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.Log(
+                LogLevel.Warn,
+                LogCategory,
+                $"Could not derive a journal recovery directory from project path '{projectPath}'.",
+                ex);
+        }
 
         try
         {
@@ -700,7 +912,14 @@ public partial class MainWindowViewModel : ObservableObject
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.Log(
+                LogLevel.Warn,
+                LogCategory,
+                "Could not derive a journal recovery directory from the configured target HAK path.",
+                ex);
+        }
 
         foreach (string journalDirectory in recoveryDirectories)
         {
@@ -810,8 +1029,28 @@ public partial class MainWindowViewModel : ObservableObject
         public bool TryGetType(string extension, out ushort typeId) { typeId = 2000; return true; }
     }
 
+    /// <summary>
+    /// Stand-in dispatcher for the designer preview and the synthetic performance probe, whose
+    /// 187 943 rows describe sources that do not exist on disk.
+    /// </summary>
+    /// <remarks>
+    /// It previously threw <see cref="NotImplementedException"/>, which turned any designer-time
+    /// preview attempt into an unhandled exception in the XAML previewer. Every occurrence resolves
+    /// to zero bytes instead: the preview providers this dispatcher is paired with handle an empty
+    /// stream by reporting "nothing to preview", which is exactly the truth for synthetic data.
+    /// </remarks>
     private sealed class FallbackSourceReaderDispatcher : ISourceReaderDispatcher
     {
-        public Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<Stream> OpenOccurrenceAsync(
+            AssetSource source,
+            AssetOccurrence occurrence,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(occurrence);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult<Stream>(new MemoryStream(Array.Empty<byte>(), writable: false));
+        }
     }
 }

@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
 using SRN.CC.App.ViewModels.Preview;
+using SRN.CC.Core.Logging;
 using SRN.CC.Preview.Render;
 using SRN.CC.Preview.Render.Gl;
 
@@ -56,6 +57,18 @@ public sealed class ModelViewportControl : OpenGlControlBase
     /// whole test assembly's lifetime.
     /// </summary>
     public static ModelViewportRegistry SharedRegistry { get; set; } = new();
+
+    /// <summary>Log category used for the one GPU capability record this control emits.</summary>
+    public const string LogCategory = nameof(ModelViewportControl);
+
+    /// <summary>
+    /// Application logger, assigned once during composition. A control is constructed by the XAML
+    /// runtime and cannot be given constructor dependencies, so this is a static seam rather than
+    /// an injected one; it defaults to the no-op logger for the designer and for headless tests.
+    /// </summary>
+    public static IAppLogger Logger { get; set; } = NullAppLogger.Instance;
+
+    private static int _capabilitiesLogged;
 
     private IGlDevice? _device;
     private ModelRenderer? _renderer;
@@ -125,6 +138,8 @@ public sealed class ModelViewportControl : OpenGlControlBase
         }
 
         var device = new SilkGlDevice(gl.GetProcAddress);
+        LogCapabilitiesOnce(device.Capabilities);
+
         var renderer = new ModelRenderer(device);
         RendererInitResult initResult = renderer.Initialize(device.Capabilities);
         if (!initResult.IsSupported)
@@ -310,6 +325,30 @@ public sealed class ModelViewportControl : OpenGlControlBase
         if (e.PropertyName is nameof(ModelViewportViewModel.Camera) or nameof(ModelViewportViewModel.ShowWalkmesh))
         {
             RequestNextFrameRendering();
+        }
+    }
+
+    /// <summary>
+    /// Records the probed GPU capabilities exactly once per process, the first time a device is
+    /// constructed. The startup preflight deliberately reports GPU capability as deferred rather
+    /// than probing it — creating a GL context at launch would turn a driver bug into a launch
+    /// failure — so this is where the real answer finally reaches the log.
+    /// </summary>
+    private static void LogCapabilitiesOnce(GlCapabilities capabilities)
+    {
+        if (Interlocked.Exchange(ref _capabilitiesLogged, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            Logger.Log(LogLevel.Info, LogCategory, $"render-gpu: {capabilities}");
+        }
+        catch (Exception)
+        {
+            // A logger is contractually forbidden from throwing, but a diagnostic must never be
+            // the reason a 3D preview fails to initialise.
         }
     }
 

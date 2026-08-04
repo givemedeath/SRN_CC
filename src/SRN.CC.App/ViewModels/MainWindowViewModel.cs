@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SRN.CC.Core.Identity;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Project;
 using SRN.CC.Core.Resolution;
@@ -668,6 +669,100 @@ public partial class MainWindowViewModel : ObservableObject
             {
                 OperationLog.AddEntry("INFO", $"Recovered pending publication journals from '{journalDirectory}'.");
             }
+        }
+    }
+
+    [RelayCommand]
+    private async Task AddAvailableDependenciesAsync()
+    {
+        await _pendingSelectionUpdate.ConfigureAwait(true);
+        if (_workspaceState == null || _dispatcher == null || _registry == null)
+        {
+            OperationLog.AddEntry("WARN", "No active workspace or dependencies for dependency analysis.");
+            return;
+        }
+
+        var selectedRows = AssetTable.SelectedRows.Count > 0
+            ? (IReadOnlyList<AssetRowViewModel>)AssetTable.SelectedRows.ToList()
+            : (AssetTable.SelectedRow != null ? new[] { AssetTable.SelectedRow } : Array.Empty<AssetRowViewModel>());
+
+        if (selectedRows.Count == 0)
+        {
+            OperationLog.AddEntry("INFO", "No assets selected for dependency analysis.");
+            return;
+        }
+
+        OperationLog.AddEntry("INFO", $"Starting dependency analysis for {selectedRows.Count} selected assets...");
+
+        try
+        {
+            // Create a map of all occurrences in the workspace for fast lookup
+            var occurrenceMap = new Dictionary<SRN.CC.Core.Identity.AssetIdentity, AssetOccurrence>();
+            foreach (var curatedAsset in _workspaceState.CuratedAssets)
+            {
+                foreach (var occurrence in curatedAsset.AllOccurrences)
+                {
+                    if (!occurrenceMap.ContainsKey(occurrence.Identity))
+                    {
+                        occurrenceMap[occurrence.Identity] = occurrence;
+                    }
+                }
+            }
+
+            // Create locator function that resolves assets from the workspace
+            async Task<AssetOccurrence?> Locator(SRN.CC.Core.Identity.AssetIdentity id, CancellationToken ct)
+            {
+                return occurrenceMap.TryGetValue(id, out var occ) ? occ : null;
+            }
+
+            // Create stream provider function
+            async Task<Stream> StreamProvider(AssetOccurrence occ, Stream fallback, CancellationToken ct)
+            {
+                var source = _workspaceState.Sources.FirstOrDefault(s => s.Id == occ.SourceId);
+                if (source != null && _dispatcher != null)
+                {
+                    return await _dispatcher.OpenOccurrenceAsync(source, occ, ct).ConfigureAwait(false);
+                }
+                return fallback;
+            }
+
+            // Create and execute the dependency command
+            var analyzer = new DependencyAnalyzer(_registry);
+            var command = new Commands.AddAvailableDependenciesCommand(
+                analyzer,
+                _registry,
+                Locator,
+                StreamProvider);
+
+            var occurrences = selectedRows
+                .Select(r => r.CuratedAsset.ResolvedOccurrence)
+                .Where(o => o != null)
+                .Cast<AssetOccurrence>()
+                .ToList();
+
+            var closure = await command.ExecuteAsync(occurrences, CancellationToken.None)
+                .ConfigureAwait(true);
+
+            OperationLog.AddEntry("INFO", $"Dependency analysis complete: {closure.Resolved.Count} resolved, {closure.UnresolvedGroups.Sum(g => g.Count)} unresolved.");
+
+            // Show confirmation dialog
+            var dialogVm = new ConfirmDependenciesDialogViewModel();
+            dialogVm.ShowDialog(closure);
+
+            // In a real implementation, this would show the dialog and wait for user confirmation
+            // For now, we'll log the results
+            if (dialogVm.IsConfirmed)
+            {
+                OperationLog.AddEntry("INFO", "User confirmed dependency closure.");
+            }
+            else
+            {
+                OperationLog.AddEntry("INFO", "User canceled dependency closure.");
+            }
+        }
+        catch (Exception ex)
+        {
+            OperationLog.AddEntry("ERROR", $"Dependency analysis failed: {ex.Message}");
         }
     }
 

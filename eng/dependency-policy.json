@@ -378,7 +378,7 @@
         "type": "file",
         "file": "LICENSE.TXT",
         "spdx": "MIT",
-        "sha256": "e048db5fc0f7fec7d3f3a7de0f3a0e7e8d0f3c1e0d7f1a7d9c5e1f3a7b9d5e1f"
+        "sha256": "d7a68596ab69b06f51ca278a6545148e4269a9381c26d597c13df5d88e08cf5b"
       },
       "repositoryUrl": "git://github.com/dotnet/core-setup",
       "reviewDate": "2026-08-04",
@@ -481,10 +481,8 @@
       "version": "0.11.4",
       "scope": "runtime",
       "license": {
-        "type": "file",
-        "file": "LICENSE",
-        "spdx": "MIT",
-        "sha256": "e048db5fc0f7fec7d3f3a7de0f3a0e7e8d0f3c1e0d7f1a7d9c5e1f3a7b9d5e1f"
+        "type": "expression",
+        "value": "MIT"
       },
       "repositoryUrl": "https://github.com/nickbabcock/Pfim",
       "reviewDate": "2026-08-04",

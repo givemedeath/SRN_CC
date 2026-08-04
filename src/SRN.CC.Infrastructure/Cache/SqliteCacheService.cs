@@ -13,12 +13,17 @@ public interface ISqliteCacheService
 {
     Task<SourceIndexSnapshot?> TryGetSnapshotAsync(AssetSource source, SourceFingerprint fingerprint, CancellationToken cancellationToken = default);
     Task SaveSnapshotAsync(SourceIndexSnapshot snapshot, CancellationToken cancellationToken = default);
+    Task<PreviewCachePayload?> TryGetPreviewAsync(SourceFingerprint sourceFingerprint, AssetOccurrence occurrence, CancellationToken cancellationToken = default);
+    Task SavePreviewAsync(SourceFingerprint sourceFingerprint, AssetOccurrence occurrence, int width, int height, byte[] pngBytes, CancellationToken cancellationToken = default);
     Task ClearCacheAsync(CancellationToken cancellationToken = default);
 }
+
+public sealed record PreviewCachePayload(int Width, int Height, byte[] PngBytes);
 
 public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
 {
     public const long DefaultMaxLogicalBytes = 2L * 1024 * 1024 * 1024; // 2 GiB
+    private const int EvictionBatchSize = 50;
     private readonly string _dbPath;
     private readonly long _maxLogicalBytes;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -108,17 +113,25 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
                 {
                     using SqliteTransaction tx = conn.BeginTransaction();
                     cmd.Transaction = tx;
-                    cmd.CommandText = GetSchemaCreationSql(includeSchemaInfo: false);
+                    cmd.CommandText = GetSchemaCreationSql(includeSchemaInfo: true);
                     cmd.ExecuteNonQuery();
                     tx.Commit();
                 }
-                else if (Convert.ToInt32(verObj) != 1)
+                else
                 {
-                    quarantineReason = $"Unsupported cache schema version {verObj}.";
-                }
-                else if (!HasCompleteVersionOneSchema(conn))
-                {
-                    quarantineReason = "Cache schema version 1 is incomplete.";
+                    int version = Convert.ToInt32(verObj);
+                    if (version != 1)
+                    {
+                        quarantineReason = $"Unsupported cache schema version {verObj}.";
+                    }
+                    else if (!HasCompleteVersionOneBaseSchema(conn))
+                    {
+                        quarantineReason = "Cache schema version 1 is incomplete.";
+                    }
+                    else
+                    {
+                        EnsurePreviewCacheSchema(conn);
+                    }
                 }
             }
         }
@@ -134,11 +147,18 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         }
     }
 
-    private static bool HasCompleteVersionOneSchema(SqliteConnection conn)
+    private static bool HasCompleteVersionOneBaseSchema(SqliteConnection conn)
     {
-        return HasRequiredColumns(conn, "schema_info", "version") &&
-               HasRequiredColumns(conn, "source_snapshots", "fingerprint", "source_kind", "timestamp_utc", "record_count", "logical_bytes", "last_access_utc") &&
+        return HasRequiredColumns(conn, "source_snapshots", "fingerprint", "source_kind", "timestamp_utc", "record_count", "logical_bytes", "last_access_utc") &&
                HasRequiredColumns(conn, "asset_records", "id", "fingerprint", "sequence_index", "locator_type", "entry_index", "relative_path", "original_name", "canonical_resref", "resource_type", "size", "validation_state", "diagnostic_code", "diagnostic_message");
+    }
+
+    private static bool HasTable(SqliteConnection conn, string tableName)
+    {
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name=@name;";
+        cmd.Parameters.AddWithValue("@name", tableName);
+        return cmd.ExecuteScalar() != null;
     }
 
     private static bool HasRequiredColumns(SqliteConnection conn, string tableName, params string[] requiredColumns)
@@ -155,9 +175,47 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         return requiredColumns.All(actualColumns.Contains);
     }
 
+    private void EnsurePreviewCacheSchema(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "preview_cache"))
+        {
+            using SqliteCommand createTableCmd = conn.CreateCommand();
+            createTableCmd.CommandText = @"
+                CREATE TABLE preview_cache (
+                    source_fingerprint BLOB NOT NULL,
+                    locator TEXT NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    png_bytes BLOB NOT NULL,
+                    last_access_utc TEXT NOT NULL
+                );
+            ";
+            createTableCmd.ExecuteNonQuery();
+
+            using SqliteCommand createIndexesCmd = conn.CreateCommand();
+            createIndexesCmd.CommandText = @"
+                CREATE UNIQUE INDEX idx_preview_cache_source_locator ON preview_cache(source_fingerprint, locator);
+                CREATE INDEX idx_preview_cache_last_access ON preview_cache(last_access_utc ASC);
+            ";
+            createIndexesCmd.ExecuteNonQuery();
+            return;
+        }
+
+        if (!HasRequiredColumns(conn, "preview_cache", "source_fingerprint", "locator", "width", "height", "png_bytes", "last_access_utc"))
+        {
+            throw new InvalidOperationException("Preview cache schema for preview_cache is incomplete.");
+        }
+
+        using SqliteCommand previewIndexesCmd = conn.CreateCommand();
+        previewIndexesCmd.CommandText = @"
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_preview_cache_source_locator ON preview_cache(source_fingerprint, locator);
+            CREATE INDEX IF NOT EXISTS idx_preview_cache_last_access ON preview_cache(last_access_utc ASC);
+        ";
+        previewIndexesCmd.ExecuteNonQuery();
+    }
+
     private static string GetSchemaCreationSql(bool includeSchemaInfo) => $@"
-        {(includeSchemaInfo ? "CREATE TABLE schema_info (version INTEGER PRIMARY KEY);" : string.Empty)}
-        INSERT INTO schema_info (version) VALUES (1);
+        {(includeSchemaInfo ? "CREATE TABLE IF NOT EXISTS schema_info (version INTEGER PRIMARY KEY);" : string.Empty)}
         CREATE TABLE source_snapshots (
             fingerprint BLOB PRIMARY KEY,
             source_kind INTEGER NOT NULL,
@@ -182,9 +240,22 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
             diagnostic_message TEXT,
             FOREIGN KEY(fingerprint) REFERENCES source_snapshots(fingerprint) ON DELETE CASCADE
         );
+        CREATE TABLE preview_cache (
+            source_fingerprint BLOB NOT NULL,
+            locator TEXT NOT NULL,
+            width INTEGER NOT NULL,
+            height INTEGER NOT NULL,
+            png_bytes BLOB NOT NULL,
+            last_access_utc TEXT NOT NULL
+        );
         CREATE INDEX idx_asset_records_fingerprint ON asset_records(fingerprint);
         CREATE INDEX idx_source_snapshots_lru ON source_snapshots(last_access_utc ASC);
+        CREATE UNIQUE INDEX idx_preview_cache_source_locator ON preview_cache(source_fingerprint, locator);
+        CREATE INDEX idx_preview_cache_last_access ON preview_cache(last_access_utc ASC);
+        {(includeSchemaInfo ? "INSERT INTO schema_info VALUES (1);" : string.Empty)}
     ";
+
+    private static string GetCurrentTimestampUtc() => DateTime.UtcNow.ToString("o");
 
     private void QuarantineCorruptedDatabase(string reason)
     {
@@ -228,9 +299,9 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         ArgumentNullException.ThrowIfNull(fingerprint);
 
         byte[] fpBytes = fingerprint.Digest.ToArray();
-
         using SqliteConnection conn = CreateConnection();
         using SqliteTransaction readTx = conn.BeginTransaction();
+
         using SqliteCommand checkCmd = conn.CreateCommand();
         checkCmd.Transaction = readTx;
         checkCmd.CommandText = "SELECT record_count, logical_bytes FROM source_snapshots WHERE fingerprint = @fp;";
@@ -315,7 +386,7 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         {
             using SqliteCommand touchCmd = conn.CreateCommand();
             touchCmd.CommandText = "UPDATE source_snapshots SET last_access_utc = @now WHERE fingerprint = @fp;";
-            touchCmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("o"));
+            touchCmd.Parameters.AddWithValue("@now", GetCurrentTimestampUtc());
             touchCmd.Parameters.AddWithValue("@fp", fpBytes);
             await touchCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -345,7 +416,7 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         {
             byte[] fpBytes = snapshot.Fingerprint.Digest.ToArray();
             long logicalBytes = snapshot.ScanStatistics.TotalLogicalBytes;
-            string nowUtc = DateTime.UtcNow.ToString("o");
+            string nowUtc = GetCurrentTimestampUtc();
 
             using (SqliteConnection conn = CreateConnection())
             using (SqliteTransaction tx = conn.BeginTransaction())
@@ -356,6 +427,14 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
                     delCmd.CommandText = "DELETE FROM source_snapshots WHERE fingerprint = @fp;";
                     delCmd.Parameters.AddWithValue("@fp", fpBytes);
                     await delCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                using (SqliteCommand delPreviewCmd = conn.CreateCommand())
+                {
+                    delPreviewCmd.Transaction = tx;
+                    delPreviewCmd.CommandText = "DELETE FROM preview_cache WHERE source_fingerprint = @fp;";
+                    delPreviewCmd.Parameters.AddWithValue("@fp", fpBytes);
+                    await delPreviewCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
                 using (SqliteCommand insSnapCmd = conn.CreateCommand())
@@ -462,56 +541,229 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         }
     }
 
-    private async Task EnforceLruEvictionAsync(byte[] protectedFingerprint, CancellationToken cancellationToken)
+    public async Task<PreviewCachePayload?> TryGetPreviewAsync(SourceFingerprint sourceFingerprint, AssetOccurrence occurrence, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(sourceFingerprint);
+        ArgumentNullException.ThrowIfNull(occurrence);
+
+        if (!TryFormatPreviewLocator(occurrence, out string locator))
+        {
+            return null;
+        }
+
+        byte[] fpBytes = sourceFingerprint.Digest.ToArray();
         using SqliteConnection conn = CreateConnection();
+        using SqliteCommand selectCmd = conn.CreateCommand();
+        selectCmd.CommandText = @"
+            SELECT width, height, png_bytes
+            FROM preview_cache
+            WHERE source_fingerprint = @fp AND locator = @locator;
+        ";
+        selectCmd.Parameters.AddWithValue("@fp", fpBytes);
+        selectCmd.Parameters.AddWithValue("@locator", locator);
+
+        using SqliteDataReader reader = await selectCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        int width = reader.GetInt32(0);
+        int height = reader.GetInt32(1);
+        byte[] pngBytes = (byte[])reader["png_bytes"];
+
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using SqliteCommand touchCmd = conn.CreateCommand();
+            touchCmd.CommandText = "UPDATE preview_cache SET last_access_utc = @now WHERE source_fingerprint = @fp AND locator = @locator;";
+            touchCmd.Parameters.AddWithValue("@now", GetCurrentTimestampUtc());
+            touchCmd.Parameters.AddWithValue("@fp", fpBytes);
+            touchCmd.Parameters.AddWithValue("@locator", locator);
+            await touchCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+
+        return new PreviewCachePayload(width, height, pngBytes);
+    }
+
+    public async Task SavePreviewAsync(SourceFingerprint sourceFingerprint, AssetOccurrence occurrence, int width, int height, byte[] pngBytes, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(sourceFingerprint);
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ArgumentNullException.ThrowIfNull(pngBytes);
+        if (pngBytes.Length == 0)
+        {
+            throw new ArgumentException("PNG payload cannot be empty.", nameof(pngBytes));
+        }
+        if (width < 1 || height < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), "Preview dimensions must be positive.");
+        }
+
+        if (!TryFormatPreviewLocator(occurrence, out string locator))
+        {
+            throw new NotSupportedException($"Preview cache does not support locator type '{occurrence.Locator.GetType().Name}'.");
+        }
+
+        byte[] fpBytes = sourceFingerprint.Digest.ToArray();
+        byte[] payload = pngBytes.ToArray();
+
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using (SqliteConnection conn = CreateConnection())
+            using (SqliteTransaction tx = conn.BeginTransaction())
+            {
+                using (SqliteCommand upsertCmd = conn.CreateCommand())
+                {
+                    upsertCmd.Transaction = tx;
+                    upsertCmd.CommandText = @"
+                        INSERT INTO preview_cache (source_fingerprint, locator, width, height, png_bytes, last_access_utc)
+                        VALUES (@fp, @locator, @width, @height, @png, @last_access)
+                        ON CONFLICT(source_fingerprint, locator) DO UPDATE SET
+                            width = excluded.width,
+                            height = excluded.height,
+                            png_bytes = excluded.png_bytes,
+                            last_access_utc = excluded.last_access_utc;
+                    ";
+                    upsertCmd.Parameters.AddWithValue("@fp", fpBytes);
+                    upsertCmd.Parameters.AddWithValue("@locator", locator);
+                    upsertCmd.Parameters.AddWithValue("@width", width);
+                    upsertCmd.Parameters.AddWithValue("@height", height);
+                    upsertCmd.Parameters.Add("@png", SqliteType.Blob).Value = payload;
+                    upsertCmd.Parameters.AddWithValue("@last_access", GetCurrentTimestampUtc());
+                    await upsertCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            // Keep cache bounded while preserving the source snapshot if any.
+            await EnforceLruEvictionAsync(fpBytes, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private static bool TryFormatPreviewLocator(AssetOccurrence occurrence, out string locator)
+    {
+        switch (occurrence.Locator)
+        {
+            case HakEntryLocator hakEntry:
+                locator = $"hak:{hakEntry.EntryIndex}";
+                return true;
+            case FolderFileLocator folderFile:
+                locator = $"folder:{folderFile.NormalizedRelativePath}";
+                return true;
+            default:
+                locator = string.Empty;
+                return false;
+        }
+    }
+
+    private async Task<long> GetTotalTrackedBytesAsync(SqliteConnection conn, CancellationToken cancellationToken)
+    {
         using SqliteCommand sumCmd = conn.CreateCommand();
-        sumCmd.CommandText = "SELECT TOTAL(logical_bytes) FROM source_snapshots;";
+        sumCmd.CommandText = @"
+            SELECT
+            COALESCE((SELECT TOTAL(logical_bytes) FROM source_snapshots), 0) +
+            COALESCE((SELECT TOTAL(LENGTH(png_bytes)) FROM preview_cache), 0);
+        ";
         object? sumObj = await sumCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        long currentTotal = sumObj != null ? Convert.ToInt64(sumObj) : 0;
+        return sumObj is null ? 0 : Convert.ToInt64(sumObj);
+    }
 
-        if (currentTotal <= _maxLogicalBytes) return;
-
+    private async Task<List<(byte[] Fingerprint, long Bytes)>> GetCandidateSnapshotEvictionBatchAsync(
+        SqliteConnection conn,
+        byte[] protectedFingerprint,
+        CancellationToken cancellationToken)
+    {
         using SqliteCommand selectLruCmd = conn.CreateCommand();
         selectLruCmd.CommandText = @"
-            SELECT fingerprint, logical_bytes
-            FROM source_snapshots
-            WHERE fingerprint <> @protected_fp
-            ORDER BY last_access_utc ASC;
+            SELECT s.fingerprint,
+                   s.logical_bytes + COALESCE(pc.preview_bytes, 0) AS total_bytes
+            FROM source_snapshots s
+            LEFT JOIN (
+                SELECT source_fingerprint,
+                       SUM(LENGTH(png_bytes)) AS preview_bytes
+                FROM preview_cache
+                GROUP BY source_fingerprint
+            ) pc ON pc.source_fingerprint = s.fingerprint
+            WHERE s.fingerprint <> @protected_fp
+            ORDER BY s.last_access_utc ASC
+            LIMIT @batch_size;
         ";
         selectLruCmd.Parameters.AddWithValue("@protected_fp", protectedFingerprint);
+        selectLruCmd.Parameters.AddWithValue("@batch_size", EvictionBatchSize);
+
         List<(byte[] Fingerprint, long Bytes)> lruEntries = new();
         using (SqliteDataReader reader = await selectLruCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                byte[] fp = (byte[])reader["fingerprint"];
-                long b = reader.GetInt64(1);
-                lruEntries.Add((fp, b));
-            }
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    byte[] fp = (byte[])reader["fingerprint"];
+                    long b = Convert.ToInt64(reader.GetValue(1));
+                    lruEntries.Add((fp, b));
+                }
         }
 
-        foreach (var entry in lruEntries)
-        {
-            if (currentTotal <= _maxLogicalBytes) break;
+        return lruEntries;
+    }
 
-            using (SqliteCommand delCmd = conn.CreateCommand())
+    private async Task EnforceLruEvictionAsync(byte[] protectedFingerprint, CancellationToken cancellationToken)
+    {
+        using SqliteConnection conn = CreateConnection();
+        long currentTotal = await GetTotalTrackedBytesAsync(conn, cancellationToken).ConfigureAwait(false);
+        if (currentTotal <= _maxLogicalBytes) return;
+
+        while (currentTotal > _maxLogicalBytes)
+        {
+            List<(byte[] Fingerprint, long Bytes)> lruEntries = await GetCandidateSnapshotEvictionBatchAsync(
+                conn,
+                protectedFingerprint,
+                cancellationToken).ConfigureAwait(false);
+
+            if (lruEntries.Count == 0)
             {
+                break;
+            }
+
+            foreach (var entry in lruEntries)
+            {
+                if (currentTotal <= _maxLogicalBytes)
+                {
+                    break;
+                }
+
+                using SqliteCommand delCmd = conn.CreateCommand();
                 delCmd.CommandText = "DELETE FROM source_snapshots WHERE fingerprint = @fp;";
                 delCmd.Parameters.AddWithValue("@fp", entry.Fingerprint);
-                await delCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                int removedRows = await delCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+                if (removedRows > 0)
+                {
+                    currentTotal -= entry.Bytes;
+                }
+
+                    using SqliteCommand delPreviewCmd = conn.CreateCommand();
+                    delPreviewCmd.CommandText = "DELETE FROM preview_cache WHERE source_fingerprint = @fp;";
+                    delPreviewCmd.Parameters.AddWithValue("@fp", entry.Fingerprint);
+                    await delPreviewCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
-            currentTotal -= entry.Bytes;
         }
 
-        using (SqliteCommand vacCmd = conn.CreateCommand())
-        {
-            vacCmd.CommandText = @"
-                PRAGMA incremental_vacuum;
-                PRAGMA wal_checkpoint(PASSIVE);
-            ";
-            await vacCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
+        using SqliteCommand vacCmd = conn.CreateCommand();
+        vacCmd.CommandText = @"
+            PRAGMA incremental_vacuum;
+            PRAGMA wal_checkpoint(PASSIVE);
+        ";
+        await vacCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ClearCacheAsync(CancellationToken cancellationToken = default)
@@ -520,9 +772,22 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         try
         {
             using SqliteConnection conn = CreateConnection();
-            using SqliteCommand cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM source_snapshots;";
-            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            using SqliteTransaction tx = conn.BeginTransaction();
+            using (SqliteCommand previewCmd = conn.CreateCommand())
+            {
+                previewCmd.Transaction = tx;
+                previewCmd.CommandText = "DELETE FROM preview_cache;";
+                await previewCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            using (SqliteCommand sourceCmd = conn.CreateCommand())
+            {
+                sourceCmd.Transaction = tx;
+                sourceCmd.CommandText = "DELETE FROM source_snapshots;";
+                await sourceCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -539,6 +804,3 @@ public sealed class SqliteCacheService : ISqliteCacheService, IDisposable
         }
     }
 }
-
-
-

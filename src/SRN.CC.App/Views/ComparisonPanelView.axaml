@@ -28,6 +28,11 @@
                                 <TextBlock Text="{Binding SlotTitle}" FontWeight="Bold" Foreground="#007ACC" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
                                     <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Metadata" FontSize="11">Meta</Button>
+                                    <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Image" FontSize="11">Image</Button>
+                                    <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Text" FontSize="11">Text</Button>
+                                    <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Audio" FontSize="11">Audio</Button>
+                                    <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Tree" FontSize="11">Tree</Button>
+                                    <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Model" FontSize="11">Model</Button>
                                     <Button Command="{Binding SwitchFamilyCommand}" CommandParameter="Hex" FontSize="11">Hex</Button>
                                 </StackPanel>
                                 <Button Grid.Column="2" Command="{Binding PinThisOccurrenceCommand}" Margin="4,0,0,0" IsEnabled="{Binding IsPinEnabled}" ToolTip.Tip="Pin Occurrence" Content="📌 Pin" />
@@ -50,4 +55,3 @@
         </ItemsControl>
     </Grid>
 </UserControl>
-

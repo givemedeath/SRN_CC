@@ -51,6 +51,11 @@ public partial class App : Application
             var previewEngine = new PreviewEngine(dispatcher, new IPreviewProvider[]
             {
                 new MetadataPreviewProvider(registry),
+                new ImagePreviewProvider(registry),
+                new TextPreviewProvider(registry),
+                new AudioPreviewProvider(registry),
+                new TreePreviewProvider(registry),
+                new MdlPreviewProvider(registry),
                 new BoundedHexPreviewProvider()
             });
 

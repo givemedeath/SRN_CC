@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SRN.CC.App.Services;
+using SRN.CC.Core.Identity;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Project;
 using SRN.CC.Core.Resolution;
@@ -668,6 +670,75 @@ public partial class MainWindowViewModel : ObservableObject
             {
                 OperationLog.AddEntry("INFO", $"Recovered pending publication journals from '{journalDirectory}'.");
             }
+        }
+    }
+
+    [RelayCommand]
+    private async Task AddAvailableDependenciesAsync()
+    {
+        await _pendingSelectionUpdate.ConfigureAwait(true);
+        if (_workspaceState == null || _dispatcher == null || _registry == null)
+        {
+            OperationLog.AddEntry("WARN", "No active workspace or dependencies for dependency analysis.");
+            return;
+        }
+
+        var selectedRows = AssetTable.SelectedRows.Count > 0
+            ? (IReadOnlyList<AssetRowViewModel>)AssetTable.SelectedRows.ToList()
+            : (AssetTable.SelectedRow != null ? new[] { AssetTable.SelectedRow } : Array.Empty<AssetRowViewModel>());
+
+        if (selectedRows.Count == 0)
+        {
+            OperationLog.AddEntry("INFO", "No assets selected for dependency analysis.");
+            return;
+        }
+
+        OperationLog.AddEntry("INFO", $"Starting dependency analysis for {selectedRows.Count} selected assets...");
+
+        try
+        {
+            // Create stream opener function
+            async Task<Stream> StreamOpener(AssetSource source, AssetOccurrence occ, Stream fallback, CancellationToken ct)
+            {
+                if (_dispatcher != null)
+                {
+                    return await _dispatcher.OpenOccurrenceAsync(source, occ, ct).ConfigureAwait(false);
+                }
+                return fallback;
+            }
+
+            // Create resolver and command
+            var resolver = new DependencyLocator(_workspaceState, StreamOpener);
+            var analyzer = new DependencyAnalyzer(_registry);
+            var command = new Commands.AddAvailableDependenciesCommand(analyzer, _registry, resolver);
+
+            var occurrences = selectedRows
+                .Select(r => r.CuratedAsset.ResolvedOccurrence)
+                .Where(o => o != null)
+                .Cast<AssetOccurrence>()
+                .ToList();
+
+            var closure = await command.ExecuteAsync(occurrences, CancellationToken.None)
+                .ConfigureAwait(true);
+
+            OperationLog.AddEntry("INFO", $"Dependency analysis complete: {closure.Resolved.Count} resolved, {closure.UnresolvedGroups.Sum(g => g.Count)} unresolved.");
+
+            // Show confirmation dialog and wait for user response
+            var dialogVm = new ConfirmDependenciesDialogViewModel();
+            var confirmed = await dialogVm.ShowDialogAsync(closure).ConfigureAwait(true);
+
+            if (confirmed)
+            {
+                OperationLog.AddEntry("INFO", "User confirmed dependency closure.");
+            }
+            else
+            {
+                OperationLog.AddEntry("INFO", "User canceled dependency closure.");
+            }
+        }
+        catch (Exception ex)
+        {
+            OperationLog.AddEntry("ERROR", $"Dependency analysis failed: {ex.Message}");
         }
     }
 

@@ -105,14 +105,14 @@ Both deliverables landed: `docs/evidence/MILESTONE-7-EVIDENCE.md` and
 Wave 4 also closed two code gaps wave 3 had recorded rather than fixed, because the evidence document
 could not otherwise name a test for `PLAN.md:225` or `PLAN.md:221` (commit `9082dc8`): closure size
 and count budgets in `DependencyTraversalEngine`, and `DependencyLocator`'s blindness to pins. Sixteen
-tests landed, and three more with the banner-rendering tests below; the suite finished at 1022
+tests landed, and three more with the banner-rendering tests below; the suite finished at 1024
 passing, 0 failing.
 
-**Authoritative record:** `tools/VerifyBuild.ps1` run `20260805T060309Z-16300`, status SUCCESS, on a
+**Authoritative record:** `tools/VerifyBuild.ps1` run `20260805T132457Z-12736`, status SUCCESS, on a
 clean tree (`gitStatus` empty). Version 1.0.0; `SRN.CC-1.0.0-win-x64.zip`, 252 files, SHA-256
-`db162257a83647aa0a903b1b8a1c326adfebffd5950b7312128514e6579ddb03`, reproduced byte-identically by
-the independent repack in step 9 **and by two earlier full passes on clean trees**. Build 0 warnings
-/ 0 errors; tests 1022 passed / 0 failed / 0 skipped.
+`447517ce93b59e45eda0ea5914cdd3bdfc31aae50416c03a49d0de8c09c5f451`, reproduced byte-identically by
+the independent repack in step 9 **and, before the review fix below changed the shipped bytes, by three successive full passes on clean trees**. Build 0 warnings
+/ 0 errors; tests 1024 passed / 0 failed / 0 skipped.
 
 **Found while verifying, not while building.** The truncation banner added to
 `ConfirmDependenciesDialog` was unverified: no project sets `AvaloniaUseCompiledBindingsByDefault`,

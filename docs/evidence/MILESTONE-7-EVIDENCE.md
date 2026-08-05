@@ -16,7 +16,7 @@ the corpus and performance measurements at `PLAN.md:229`, because `SRNCC_CORPUS_
 corpus is present, and the manual real-GPU operator checklist in section 13, which is carried in full
 and marked unrun with its reason. An honest gap is auditable; an implied pass is not.
 
-Authoritative record: `tools/VerifyBuild.ps1` run `20260805T060309Z-16300`, status SUCCESS, on a
+Authoritative record: `tools/VerifyBuild.ps1` run `20260805T132457Z-12736`, status SUCCESS, on a
 clean tree.
 
 ---
@@ -115,6 +115,17 @@ size budget once the payload size is known, so a rejected node contributes neith
 descendants and `TotalBytes` can never exceed the budget. `TraversalLimit` records which budget fired
 (first-writer wins) and surfaces as `LimitHit` / `IsTruncated` on `TraversalResult` and
 `ClosureSummary`.
+
+A budget **excludes nodes rather than aborting the walk**. Once `maxCount` is reached nothing further
+can be admitted, so it reads as a stop; `maxBytes` is different, skipping an oversized node while
+smaller siblings behind it are still admitted
+(`Preview.DependencyClosureTests.Closure_SizeLimit_SkipsTheOversizedNodeButStillAdmitsSmallerSiblings`).
+That makes enqueue order decide which of several siblings fits, and `IDependencyAnalyzer` returns an
+`IReadOnlySet` whose enumeration order is unspecified — so the engine sorts dependencies by resource
+type then canonical resref bytes before enqueueing them, and a closure is a function of the graph and
+the budget alone. `Closure_SizeLimit_WithSiblingsThatCannotBothFit_AdmitsTheSortedFirstNotTheSetFirst`
+inserts the siblings in reverse of sorted order and was confirmed to fail without the sort, so it
+discriminates rather than passing vacuously. Caught in review, not in the original implementation.
 
 No `DiagnosticCode` value was added. That enum is entirely source, index, and cache faults; the
 traversal's diagnostic channel is the `Unresolved` reason map, which `UnresolvedDependencyGrouper`
@@ -302,7 +313,7 @@ dotnet test SRN.CC.sln
 ```
 
 - **Build**: 0 Warnings, 0 Errors.
-- **`SRN.CC.Tests`**: 1022 passed, 0 failed, 0 skipped.
+- **`SRN.CC.Tests`**: 1024 passed, 0 failed, 0 skipped.
 - **`SRN.CC.CorpusTests`**: 0 passed, 0 failed, 6 skipped — no corpus present, the gate behaving as
   designed.
 
@@ -313,8 +324,8 @@ the Release build, in five batches:
 - UI, preview, dependency, build classes: 152 passed, 0 failed.
 - Publication, render, startup classes: 143 passed, 0 failed.
 - Schema, release-pipeline, notices, version-stamping, acceptance classes: 45 passed, 0 failed.
-- `DependencyClosureTests` and `DependencyTraversalEngineTests`: 55 passed, 0 failed.
-- `UI.ConfirmDependenciesDialogTests`: 3 passed, 0 failed.
+- `DependencyClosureTests`, `DependencyTraversalEngineTests` and `UI.ConfirmDependenciesDialogTests`:
+  60 passed, 0 failed.
 
 No row in this document names a test that was not observed to pass.
 
@@ -324,19 +335,19 @@ No row in this document names a test that was not observed to pass.
 powershell -NoProfile -File tools/VerifyBuild.ps1
 ```
 
-**Run ID `20260805T060309Z-16300` — SUCCESS**, on a clean tree.
+**Run ID `20260805T132457Z-12736` — SUCCESS**, on a clean tree.
 
 ```json
 {
     "status":  "SUCCESS",
-    "timestampUtc":  "2026-08-05T06:04:47.4256638Z",
-    "runId":  "20260805T060309Z-16300",
+    "timestampUtc":  "2026-08-05T13:26:36.8499617Z",
+    "runId":  "20260805T132457Z-12736",
     "sdkVersion":  "10.0.302",
     "runtimeFrameworkVersion":  "10.0.10",
     "configuration":  "Release",
     "targetRID":  "win-x64",
     "version":  "1.0.0",
-    "releaseZipSha256":  "db162257a83647aa0a903b1b8a1c326adfebffd5950b7312128514e6579ddb03",
+    "releaseZipSha256":  "447517ce93b59e45eda0ea5914cdd3bdfc31aae50416c03a49d0de8c09c5f451",
     "gitStatus":  "",
     "error":  ""
 }
@@ -353,40 +364,46 @@ All eleven steps:
    signatures, sources, audit results, and project references.
    **Vendored sources audit PASSED** — 47 verbatim blobs, 40 source files, 8 portable test files.
 4. **Build Release/win-x64: 0 Warnings, 0 Errors.**
-5. **Tests: 1022 passed, 0 failed, 0 skipped** (`SRN.CC.Tests`). `SRN.CC.CorpusTests` matched no test
+5. **Tests: 1024 passed, 0 failed, 0 skipped** (`SRN.CC.Tests`). `SRN.CC.CorpusTests` matched no test
    under `Category!=Corpus&Category!=Performance`, as expected.
 6. Self-contained `win-x64` publish, as a folder.
 7. Reviewed licenses and notices added.
 8. **Publish audit PASSED** — 252 files explained and hashed into `publish-inventory.json`.
    **Release audit PASSED** — 252 shipped files.
 9. **Packed twice, hashes identical**:
-   `db162257a83647aa0a903b1b8a1c326adfebffd5950b7312128514e6579ddb03` from both the release directory
+   `447517ce93b59e45eda0ea5914cdd3bdfc31aae50416c03a49d0de8c09c5f451` from both the release directory
    and the independent determinism probe.
 10. Extracted outside the repository; all 252 manifest entries matched, and the **release audit
     PASSED again** against the extracted tree.
 11. Locked and vendored inputs confirmed unchanged.
 
-**Release archive.** `SRN.CC-1.0.0-win-x64.zip`, 49,299,540 bytes, **252 files**, SHA-256
-`db162257a83647aa0a903b1b8a1c326adfebffd5950b7312128514e6579ddb03`. Cross-checked against
+**Release archive.** `SRN.CC-1.0.0-win-x64.zip`, 49,300,001 bytes, **252 files**, SHA-256
+`447517ce93b59e45eda0ea5914cdd3bdfc31aae50416c03a49d0de8c09c5f451`. Cross-checked against
 `release-manifest.json`, whose `archiveSha256` and `fileCount` match exactly, and which records a
 `sha256` per file. Every ZIP entry timestamp is pinned to `1980-01-01T00:00:00Z`, which is what makes
 the repack byte-identical.
 
-**Determinism across independent runs.** Three full verifier passes on clean trees —
-`20260805T052015Z-28984`, `20260805T053710Z-3956`, and the authoritative
-`20260805T060309Z-16300` — all produced the **same archive SHA-256**
-`db162257a83647aa0a903b1b8a1c326adfebffd5950b7312128514e6579ddb03` from separate builds, publishes,
-and packs. That is a stronger result than step 9's within-run probe: the archive is reproducible
-across independent compilations, not merely across two packs of one publish tree.
+**Determinism across independent runs.** Four full verifier passes were made on clean trees, and
+their hashes behave exactly as a deterministic pipeline should.
 
-The third run also confirms a property worth stating explicitly: it carried three more tests than the
-first (1022 against 1019) and produced a byte-identical archive, because test assemblies are not
-shipped. Test changes cannot move the release artifact.
+| Run | Shipped code | Tests | Archive SHA-256 |
+|---|---|---|---|
+| `20260805T052015Z-28984` | closure budgets, pin fix | 1019 | `db162257…ddb03` |
+| `20260805T053710Z-3956` | unchanged | 1019 | `db162257…ddb03` |
+| `20260805T060309Z-16300` | unchanged | 1022 | `db162257…ddb03` |
+| `20260805T132457Z-12736` (authoritative) | + deterministic enqueue order | 1024 | `447517ce…f451` |
 
-**Clean-machine smoke** (`tools/SmokeCleanMachine.ps1`), run against the extracted archive:
-**PASSED**. The smoke was run against the archive produced by run `20260805T052015Z-28984`, which is
-byte-identical to the authoritative run's archive — same SHA-256, as recorded above — so the result
-transfers exactly rather than approximately. The release-tree audit passed over 252 files; `--srncc-preflight-only` reported all four
+Two facts follow, and both are stronger than step 9's within-run probe. The first three runs
+reproduced a byte-identical archive across **independent compilations**, not merely across two packs
+of one publish tree — and the third carried three more tests than the first while doing so, because
+test assemblies are not shipped, so test changes cannot move the release artifact. The fourth run
+changed `SRN.CC.Preview.dll` and the hash moved with it, which is the property that makes the first
+three meaningful: the archive tracks the shipped code and nothing else.
+
+**Clean-machine smoke** (`tools/SmokeCleanMachine.ps1`), run against the authoritative run's
+extracted archive: **PASSED**. It was re-run after the enqueue-order fix rather than carried over,
+because that fix changed the shipped bytes. The release-tree audit passed over 252 files;
+`--srncc-preflight-only` reported all four
 checks — `cache`, `settings`, `publication-journal`, `tool-capability` — as `Ok`; the application
 launched and survived its ten-second window; and the log and cache were present with the first log
 line parsing as JSON.

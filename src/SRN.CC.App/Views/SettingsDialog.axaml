@@ -1,0 +1,100 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SRN.CC.App.ViewModels"
+        x:Class="SRN.CC.App.Views.SettingsDialog"
+        x:DataType="vm:SettingsDialogViewModel"
+        Title="Settings"
+        Width="640"
+        Height="520"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+
+        <StackPanel Grid.Row="0" Orientation="Vertical" Spacing="8">
+            <TextBlock Text="Application Settings" FontSize="18" FontWeight="Bold" Foreground="#DDDDDD"/>
+            <Border x:Name="ReadOnlyBanner"
+                    Padding="8"
+                    Background="#3A2A00"
+                    BorderBrush="#7A5A00"
+                    BorderThickness="1"
+                    CornerRadius="2"
+                    IsVisible="{Binding IsReadOnly}">
+                <TextBlock Text="{Binding ReadOnlyReason}" TextWrapping="Wrap" Foreground="#E8C87A"/>
+            </Border>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,12,0,12">
+            <StackPanel Orientation="Vertical" Spacing="16">
+
+                <StackPanel Orientation="Vertical" Spacing="6">
+                    <TextBlock Text="Game installation" FontWeight="Bold" Foreground="#DDDDDD"/>
+                    <TextBlock Text="Leave the override empty to use the automatically discovered installation."
+                               Foreground="#888888" TextWrapping="Wrap"/>
+                    <TextBox x:Name="NwnInstallOverrideBox"
+                             Text="{Binding NwnInstallOverride, Mode=TwoWay}"
+                             PlaceholderText="Installation root (optional override)"
+                             IsEnabled="{Binding !IsReadOnly}"/>
+                    <TextBlock x:Name="AutoDiscoverySummaryText"
+                               Text="{Binding AutoDiscoverySummary}"
+                               Foreground="#9CDCFE" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="UseAutoDiscoveredRootButton"
+                                Content="Use discovered location"
+                                Command="{Binding UseAutoDiscoveredRootCommand}"
+                                IsEnabled="{Binding !IsReadOnly}"/>
+                        <Button x:Name="ClearInstallOverrideButton"
+                                Content="Clear override"
+                                Command="{Binding ClearInstallOverrideCommand}"
+                                IsEnabled="{Binding !IsReadOnly}"/>
+                    </StackPanel>
+                    <ItemsControl x:Name="CandidateList" ItemsSource="{Binding AutoDiscoveredCandidates}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock Text="{Binding}" Foreground="#888888" FontFamily="Consolas" Margin="8,2,0,0"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <StackPanel Orientation="Vertical" Spacing="6">
+                    <TextBlock Text="Recent projects" FontWeight="Bold" Foreground="#DDDDDD"/>
+                    <ItemsControl x:Name="RecentProjectList" ItemsSource="{Binding RecentProjectPaths}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock Text="{Binding}" Foreground="#CCCCCC" FontFamily="Consolas" Margin="0,2,0,0"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="No projects have been opened yet."
+                               Foreground="#888888"
+                               IsVisible="{Binding !RecentProjectPaths.Count}"/>
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Grid.Column="0"
+                       x:Name="StatusMessageText"
+                       Text="{Binding StatusMessage}"
+                       Foreground="#9CDCFE"
+                       VerticalAlignment="Center"
+                       TextWrapping="Wrap"/>
+            <Button Grid.Column="1"
+                    x:Name="CancelSettingsButton"
+                    Content="Cancel"
+                    Command="{Binding CancelCommand}"
+                    Padding="12,6"
+                    Margin="8,0"
+                    Foreground="#DDDDDD"/>
+            <Button Grid.Column="2"
+                    x:Name="SaveSettingsButton"
+                    Content="Save"
+                    Command="{Binding SaveCommand}"
+                    Padding="12,6"
+                    Foreground="#FFFFFF"
+                    Background="#007ACC"/>
+        </Grid>
+    </Grid>
+</Window>

@@ -91,6 +91,12 @@ public partial class MainWindow : Window
                 });
                 return folders.Count > 0 ? folders[0].Path.LocalPath : null;
             };
+
+            vm.ShowSettingsDialogAsync = async settingsViewModel =>
+            {
+                var dialog = new SettingsDialog { DataContext = settingsViewModel };
+                await dialog.ShowDialog(this);
+            };
         }
     }
 }

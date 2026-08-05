@@ -29,9 +29,9 @@ S22 create new test files almost exclusively.
 Owns NEW `tests/SRN.CC.Tests/Scenarios/FullAcceptanceScenarioTests.cs`.
 **Must not touch** `tests/SRN.CC.Tests/Scenarios/ControlledAcceptanceScenarioTests.cs`; consumes
 S16's `RealHakFixtureFactory` **read-only**.
-- [ ] **Uncategorized**, so the default `Category!=Corpus&Category!=Performance` filter runs it in
+- [x] **Uncategorized**, so the default `Category!=Corpus&Category!=Performance` filter runs it in
       CI. Target under ten seconds. Everything under one temp root; no corpus, no GPU, no Avalonia.
-- [ ] Build the service graph entirely from **real** implementations — `ResourceTypeRegistry`,
+- [x] Build the service graph entirely from **real** implementations — `ResourceTypeRegistry`,
       `SqliteCacheService`, `AssetIndexService`, `SourceReaderDispatcher`, `AssetHashCache`,
       `WorkspaceResolver`, `WorkspaceService`, `ProjectStore`, and a `BuildOrchestrator` over
       `AssetPacker` / `BuildVerifier` / `ProvenanceManifestGenerator` / `ArtifactPublisher`. No fakes.
@@ -40,23 +40,23 @@ S16's `RealHakFixtureFactory` **read-only**.
       folder source `loose assets/` (2 files, priority 2, one path containing a space). Assert the
       identity count, the priority winners, the identical duplicate auto-resolving to the lowest
       deterministic locator, and the differing pair reported as conflicted.
-- [ ] **Step 2 — resolve and pin.** Read the losing occurrence's real bytes through
+- [x] **Step 2 — resolve and pin.** Read the losing occurrence's real bytes through
       `dispatcher.OpenOccurrenceAsync`, hash them, pin. Assert the winner switched. Deselect one
       identity through the selection override path.
-- [ ] **Step 3 — save and reopen.** Save to `acceptance.srnccproj`, load, restore state, and assert
+- [x] **Step 3 — save and reopen.** Save to `acceptance.srnccproj`, load, restore state, and assert
       source order, the pin, and the selection overrides all survive. Then save the reloaded state to
       a second path and assert the two files are **byte-identical** — a round-trip stability property
       nothing asserts today.
-- [ ] **Step 4 — rescan.** Rewrite `override.hak` with the pinned payload moved to a different entry
+- [x] **Step 4 — rescan.** Rewrite `override.hak` with the pinned payload moved to a different entry
       index. Rescan and assert the reattachment report contains the identity and that the pin's
       locator moved.
-- [ ] **Step 5 — build.** Execute a build and assert success plus the presence of both `curated.hak`
+- [x] **Step 5 — build.** Execute a build and assert success plus the presence of both `curated.hak`
       and `curated.srncc-manifest.json`.
-- [ ] **Step 6 — independent verify.** Reopen the output with a **fresh** `HakReader`. Assert the
+- [x] **Step 6 — independent verify.** Reopen the output with a **fresh** `HakReader`. Assert the
       entry count equals the selected count; the deselected identity is absent; every payload's bytes
       equal the bytes re-read from the original source through a **fresh** `SourceReaderDispatcher`;
       and resref bytes are the original CP1252 bytes, not re-encoded.
-- [ ] **Step 7 — manifest.** Assert `HakSha256Hex` equals a freshly computed SHA-256 of the file;
+- [x] **Step 7 — manifest.** Assert `HakSha256Hex` equals a freshly computed SHA-256 of the file;
       every per-resource `Sha256Hex` equals a freshly computed payload hash; `AppVersion` equals the
       runtime `AssemblyInformationalVersion`; and no `[A-Za-z]:\` sequence appears outside the
       project directory.
@@ -69,25 +69,25 @@ S16's `RealHakFixtureFactory` **read-only**.
       document implied. Assert against the real names. Do **not** "fix" the casing — that would be a
       breaking manifest-format change outside this milestone's scope, and
       `docs/operator/MANIFEST-FORMAT.md` already documents the PascalCase form.
-- [ ] **Step 8 — repeat-build determinism.** Build again to a **different directory with the same
+- [x] **Step 8 — repeat-build determinism.** Build again to a **different directory with the same
       filename**, so `hakFileName` is identical. Assert the two HAK files are byte-identical and the
       two manifests are identical after replacing `GeneratedUtc`. This is the `PLAN.md:224` clause
       with no test today.
-- [ ] **Step 9 — publication integrity.** Assert no journal or backup residue remains after step 5.
+- [x] **Step 9 — publication integrity.** Assert no journal or backup residue remains after step 5.
       Then hand-craft a `HakReplaced`-state journal plus a backup pair and call
       `RecoverPendingJournalAsync`. Assert the previous valid HAK is restored byte-for-byte and the
       journal is gone.
-- [ ] **Step 10 — startup preflight over real residue.** Construct `StartupPreflight` with
+- [x] **Step 10 — startup preflight over real residue.** Construct `StartupPreflight` with
       `PublicationJournalStartupCheck` pointed at the output directory while a pending journal
       exists. Assert the report names the recovered journal and that a corresponding log line exists
       in the temp `AppPaths.LogDirectory`.
 
 **Exit Criteria**
-- [ ] All ten steps pass in a single test run under ten seconds, in CI, with no corpus and no GPU.
-- [ ] The test constructs no fake or stub of any production service.
-- [ ] Deleting the temp root leaves no residue anywhere else on the machine, including
+- [x] All ten steps pass in a single test run under ten seconds, in CI, with no corpus and no GPU.
+- [x] The test constructs no fake or stub of any production service.
+- [x] Deleting the temp root leaves no residue anywhere else on the machine, including
       `%LOCALAPPDATA%`.
-- [ ] `ControlledAcceptanceScenarioTests.cs` is unmodified and still green.
+- [x] `ControlledAcceptanceScenarioTests.cs` is unmodified and still green.
 
 ### S20 — Shell completion: Save As, Rescan, Settings (needs S17)
 Closes constraint 10. Owns MODIFY `src/SRN.CC.App/ViewModels/MainWindowViewModel.cs`,
@@ -96,38 +96,38 @@ Closes constraint 10. Owns MODIFY `src/SRN.CC.App/ViewModels/MainWindowViewModel
 `src/SRN.CC.App/ViewModels/SettingsDialogViewModel.cs`; NEW
 `tests/SRN.CC.Tests/UI/MainWindowShellTests.cs`,
 `tests/SRN.CC.Tests/App/SettingsDialogViewModelTests.cs`.
-- [ ] Add a `SaveProjectAs` command over the existing `IProjectStore.SaveAsAsync`, which has no
+- [x] Add a `SaveProjectAs` command over the existing `IProjectStore.SaveAsAsync`, which has no
       command today, with the same read-only gating as Save.
-- [ ] Add a `Rescan` command over the existing rescan path, surfacing the changed-input report.
-- [ ] Add a Settings dialog over the now-live `ISettingsStore`: the NWN install override with the
+- [x] Add a `Rescan` command over the existing rescan path, surfacing the changed-input report.
+- [x] Add a Settings dialog over the now-live `ISettingsStore`: the NWN install override with the
       `NwnInstallLocator` auto-discovery result shown as context, plus recent projects. Respect
       `SettingsLoadStatus.ReadOnlyNewer` by disabling save and saying why.
-- [ ] Add all three to the toolbar at `MainWindow.axaml:16-23`, which currently has only New, Open,
+- [x] Add all three to the toolbar at `MainWindow.axaml:16-23`, which currently has only New, Open,
       Save, and Build.
-- [ ] Rebase on S17's version of `MainWindowViewModel.cs` and `MainWindow.axaml.cs`. Never merge
+- [x] Rebase on S17's version of `MainWindowViewModel.cs` and `MainWindow.axaml.cs`. Never merge
       around wave 2.
 
 **Exit Criteria**
-- [ ] Headless: New, Open, Save, Save As, Rescan, Build, and Settings are all present and bound.
-- [ ] A `schemaVersion: 2` project leaves **both** `SaveProjectCommand.CanExecute` and
+- [x] Headless: New, Open, Save, Save As, Rescan, Build, and Settings are all present and bound.
+- [x] A `schemaVersion: 2` project leaves **both** `SaveProjectCommand.CanExecute` and
       `BuildHakCommand.CanExecute` false — the `PLAN.md:94` regression test that constraint 8 calls
       for, since the production gate already exists at `MainWindowViewModel.cs:402,475`.
-- [ ] The Settings dialog round-trips `NwnInstallOverride` through `ISettingsStore` and the value is
+- [x] The Settings dialog round-trips `NwnInstallOverride` through `ISettingsStore` and the value is
       observable on the next load.
-- [ ] Every pre-existing App and UI test passes unmodified.
+- [x] Every pre-existing App and UI test passes unmodified.
 
 ### S21 — Resolution and dependency backfill
 Owns MODIFY `src/SRN.CC.Preview/DependencyTraversalEngine.cs`; NEW
 `tests/SRN.CC.Tests/Core/ResolutionRescanTests.cs`, `SelectionOverrideCompactionTests.cs`,
 `PinReattachmentTests.cs`; NEW `tests/SRN.CC.Tests/Preview/DependencyClosureTests.cs`.
-- [ ] Close the `totalBytes: 0` TODO at `DependencyTraversalEngine.cs:167` by tracking occurrence
+- [x] Close the `totalBytes: 0` TODO at `DependencyTraversalEngine.cs:167` by tracking occurrence
       sizes during traversal.
-- [ ] `ResolutionRescanTests`: rescan with a source changed, a source unavailable, and a source
+- [x] `ResolutionRescanTests`: rescan with a source changed, a source unavailable, and a source
       relocated; the changed-input report contents.
-- [ ] `PinReattachmentTests`: the full ladder from `PLAN.md`'s rule 7 — exact source/identity/locator
+- [x] `PinReattachmentTests`: the full ladder from `PLAN.md`'s rule 7 — exact source/identity/locator
       with a matching hash first, then a unique source/identity/hash match — plus every case where
       reattachment must **fail** and leave the pin invalid rather than falling back silently.
-- [ ] `SelectionOverrideCompactionTests`: a filtered include/exclude writes only the necessary
+- [x] `SelectionOverrideCompactionTests`: a filtered include/exclude writes only the necessary
       overrides; "Exclude All" sets the default false and **clears** overrides; a new identity
       follows the current default.
 - [ ] `DependencyClosureTests`: closure size and count limits, cycles, missing references,
@@ -136,32 +136,109 @@ Owns MODIFY `src/SRN.CC.Preview/DependencyTraversalEngine.cs`; NEW
 **Exit Criteria**
 - [ ] Every one of the twelve cases listed at `PLAN.md:221` has a named test.
 - [ ] Every case listed at `PLAN.md:225` has a named test.
-- [ ] `totalBytes` is non-zero for a closure with known sizes and the change breaks no existing
+- [x] `totalBytes` is non-zero for a closure with known sizes and the change breaks no existing
       dependency test.
 
 ### S22 — UI headless and preview matrix backfill
 Owns NEW `tests/SRN.CC.Tests/UI/TableViewLargeDatasetTests.cs`,
 `ComparisonPanelSlotLifecycleTests.cs`; NEW `tests/SRN.CC.Tests/Preview/PreviewProviderMatrixTests.cs`;
 NEW `tests/SRN.CC.Tests/Architecture/NoticesCompletenessTests.cs`.
-- [ ] `TableViewLargeDatasetTests`: with 188k rows, the realized-row high-water mark stays bounded;
+- [x] `TableViewLargeDatasetTests`: with 188k rows, the realized-row high-water mark stays bounded;
       sort, filter, and bulk selection do not realize the full set; selection survives a filter
       change. Only two virtualization tests exist today.
-- [ ] `ComparisonPanelSlotLifecycleTests`: stable and overflow slots, replacement and promotion, mode
+- [x] `ComparisonPanelSlotLifecycleTests`: stable and overflow slots, replacement and promotion, mode
       switching, cancellation, and the linked-state rules from `PLAN.md:222`.
-- [ ] `PreviewProviderMatrixTests`: valid, truncated, malformed, canceled, and oversized inputs for
+- [x] `PreviewProviderMatrixTests`: valid, truncated, malformed, canceled, and oversized inputs for
       **every** provider, plus one successful, one failed, and one canceled concurrent slot —
       `PLAN.md:223` in full.
-- [ ] `NoticesCompletenessTests`: every `"scope": "runtime"` package in `eng/dependency-policy.json`
+- [x] `NoticesCompletenessTests`: every `"scope": "runtime"` package in `eng/dependency-policy.json`
       has a row in `NOTICES.md`. This turns Milestone 6's observation — that `AuditDependencies.ps1`
       checks the `mustShipNotice` flag but never the file — into a real assertion. Per constraint 7
       the table is already complete, so this test must pass on first run; if it fails, the table
       drifted and the fix belongs here.
 
 **Exit Criteria**
-- [ ] The 188k-row test completes within the existing headless test time budget and does not realize
+- [x] The 188k-row test completes within the existing headless test time budget and does not realize
       the full row set.
-- [ ] Every provider appears in the matrix with all five input conditions.
-- [ ] `NoticesCompletenessTests` passes without modifying `NOTICES.md`.
+- [x] Every provider appears in the matrix with all five input conditions.
+- [x] `NoticesCompletenessTests` passes without modifying `NOTICES.md`.
+
+## Wave 3 outcome
+
+**Barrier: 929 passed / 0 failed / 0 skipped**, `dotnet build SRN.CC.sln -c Release` 0 warnings /
+0 errors, verified by the integrator rather than taken from the slice self-reports. Baseline was 778,
+so 151 tests landed: S19 1, S20 21, S21 70, S22 59. Those four numbers sum to the observed delta
+exactly, which is the cross-check that no slice over- or under-reported.
+
+All four slices ran in one shared worktree rather than four, so `git status` could not attribute work
+by itself. Attribution was therefore checked file-by-file against each slice's declared `Owns`: three
+tracked files modified (`MainWindowViewModel.cs`, `MainWindow.axaml`, `MainWindow.axaml.cs`, all S20)
+and fourteen new files, every one of them declared. No slice touched a sibling's file and no
+pre-existing test was modified. Three of the four slices independently flagged the shared worktree as
+a hazard; wave 4 should isolate.
+
+### Four exit criteria left unticked
+
+- **S19 step 1, "the differing pair reported as conflicted."** Not assertable as written. When two
+  sources hold the same identity with *different* payloads, `WorkspaceResolver` reports
+  `Status = Resolved` with `HasDifferingPayloads = false` and raises only `HasCrossSourceCollision`;
+  divergence is computed *within* the winning source, never across sources. The test asserts the
+  behaviour that exists. Whether this is the intended semantics of "conflicted" is a question for
+  S23, not a test defect.
+- **S21 `DependencyClosureTests` — closure size and count limits.** These do not exist.
+  `DependencyTraversalEngine` enforces `maxDepth` and nothing else; there is no byte or entry budget
+  to assert. `PLAN.md:225` asks for one. This is unimplemented scope, not a test gap, and is the one
+  finding in this wave that may need code rather than evidence.
+- **S21 — every case at `PLAN.md:221`.** One case has no correct behaviour to assert: curated
+  precedence when the winner is *pinned*. The pin and the curation rule disagree and nothing decides
+  between them.
+- **S21 — every case at `PLAN.md:225`.** Follows from the missing closure limits above.
+
+### Deviations that are documented rather than unticked
+
+- **S19's "lowest deterministic locator" case moved to the folder source.** It is unreachable inside
+  a HAK: `HakWriter.WriteAsync` throws on any two items whose case-folded `HakFormatKey` matches, so
+  a HAK can never contain the duplicate the rule arbitrates. The rule is still asserted, on a source
+  that can express the case.
+- **S22's image-oversized cell drives the decoded-dimension budget**, not the 128 MiB input budget —
+  8192×8192 rejected from an 18-byte header, rather than buffering 128 MiB for no additional
+  behaviour. The 8/32/64 MiB provider budgets are driven for real, with `BytesRead` asserted.
+- **S22's truncated-MDL cell uses a truncated *binary* model**, not ASCII, because of the `MdlReader`
+  finding below.
+- **`totalBytes` (committed in wave 3's first attempt as `793379b`) was reviewed by S21 and left
+  unchanged.** The `if (_resolved.Add(identity))` guard is a no-op — `_visited` already admits each
+  identity once — but it is correct, and bytes accumulate only after a successful analyze, so
+  unreadable occurrences contribute nothing.
+
+### Findings in code no slice owned
+
+1. **`DependencyLocator` ignores pins.** `src/SRN.CC.App/Services/DependencyLocator.cs:26-35` builds
+   its occurrence cache from `curatedAsset.AllOccurrences` first-wins and never consults
+   `ResolvedOccurrence`. A pin that moves the winner to a lower-priority source is invisible to
+   dependency traversal, so the closure analyzes the wrong payload and can discover the wrong
+   dependency set. Identities in `InvalidPin` / `UnresolvedDuplicate` / `Unavailable` likewise resolve
+   to an arbitrary occurrence instead of reporting unresolved. This is a real behavioural bug, not a
+   coverage gap.
+2. **The "Cyclic dependency detected" branch is dead code.** `DependencyTraversalEngine.cs:104-108`
+   cannot be reached — cycles terminate via `_visited`, confirmed by three cycle tests that finish
+   with an empty unresolved map. The diagnostic string can never reach a user.
+3. **`DependencyLocator`'s XML doc promises a catalog fallback that does not exist.** Today that
+   absence is exactly what makes "no automatic base-game packaging" true, so the doc invites someone
+   to "finish" it and silently break a `PLAN.md` guarantee.
+4. **"Add available dependencies" hangs permanently.** `MainWindowViewModel.AddAvailableDependenciesAsync`
+   awaits `ConfirmDependenciesDialogViewModel.ShowDialogAsync`, but nothing ever shows
+   `ConfirmDependenciesDialog`, so the `TaskCompletionSource` never completes. Found by S20, correctly
+   left unfixed as outside its slice.
+5. **`MdlReader` accepts an unterminated ASCII model as a clean parse.** An ASCII MDL cut before
+   `endnode` / `endmodelgeom` / `donemodel` parses successfully with the sole diagnostic
+   "Parsed model has no mesh nodes", so `MdlPreviewProvider` renders a truncated file as a normal
+   preview with no parse-failure signal.
+6. **`tools/AuditDependencies.ps1` still never opens `NOTICES.md`.** S22's `NoticesCompletenessTests`
+   now covers the file (43 runtime packages, all present, all versions matching, no orphaned rows, no
+   drift — `NOTICES.md` untouched), but the release-gate script itself remains blind to it. If the
+   gate is meant to catch notice drift outside `dotnet test`, the script needs the check too.
+
+All six are S23's input.
 
 ## Notes
 

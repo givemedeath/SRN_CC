@@ -75,6 +75,13 @@ public partial class MainWindowViewModel : ObservableObject
     private string? _nwnInstallOverride;
 
     /// <summary>
+    /// The settings dialog most recently opened by <see cref="OpenSettingsCommand"/>, or null before
+    /// one has been. Exposed so a host — or a headless test — can drive the dialog it created.
+    /// </summary>
+    [ObservableProperty]
+    private SettingsDialogViewModel? _settingsDialog;
+
+    /// <summary>
     /// Most-recently-opened projects, newest first, capped at <see cref="MaxRecentProjectPaths"/>.
     /// Mirrors the persisted settings list.
     /// </summary>
@@ -357,9 +364,16 @@ public partial class MainWindowViewModel : ObservableObject
         ComparisonPanel.SetCanPin(!_workspaceState.IsReadOnly);
 
         SaveProjectCommand.NotifyCanExecuteChanged();
+        SaveProjectAsCommand.NotifyCanExecuteChanged();
+        RescanCommand.NotifyCanExecuteChanged();
         BuildHakCommand.NotifyCanExecuteChanged();
         SourceStack.MoveUpCommand.NotifyCanExecuteChanged();
         SourceStack.MoveDownCommand.NotifyCanExecuteChanged();
+
+        // The source stack's own rescan button shares CanMoveSources with the toolbar's RescanCommand
+        // above. Refreshing one without the other leaves two controls for the same action disagreeing
+        // about whether it is available.
+        SourceStack.RescanSourcesCommand.NotifyCanExecuteChanged();
 
         OperationLog.AddEntry("INFO", $"Loaded workspace with {state.Sources.Count} sources and {state.CuratedAssets.Count} assets.");
     }
@@ -379,6 +393,13 @@ public partial class MainWindowViewModel : ObservableObject
     public Func<Task<string?>>? BuildOutputFilePickerAsync { get; set; }
     public Func<Task<IReadOnlyList<string>>>? HakFilePickerAsync { get; set; }
     public Func<Task<string?>>? FolderPickerAsync { get; set; }
+
+    /// <summary>
+    /// Shows the settings dialog and returns when it has closed. Set by the window; left null in
+    /// headless contexts, where <see cref="OpenSettingsCommand"/> simply publishes the dialog view
+    /// model on <see cref="SettingsDialog"/> for the caller to drive.
+    /// </summary>
+    public Func<SettingsDialogViewModel, Task>? ShowSettingsDialogAsync { get; set; }
 
     [RelayCommand]
     private async Task NewProjectAsync()
@@ -461,7 +482,96 @@ public partial class MainWindowViewModel : ObservableObject
         await RecordProjectPathAsync(path).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// Writes the current workspace to a new path and continues editing there.
+    /// </summary>
+    /// <param name="targetProjectPath">
+    /// Where to write. Null asks <see cref="SaveProjectFilePickerAsync"/>; unlike
+    /// <see cref="SaveProjectCommand"/> there is no current-directory fallback, because "Save As"
+    /// with no destination is a cancelled operation, not a silent write to an unnamed file.
+    /// </param>
+    /// <remarks>
+    /// Read-only gating is identical to <see cref="SaveProjectCommand"/> — same
+    /// <see cref="CanSaveProject"/> predicate and the same in-method guard, so a read-only workspace
+    /// cannot be laundered into a writable copy by routing around the disabled Save button.
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanSaveProject))]
+    private async Task SaveProjectAsAsync(string? targetProjectPath = null)
+    {
+        await _pendingSelectionUpdate.ConfigureAwait(true);
+        if (_workspaceState == null || _projectStore == null) return;
+        if (_workspaceState.IsReadOnly)
+        {
+            OperationLog.AddEntry("WARN", "Workspace is read-only. Open a writable copy before saving.");
+            return;
+        }
+
+        string? path = targetProjectPath;
+        if (string.IsNullOrWhiteSpace(path) && SaveProjectFilePickerAsync != null)
+        {
+            path = await SaveProjectFilePickerAsync().ConfigureAwait(true);
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            OperationLog.AddEntry("INFO", "Save As canceled: no destination was chosen.");
+            return;
+        }
+
+        await _projectStore.SaveAsAsync(_workspaceState, path).ConfigureAwait(true);
+        _currentProjectPath = path;
+        Title = $"SRN.CC Asset Curator — {Path.GetFileName(path)}";
+        OperationLog.AddEntry("INFO", $"Saved a copy of the project state to '{path}'.");
+        await RecordProjectPathAsync(path).ConfigureAwait(true);
+    }
+
     private bool CanSaveProject() => _workspaceState != null && !_workspaceState.IsReadOnly;
+
+    /// <summary>
+    /// Re-indexes every source and reports what changed. The rescan itself is the pre-existing
+    /// <see cref="RescanSourcesAsync"/> path the source-stack button already drives; this is the
+    /// toolbar entry point for it.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRescan))]
+    private Task RescanAsync() => RescanSourcesAsync();
+
+    private bool CanRescan() => _workspaceState is { IsReadOnly: false };
+
+    /// <summary>
+    /// Opens the settings dialog over the single injected settings store, then adopts whatever it
+    /// wrote so the running session reflects the change without a restart.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenSettingsAsync()
+    {
+        if (_settingsStore is null)
+        {
+            OperationLog.AddEntry("WARN", "Settings are unavailable in this session.");
+            return;
+        }
+
+        // The store is the composed singleton; its read-only-newer write guard is per-instance state
+        // keyed by path, so a dialog-local store could overwrite a newer build's settings.
+        var dialog = new SettingsDialogViewModel(
+            _settingsStore,
+            _settings,
+            _settings.IsReadOnly ? SettingsLoadStatus.ReadOnlyNewer : SettingsLoadStatus.Loaded,
+            _settingsPath);
+
+        SettingsDialog = dialog;
+        dialog.ShowDialog();
+
+        if (ShowSettingsDialogAsync is not null)
+        {
+            await ShowSettingsDialogAsync(dialog).ConfigureAwait(true);
+        }
+
+        if (dialog.SavedSettings is { } saved)
+        {
+            ApplySettings(saved);
+            OperationLog.AddEntry("INFO", "Application settings were updated.");
+        }
+    }
 
     private async Task OnWorkspaceChangedAsync()
     {
@@ -704,8 +814,45 @@ public partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        var (state, _) = await _workspaceService.RescanAsync().ConfigureAwait(true);
+        var (state, report) = await _workspaceService.RescanAsync().ConfigureAwait(true);
         await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
+        ReportChangedInputs(report);
+    }
+
+    /// <summary>
+    /// Renders a <see cref="ChangedInputReport"/> into the operation log. The rescan path already
+    /// produced this report and threw it away, which is why a rescan that silently invalidated a pin
+    /// looked identical to one that changed nothing.
+    /// </summary>
+    private void ReportChangedInputs(ChangedInputReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+
+        if (!report.HasChanges)
+        {
+            OperationLog.AddEntry("INFO", "Rescan complete: no inputs changed.");
+            return;
+        }
+
+        OperationLog.AddEntry("INFO", "Rescan complete. Changed inputs:");
+        Line("INFO", "sources added", report.AddedSources.Count);
+        Line("INFO", "sources removed", report.RemovedSources.Count);
+        Line("WARN", "source availability transitions", report.AvailabilityTransitions.Count);
+        Line("INFO", "source fingerprint changes", report.FingerprintChanges.Count);
+        Line("INFO", "identities added", report.AddedIdentities.Count);
+        Line("INFO", "identities removed", report.RemovedIdentities.Count);
+        Line("INFO", "winner changes", report.WinnerChanges.Count);
+        Line("INFO", "pins reattached", report.PinReattachments.Count);
+        Line("WARN", "pins invalidated", report.PinInvalidations.Count);
+        Line("INFO", "selection changes", report.SelectionChanges.Count);
+
+        void Line(string level, string label, int count)
+        {
+            if (count > 0)
+            {
+                OperationLog.AddEntry(level, $"  {count} {label}.");
+            }
+        }
     }
 
     private async Task AddSourcesAsync(IEnumerable<AssetSource> newSources)

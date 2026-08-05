@@ -48,6 +48,20 @@ public interface IGlDevice : IDisposable
     /// </summary>
     void Delete(GlHandle handle);
 
+    /// <summary>
+    /// Clears the colour and depth of <paramref name="framebuffer"/> before a frame's draw calls.
+    /// A no-op when <see cref="IsLost"/>.
+    /// </summary>
+    /// <remarks>
+    /// Not optional, and not merely cosmetic. The host hands over a framebuffer whose depth
+    /// attachment holds undefined content, and the device enables depth testing for its whole
+    /// lifetime — so without a depth clear the comparison runs against whatever was already there
+    /// and can reject every fragment of every mesh. That failure is invisible from outside GL: the
+    /// draw calls are all issued and all silently discarded, which is precisely how a model with
+    /// valid geometry and bound textures renders as an empty viewport.
+    /// </remarks>
+    void Clear(int framebuffer, int viewportWidth, int viewportHeight);
+
     /// <summary>Issues one indexed draw call. A no-op when <see cref="IsLost"/>.</summary>
     void Draw(in GlDrawCall call);
 

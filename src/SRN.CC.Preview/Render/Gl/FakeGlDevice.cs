@@ -123,6 +123,30 @@ public sealed class FakeGlDevice : IGlDevice
         _calls.Add(new GlCallRecord("Delete", handle.Kind, handle.Name));
     }
 
+    /// <summary>
+    /// Records a clear. <see cref="ClearCount"/> is what lets a test prove the renderer clears the
+    /// depth buffer before drawing, which is otherwise only observable on a real GPU as an empty
+    /// viewport.
+    /// </summary>
+    public void Clear(int framebuffer, int viewportWidth, int viewportHeight)
+    {
+        if (ShouldNoOp)
+        {
+            return;
+        }
+
+        // Deliberately not added to the call record list: that list tracks resource lifetime, and a
+        // clear creates and destroys nothing. The counter is the observable.
+        ClearCount++;
+        LastClearFramebuffer = framebuffer;
+    }
+
+    /// <summary>The framebuffer named by the most recent <see cref="Clear"/>.</summary>
+    public int LastClearFramebuffer { get; private set; } = -1;
+
+    /// <summary>How many times <see cref="Clear"/> has been issued against this device.</summary>
+    public int ClearCount { get; private set; }
+
     public void Draw(in GlDrawCall call)
     {
         if (ShouldNoOp)

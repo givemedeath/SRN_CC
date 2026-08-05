@@ -29,3 +29,7 @@ Thumbs.db
 
 # Original planning documents
 PLAN.md.original
+
+# Release archives extracted locally for manual testing. These are CI build
+# outputs, tens of megabytes each, and must never enter history.
+release-download/

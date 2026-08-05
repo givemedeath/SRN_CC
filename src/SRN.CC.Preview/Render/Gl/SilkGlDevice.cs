@@ -220,6 +220,30 @@ public sealed class SilkGlDevice : IGlDevice
         }
     }
 
+    public void Clear(int framebuffer, int viewportWidth, int viewportHeight)
+    {
+        if (ShouldNoOp)
+        {
+            return;
+        }
+
+        _gl.BindFramebuffer(FramebufferTarget.Framebuffer, (uint)framebuffer);
+        if (viewportWidth > 0 && viewportHeight > 0)
+        {
+            _gl.Viewport(0, 0, (uint)viewportWidth, (uint)viewportHeight);
+        }
+
+        // Depth writes must be on for glClear to touch the depth buffer at all. Nothing in this
+        // device disables them, but clearing is worthless if that ever changes silently.
+        _gl.DepthMask(true);
+
+        // Transparent, so the slot's own background shows through around the model rather than the
+        // viewport painting a black rectangle over it.
+        _gl.ClearColor(0f, 0f, 0f, 0f);
+        _gl.ClearDepth(1.0);
+        _gl.Clear((uint)(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit));
+    }
+
     public unsafe void Draw(in GlDrawCall call)
     {
         if (ShouldNoOp || call.IndexCount <= 0)
@@ -242,6 +266,7 @@ public sealed class SilkGlDevice : IGlDevice
         {
             _gl.Viewport(0, 0, (uint)call.ViewportWidth, (uint)call.ViewportHeight);
         }
+
 
         uint vao = _gl.GenVertexArray();
         _gl.BindVertexArray(vao);

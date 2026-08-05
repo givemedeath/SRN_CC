@@ -343,6 +343,12 @@ All eleven steps:
 `sha256` per file. Every ZIP entry timestamp is pinned to `1980-01-01T00:00:00Z`, which is what makes
 the repack byte-identical.
 
+**Determinism across independent runs.** A second full verifier pass, run `20260805T053710Z-3956`,
+also SUCCESS on a clean tree, produced the **same archive SHA-256**
+`db162257a83647aa0a903b1b8a1c326adfebffd5950b7312128514e6579ddb03` from a separate build, publish,
+and pack. That is a stronger result than step 9's within-run probe: the archive is reproducible
+across independent compilations, not merely across two packs of one publish tree.
+
 **Clean-machine smoke** (`tools/SmokeCleanMachine.ps1`), run against the extracted archive:
 **PASSED**. The release-tree audit passed over 252 files; `--srncc-preflight-only` reported all four
 checks — `cache`, `settings`, `publication-journal`, `tool-capability` — as `Ok`; the application

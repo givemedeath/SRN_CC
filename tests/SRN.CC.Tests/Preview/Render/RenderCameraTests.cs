@@ -389,4 +389,35 @@ public class RenderCameraTests
         Vector3 forward = new Vector3(view.M13, view.M23, view.M33);
         return (right, up, forward);
     }
+
+    [Test]
+    public void Frame_DeclaredRadiusSmallerThanTheBounds_UsesTheBounds()
+    {
+        // A stock NWN asteroid model declares 449.6 while its bounds need roughly 501. Trusting the
+        // declared value seats the camera inside the model's own extent, so it opens partly outside
+        // the view.
+        Vector3 min = new(-305f, -302f, -266f);
+        Vector3 max = new(305f, 308f, 244f);
+        float boundsRadius = (max - min).Length() * 0.5f;
+
+        RenderCamera tight = RenderCamera.Frame(min, max, radius: 449.6f);
+        RenderCamera honest = RenderCamera.Frame(min, max, boundsRadius);
+
+        // Framing must cover the geometry even when the model under-declares its radius.
+        Assert.That(tight.Distance, Is.EqualTo(honest.Distance).Within(Tolerance));
+        Assert.That(tight.Distance, Is.GreaterThan(boundsRadius));
+    }
+
+    [Test]
+    public void Frame_DeclaredRadiusLargerThanTheBounds_KeepsTheDeclaredRadius()
+    {
+        Vector3 min = new(-1f);
+        Vector3 max = new(1f);
+
+        RenderCamera camera = RenderCamera.Frame(min, max, radius: 50f);
+        RenderCamera fromBoundsOnly = RenderCamera.Frame(min, max, radius: 0f);
+
+        // A model declaring more room than its bounds occupy keeps that room.
+        Assert.That(camera.Distance, Is.GreaterThan(fromBoundsOnly.Distance));
+    }
 }

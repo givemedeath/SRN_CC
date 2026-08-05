@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
+using Avalonia.Rendering;
 using SRN.CC.App.ViewModels.Preview;
 using SRN.CC.Core.Logging;
 using SRN.CC.Preview.Render;
@@ -37,8 +38,22 @@ namespace SRN.CC.App.Views;
 /// <see cref="ModelViewportViewModel.ShowWalkmesh"/> property changes (observed via
 /// <see cref="INotifyPropertyChanged.PropertyChanged"/>), and directly from the pointer handlers below.
 /// </remarks>
-public sealed class ModelViewportControl : OpenGlControlBase
+public sealed class ModelViewportControl : OpenGlControlBase, ICustomHitTest
 {
+    /// <summary>
+    /// Makes the viewport hit-testable across its whole area.
+    /// </summary>
+    /// <remarks>
+    /// Without this the control is invisible to the input system. Avalonia hit-tests a bare
+    /// <see cref="Control"/> against what it actually rendered, and this one's picture is produced by
+    /// GL through a custom draw operation rather than by anything the hit test can see — so
+    /// <c>InputHitTest</c> returns null over the viewport even though its bounds are correct and
+    /// <c>IsHitTestVisible</c> is true. Every pointer handler below was therefore dead code: orbit,
+    /// pan and dolly silently did nothing. Controls that paint their own background solve this by
+    /// having one; a GL surface has to say so explicitly.
+    /// </remarks>
+    public bool HitTest(Point point) => new Rect(Bounds.Size).Contains(point);
+
     // Chosen so a full-width drag (a few hundred pixels) covers roughly one full turn; matches the
     // "mouse-drag-style" orbit the plan describes without needing per-platform DPI awareness.
     private const double OrbitRadiansPerPixel = 0.01;

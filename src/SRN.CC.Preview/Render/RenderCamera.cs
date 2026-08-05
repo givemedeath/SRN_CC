@@ -52,7 +52,14 @@ public readonly record struct RenderCamera(
     public static RenderCamera Frame(Vector3 boundsMin, Vector3 boundsMax, float radius)
     {
         Vector3 center = (boundsMin + boundsMax) * 0.5f;
-        float safeRadius = MathF.Max(radius, MinimumRadius);
+
+        // Framed on whichever is larger: the radius the model declares, or the sphere its own bounds
+        // actually need. A declared radius is not a reliable bound on the geometry — a stock NWN
+        // asteroid model reports 449.6 while its bounds span a half-diagonal of roughly 501 — and
+        // trusting the smaller value seats the camera inside the model's extent, so it opens
+        // partly outside the view with no obvious way to tell that is what happened.
+        float boundsRadius = (boundsMax - boundsMin).Length() * 0.5f;
+        float safeRadius = MathF.Max(MathF.Max(radius, boundsRadius), MinimumRadius);
         float fov = DefaultFieldOfViewRadians;
         float halfFov = fov * 0.5f;
 

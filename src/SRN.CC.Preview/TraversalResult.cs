@@ -42,13 +42,26 @@ public sealed class TraversalResult
     /// </summary>
     public int DuplicatesSuppressed { get; }
 
+    /// <summary>
+    /// The budget that excluded at least one asset, or <see cref="TraversalLimit.None"/> if the
+    /// closure completed within every budget. When several budgets are breached, this reports the
+    /// first one, because that is the budget that shaped the closure.
+    /// </summary>
+    public TraversalLimit LimitHit { get; }
+
+    /// <summary>
+    /// True when a budget excluded at least one asset, so the closure is incomplete.
+    /// </summary>
+    public bool IsTruncated => LimitHit != TraversalLimit.None;
+
     public TraversalResult(
         IReadOnlySet<AssetIdentity> resolved,
         IReadOnlyDictionary<AssetIdentity, string> unresolved,
         long totalBytes,
         int count,
         int maxDepth,
-        int duplicatesSuppressed)
+        int duplicatesSuppressed,
+        TraversalLimit limitHit = TraversalLimit.None)
     {
         Resolved = resolved ?? throw new ArgumentNullException(nameof(resolved));
         Unresolved = unresolved ?? throw new ArgumentNullException(nameof(unresolved));
@@ -56,5 +69,6 @@ public sealed class TraversalResult
         Count = count;
         MaxDepth = maxDepth;
         DuplicatesSuppressed = duplicatesSuppressed;
+        LimitHit = limitHit;
     }
 }

@@ -101,7 +101,8 @@ public sealed class AddAvailableDependenciesCommand
             unresolvedGroups: unresolvedGroups,
             totalBytes: traversalResult.TotalBytes,
             maxDepth: traversalResult.MaxDepth,
-            duplicatesSuppressed: traversalResult.DuplicatesSuppressed);
+            duplicatesSuppressed: traversalResult.DuplicatesSuppressed,
+            limitHit: traversalResult.LimitHit);
     }
 
     /// <summary>

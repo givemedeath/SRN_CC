@@ -194,6 +194,240 @@ public class DependencyClosureTests
         await act.Should().ThrowAsync<ArgumentException>();
     }
 
+    [Test]
+    public async Task Closure_CountLimit_StopsAtMaxCountAndReportsRemainderUnresolved()
+    {
+        AssetIdentity[] chain = _graph.AddChain("cap", length: 6, sizePerNode: 10);
+
+        TraversalResult result = await _engine.TraverseAsync([chain[0]], maxCount: 3);
+
+        result.Count.Should().Be(3);
+        result.Resolved.Should().BeEquivalentTo(new[] { chain[0], chain[1], chain[2] });
+        result.Unresolved.Should().ContainKey(chain[3]);
+        result.Unresolved[chain[3]].Should().Contain("count limit");
+        result.LimitHit.Should().Be(TraversalLimit.Count);
+        result.IsTruncated.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task Closure_CountLimit_UnderBudgetCompletesWithoutTruncation()
+    {
+        AssetIdentity[] chain = _graph.AddChain("under", length: 3, sizePerNode: 10);
+
+        TraversalResult result = await _engine.TraverseAsync([chain[0]], maxCount: 10);
+
+        result.Count.Should().Be(3);
+        result.Unresolved.Should().BeEmpty();
+        result.LimitHit.Should().Be(TraversalLimit.None);
+        result.IsTruncated.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task Closure_CountLimit_ExactlyAtBudgetIsNotTruncated()
+    {
+        AssetIdentity[] chain = _graph.AddChain("exact", length: 3, sizePerNode: 10);
+
+        TraversalResult result = await _engine.TraverseAsync([chain[0]], maxCount: 3);
+
+        result.Count.Should().Be(3, "the budget is tested before admission, so a closure that exactly fills it is complete");
+        result.LimitHit.Should().Be(TraversalLimit.None);
+    }
+
+    [Test]
+    public async Task Closure_CountLimit_RejectsNonPositiveMaxCount()
+    {
+        AssetIdentity root = _graph.AddNode("root", size: 1);
+
+        Func<Task> act = async () => await _engine.TraverseAsync([root], maxCount: 0);
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Test]
+    public async Task Closure_SizeLimit_StopsWhenAccumulatedBytesWouldExceedBudget()
+    {
+        AssetIdentity[] chain = _graph.AddChain("bytes", length: 5, sizePerNode: 1000);
+
+        TraversalResult result = await _engine.TraverseAsync([chain[0]], maxBytes: 2500);
+
+        result.TotalBytes.Should().Be(2000);
+        result.TotalBytes.Should().BeLessThanOrEqualTo(2500);
+        result.Resolved.Should().BeEquivalentTo(new[] { chain[0], chain[1] });
+        result.Unresolved.Should().ContainKey(chain[2]);
+        result.Unresolved[chain[2]].Should().Contain("size limit");
+        result.LimitHit.Should().Be(TraversalLimit.Size);
+    }
+
+    [TestCase(1L)]
+    [TestCase(999L)]
+    [TestCase(1000L)]
+    [TestCase(1001L)]
+    [TestCase(4999L)]
+    public async Task Closure_SizeLimit_NeverReportsTotalBytesAboveTheBudget(long budget)
+    {
+        AssetIdentity[] chain = _graph.AddChain("budget", length: 5, sizePerNode: 1000);
+
+        TraversalResult result = await _engine.TraverseAsync([chain[0]], maxBytes: budget);
+
+        result.TotalBytes.Should().BeLessThanOrEqualTo(
+            budget,
+            "the budget is tested before the payload is admitted, never after it is accumulated");
+    }
+
+    [Test]
+    public async Task Closure_SizeLimit_RejectedNodeContributesNeitherBytesNorChildren()
+    {
+        AssetIdentity root = _graph.AddNode("sz_root", size: 100);
+        AssetIdentity big = _graph.AddNode("sz_big", size: 9000);
+        AssetIdentity grandchild = _graph.AddNode("sz_grandchild", size: 1);
+        _graph.SetDependencies(root, big);
+        _graph.SetDependencies(big, grandchild);
+
+        TraversalResult result = await _engine.TraverseAsync([root], maxBytes: 500);
+
+        result.Resolved.Should().BeEquivalentTo(new[] { root });
+        result.TotalBytes.Should().Be(100);
+        result.Unresolved.Should().ContainKey(big);
+        result.Resolved.Should().NotContain(grandchild);
+        result.Unresolved.Should().NotContainKey(grandchild, "a rejected node's descendants are never discovered");
+    }
+
+    [Test]
+    public async Task Closure_SizeLimit_SkipsTheOversizedNodeButStillAdmitsSmallerSiblings()
+    {
+        AssetIdentity root = _graph.AddNode("fan_root", size: 100);
+        AssetIdentity big = _graph.AddNode("fan_big", size: 9000);
+        AssetIdentity small = _graph.AddNode("fan_small", size: 10);
+        _graph.SetDependencies(root, big, small);
+
+        TraversalResult result = await _engine.TraverseAsync([root], maxBytes: 500);
+
+        result.Resolved.Should().BeEquivalentTo(
+            new[] { root, small },
+            "a size budget excludes the nodes that do not fit; it does not abort the walk");
+        result.Unresolved.Should().ContainKey(big);
+        result.TotalBytes.Should().Be(110);
+        result.LimitHit.Should().Be(TraversalLimit.Size);
+    }
+
+    [Test]
+    public async Task Closure_SizeLimit_WithSiblingsThatCannotBothFit_AdmitsTheSortedFirstNotTheSetFirst()
+    {
+        AssetIdentity root = _graph.AddNode("tie_root", size: 100);
+        AssetIdentity alpha = _graph.AddNode("tie_alpha", size: 300);
+        AssetIdentity beta = _graph.AddNode("tie_beta", size: 300);
+
+        // Inserted beta-first, deliberately the reverse of sorted order. Both siblings fit alone but
+        // not together, so whichever is dequeued first is the one admitted. The analyzer hands back
+        // an IReadOnlySet whose enumeration order is unspecified; without the engine's own sort this
+        // closure would follow that order, and this assertion would pick beta.
+        _graph.SetDependencies(root, beta, alpha);
+
+        TraversalResult result = await _engine.TraverseAsync([root], maxBytes: 500);
+
+        result.Resolved.Should().BeEquivalentTo(
+            new[] { root, alpha },
+            "enqueue order is sorted by resource type then canonical resref bytes, so the closure "
+            + "depends on the graph and the budget rather than on set internals");
+        result.Unresolved.Should().ContainKey(beta);
+        result.TotalBytes.Should().Be(400);
+        result.LimitHit.Should().Be(TraversalLimit.Size);
+    }
+
+    [Test]
+    public async Task Closure_SizeLimit_UnderBudgetCompletesWithoutTruncation()
+    {
+        AssetIdentity[] chain = _graph.AddChain("roomy", length: 3, sizePerNode: 10);
+
+        TraversalResult result = await _engine.TraverseAsync([chain[0]], maxBytes: 1_000_000);
+
+        result.TotalBytes.Should().Be(30);
+        result.Resolved.Should().HaveCount(3);
+        result.LimitHit.Should().Be(TraversalLimit.None);
+        result.IsTruncated.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task Closure_SizeLimit_RejectsNonPositiveMaxBytes()
+    {
+        AssetIdentity root = _graph.AddNode("root", size: 1);
+
+        Func<Task> act = async () => await _engine.TraverseAsync([root], maxBytes: 0);
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Test]
+    public async Task Closure_Limits_ReportFirstBudgetBreachedWhenSeveralApply()
+    {
+        AssetIdentity[] chain = _graph.AddChain("both", length: 5, sizePerNode: 1000);
+
+        TraversalResult result = await _engine.TraverseAsync([chain[0]], maxCount: 2, maxBytes: 2500);
+
+        result.LimitHit.Should().Be(
+            TraversalLimit.Count,
+            "the count budget fires at the third node, before the size budget would have");
+        result.Count.Should().Be(2);
+    }
+
+    [Test]
+    public async Task Closure_DepthLimit_ReportsDepthAsTheLimitHit()
+    {
+        AssetIdentity[] chain = _graph.AddChain("deep", length: 6, sizePerNode: 10);
+
+        TraversalResult result = await _engine.TraverseAsync([chain[0]], maxDepth: 3);
+
+        result.LimitHit.Should().Be(TraversalLimit.Depth);
+        result.IsTruncated.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task Closure_LimitHit_ResetsBetweenTraversalsOnTheSameEngine()
+    {
+        AssetIdentity[] first = _graph.AddChain("reset_a", length: 4, sizePerNode: 10);
+        AssetIdentity[] second = _graph.AddChain("reset_b", length: 2, sizePerNode: 10);
+
+        TraversalResult truncated = await _engine.TraverseAsync([first[0]], maxCount: 2);
+        TraversalResult complete = await _engine.TraverseAsync([second[0]]);
+
+        truncated.LimitHit.Should().Be(TraversalLimit.Count);
+        complete.LimitHit.Should().Be(TraversalLimit.None, "engine state, including limitHit, must reset per traversal");
+    }
+
+    [Test]
+    public async Task Closure_SizeLimit_TruncatedIdentitiesGroupUnderTheirOwnReason()
+    {
+        AssetIdentity[] chain = _graph.AddChain("grouped", length: 4, sizePerNode: 1000);
+
+        TraversalResult result = await _engine.TraverseAsync([chain[0]], maxBytes: 1500);
+        IReadOnlyList<UnresolvedDependencyGroup> groups =
+            UnresolvedDependencyGrouper.GroupUnresolved(result.Unresolved, _graph);
+
+        groups.Should().NotBeEmpty();
+        groups.SelectMany(g => g.ReasonGroups.Keys)
+            .Should().Contain(reason => reason.Contains("size limit"),
+                "truncation reaches the dialog through the same reason-grouping path as any other unresolved dependency");
+    }
+
+    [Test]
+    public async Task ClosureSummary_SurfacesTraversalLimitHit()
+    {
+        AssetIdentity root = _graph.AddNode("summary_root", size: 16);
+        AssetIdentity child = _graph.AddNode("summary_child", size: 32);
+        _graph.SetDependencies(root, child);
+
+        AddAvailableDependenciesCommand command = new(
+            _graph,
+            _graph,
+            _graph.LocateAsync,
+            _graph.OpenAsync);
+
+        ClosureSummary summary = await command.ExecuteAsync([_graph.OccurrenceFor(root)]);
+
+        summary.LimitHit.Should().Be(TraversalLimit.None, "the command imposes no closure budget, so its closures are complete");
+        summary.IsTruncated.Should().BeFalse();
+    }
+
     #endregion
 
     #region Cycles
@@ -338,6 +572,80 @@ public class DependencyClosureTests
         resolved.Should().NotBeNull();
         resolved!.SourceId.Should().Be(highPriority, "the curated (highest-priority) occurrence must win the dependency lookup");
         resolved.Locator.Should().Be(new HakEntryLocator(0));
+    }
+
+    [Test]
+    public async Task Closure_WithPinOverridingSourcePriority_UsesThePinnedOccurrenceAsTheDependency()
+    {
+        Guid highPriority = Guid.NewGuid();
+        Guid lowPriority = Guid.NewGuid();
+
+        AssetSource high = new(highPriority, AssetSourceKind.Hak, "c:/high.hak", priorityOrdinal: 0);
+        AssetSource low = new(lowPriority, AssetSourceKind.Hak, "c:/low.hak", priorityOrdinal: 1);
+
+        AssetIdentity identity = new("pinned_dep", MdlType);
+        AssetOccurrence priorityWinner = new(identity, highPriority, new HakEntryLocator(0), "pinned_dep.mdl", 100);
+        AssetOccurrence pinnedOccurrence = new(identity, lowPriority, new HakEntryLocator(7), "pinned_dep.mdl", 999);
+
+        // PLAN.md:82 - a valid pin overrides source priority. The pin here deliberately disagrees
+        // with priority order, which is the only arrangement that can catch a locator that scans
+        // AllOccurrences instead of reading ResolvedOccurrence.
+        WinnerPin pin = new(identity, lowPriority, new HakEntryLocator(7), new byte[32]);
+
+        WorkspaceState state = CreateWorkspaceState(
+            sources: [high, low],
+            new CuratedAsset(
+                identity: identity,
+                allOccurrences: [priorityWinner, pinnedOccurrence],
+                resolvedOccurrence: pinnedOccurrence,
+                pin: pin,
+                status: ResolutionStatus.Resolved,
+                isSelected: true,
+                hasCrossSourceCollision: true));
+
+        DependencyLocator locator = new(state, (_, _, fallback, _) => Task.FromResult(fallback));
+
+        AssetOccurrence? resolved = await locator.ResolveAsync(identity);
+
+        resolved.Should().NotBeNull();
+        resolved!.SourceId.Should().Be(lowPriority, "the pin, not source priority, decides the dependency lookup");
+        resolved.Locator.Should().Be(new HakEntryLocator(7));
+    }
+
+    [TestCase(ResolutionStatus.InvalidPin)]
+    [TestCase(ResolutionStatus.UnresolvedDuplicate)]
+    [TestCase(ResolutionStatus.Unavailable)]
+    [TestCase(ResolutionStatus.Unpackageable)]
+    public async Task Closure_WithUnresolvedCuratedAsset_ReportsItUnresolvedRatherThanSubstitutingAnOccurrence(
+        ResolutionStatus status)
+    {
+        Guid highPriority = Guid.NewGuid();
+        Guid lowPriority = Guid.NewGuid();
+
+        AssetSource high = new(highPriority, AssetSourceKind.Hak, "c:/high.hak", priorityOrdinal: 0);
+        AssetSource low = new(lowPriority, AssetSourceKind.Hak, "c:/low.hak", priorityOrdinal: 1);
+
+        AssetIdentity identity = new("ambiguous_dep", MdlType);
+        AssetOccurrence first = new(identity, highPriority, new HakEntryLocator(0), "ambiguous_dep.mdl", 100);
+        AssetOccurrence second = new(identity, lowPriority, new HakEntryLocator(7), "ambiguous_dep.mdl", 999);
+
+        // PLAN.md:86 - missing, changed, or ambiguous pins remain invalid; never fall back silently.
+        WorkspaceState state = CreateWorkspaceState(
+            sources: [high, low],
+            new CuratedAsset(
+                identity: identity,
+                allOccurrences: [first, second],
+                resolvedOccurrence: null,
+                pin: null,
+                status: status,
+                isSelected: true,
+                hasCrossSourceCollision: true));
+
+        DependencyLocator locator = new(state, (_, _, fallback, _) => Task.FromResult(fallback));
+
+        AssetOccurrence? resolved = await locator.ResolveAsync(identity);
+
+        resolved.Should().BeNull($"a {status} asset must not be silently satisfied by an arbitrary occurrence");
     }
 
     [Test]

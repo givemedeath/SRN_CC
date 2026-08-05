@@ -130,12 +130,16 @@ Owns MODIFY `src/SRN.CC.Preview/DependencyTraversalEngine.cs`; NEW
 - [x] `SelectionOverrideCompactionTests`: a filtered include/exclude writes only the necessary
       overrides; "Exclude All" sets the default false and **clears** overrides; a new identity
       follows the current default.
-- [ ] `DependencyClosureTests`: closure size and count limits, cycles, missing references,
+- [x] `DependencyClosureTests`: closure size and count limits, cycles, missing references,
       unresolved dependencies, no automatic base-game packaging, and the now-tracked `totalBytes`.
+      Closed in wave 4 — the limits had to be implemented before they could be asserted.
 
 **Exit Criteria**
-- [ ] Every one of the twelve cases listed at `PLAN.md:221` has a named test.
-- [ ] Every case listed at `PLAN.md:225` has a named test.
+- [x] Every one of the twelve cases listed at `PLAN.md:221` has a named test. Closed in wave 4 by the
+      `DependencyLocator` pin fix; the previously "undecided" pinned-versus-curated case is decided by
+      `PLAN.md:82` and `PLAN.md:86`.
+- [x] Every case listed at `PLAN.md:225` has a named test. Closed in wave 4 alongside the closure
+      budgets.
 - [x] `totalBytes` is non-zero for a closure with known sizes and the change breaks no existing
       dependency test.
 
@@ -177,22 +181,29 @@ and fourteen new files, every one of them declared. No slice touched a sibling's
 pre-existing test was modified. Three of the four slices independently flagged the shared worktree as
 a hazard; wave 4 should isolate.
 
-### Four exit criteria left unticked
+### Four exit criteria left unticked — three closed in wave 4, one carried
 
-- **S19 step 1, "the differing pair reported as conflicted."** Not assertable as written. When two
-  sources hold the same identity with *different* payloads, `WorkspaceResolver` reports
-  `Status = Resolved` with `HasDifferingPayloads = false` and raises only `HasCrossSourceCollision`;
-  divergence is computed *within* the winning source, never across sources. The test asserts the
-  behaviour that exists. Whether this is the intended semantics of "conflicted" is a question for
-  S23, not a test defect.
-- **S21 `DependencyClosureTests` — closure size and count limits.** These do not exist.
-  `DependencyTraversalEngine` enforces `maxDepth` and nothing else; there is no byte or entry budget
-  to assert. `PLAN.md:225` asks for one. This is unimplemented scope, not a test gap, and is the one
-  finding in this wave that may need code rather than evidence.
-- **S21 — every case at `PLAN.md:221`.** One case has no correct behaviour to assert: curated
-  precedence when the winner is *pinned*. The pin and the curation rule disagree and nothing decides
-  between them.
-- **S21 — every case at `PLAN.md:225`.** Follows from the missing closure limits above.
+- **S19 step 1, "the differing pair reported as conflicted." Still unticked; carried to the evidence
+  document as a deferral.** Not assertable as written. When two sources hold the same identity with
+  *different* payloads, `WorkspaceResolver` reports `Status = Resolved` with
+  `HasDifferingPayloads = false` and raises only `HasCrossSourceCollision`; divergence is computed
+  *within* the winning source, never across sources. The test asserts the behaviour that exists.
+  Whether this is the intended semantics of "conflicted" is a `PLAN.md` question, not a test defect,
+  and is recorded verbatim in `docs/evidence/MILESTONE-7-EVIDENCE.md` rather than resolved here.
+- **S21 `DependencyClosureTests` — closure size and count limits. Closed in wave 4.** The wave-3
+  reading was correct: this was unimplemented scope, not a test gap. `DependencyTraversalEngine`
+  now takes `maxCount` and `maxBytes` alongside `maxDepth`, both defaulting to effectively unlimited
+  so no existing behaviour changed, and reports which budget stopped a closure through the new
+  `TraversalLimit` enum on `TraversalResult.LimitHit` / `ClosureSummary.LimitHit`. Truncated
+  identities land in `Unresolved` with a distinct reason, so they reach `ConfirmDependenciesDialog`
+  through the existing `UnresolvedDependencyGrouper` path; a truncation banner bound to
+  `Summary.IsTruncated` keeps an incomplete closure from reading as a complete one. Fourteen tests
+  cover both budgets, their boundaries, their interaction, per-traversal reset, and the grouping path.
+- **S21 — every case at `PLAN.md:221`. Closed in wave 4.** The case was not undecided.
+  `PLAN.md:82` states that a valid pin overrides source priority, and `PLAN.md:86` states that
+  missing, changed, or ambiguous pins remain invalid and never fall back silently. What actually
+  blocked the assertion was finding 1 below — a `DependencyLocator` bug — now fixed.
+- **S21 — every case at `PLAN.md:225`. Closed in wave 4**, with the closure budgets above.
 
 ### Deviations that are documented rather than unticked
 
@@ -212,13 +223,18 @@ a hazard; wave 4 should isolate.
 
 ### Findings in code no slice owned
 
-1. **`DependencyLocator` ignores pins.** `src/SRN.CC.App/Services/DependencyLocator.cs:26-35` builds
-   its occurrence cache from `curatedAsset.AllOccurrences` first-wins and never consults
-   `ResolvedOccurrence`. A pin that moves the winner to a lower-priority source is invisible to
-   dependency traversal, so the closure analyzes the wrong payload and can discover the wrong
-   dependency set. Identities in `InvalidPin` / `UnresolvedDuplicate` / `Unavailable` likewise resolve
-   to an arbitrary occurrence instead of reporting unresolved. This is a real behavioural bug, not a
-   coverage gap.
+1. **`DependencyLocator` ignores pins. FIXED in wave 4.**
+   `src/SRN.CC.App/Services/DependencyLocator.cs:26-35` built its occurrence cache from
+   `curatedAsset.AllOccurrences` first-wins and never consulted `ResolvedOccurrence`. A pin that
+   moves the winner to a lower-priority source was invisible to dependency traversal, so the closure
+   analyzed the wrong payload and could discover the wrong dependency set. Identities in
+   `InvalidPin` / `UnresolvedDuplicate` / `Unavailable` likewise resolved to an arbitrary occurrence
+   instead of reporting unresolved. The cache is now keyed on `CuratedAsset.Identity` and holds
+   `ResolvedOccurrence`, and assets whose `Status` is not `Resolved` are deliberately absent so the
+   dependency is reported unresolved (`PLAN.md:82`, `PLAN.md:86`). Asserted by
+   `DependencyClosureTests.Closure_WithPinOverridingSourcePriority_UsesThePinnedOccurrenceAsTheDependency`
+   and `Closure_WithUnresolvedCuratedAsset_ReportsItUnresolvedRatherThanSubstitutingAnOccurrence`
+   across all four non-`Resolved` statuses.
 2. **The "Cyclic dependency detected" branch is dead code.** `DependencyTraversalEngine.cs:104-108`
    cannot be reached — cycles terminate via `_visited`, confirmed by three cycle tests that finish
    with an empty unresolved map. The diagnostic string can never reach a user.
@@ -238,7 +254,8 @@ a hazard; wave 4 should isolate.
    drift — `NOTICES.md` untouched), but the release-gate script itself remains blind to it. If the
    gate is meant to catch notice drift outside `dotnet test`, the script needs the check too.
 
-All six are S23's input.
+All six are S23's input. Wave 4 fixed finding 1 and carried findings 2 through 6 into
+`docs/evidence/MILESTONE-7-EVIDENCE.md` as recorded, non-gate-blocking observations.
 
 ## Notes
 

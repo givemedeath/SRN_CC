@@ -1,5 +1,6 @@
 using SRN.CC.Core.Identity;
 using SRN.CC.Core.Occurrences;
+using SRN.CC.Core.Resolution;
 using SRN.CC.Core.Sources;
 using SRN.CC.Core.Workspace;
 
@@ -21,16 +22,26 @@ public sealed class DependencyLocator : IDependencyResolver
         _workspaceState = workspaceState ?? throw new ArgumentNullException(nameof(workspaceState));
         _streamOpener = streamOpener ?? throw new ArgumentNullException(nameof(streamOpener));
 
-        // Build cache of all workspace occurrences for quick lookup
+        // Cache the resolution winner for each curated identity. This must be ResolvedOccurrence,
+        // not a first-wins scan of AllOccurrences: a valid pin overrides source priority
+        // (PLAN.md:82), and only ResolvedOccurrence carries the pin's effect.
+        //
+        // Assets whose status is not Resolved — an invalid pin, an unresolved duplicate, an
+        // unavailable or unpackageable source — are deliberately absent from the cache, so a
+        // dependency on them is reported unresolved rather than silently satisfied by an arbitrary
+        // occurrence (PLAN.md:86, "never fall back silently").
         _occurrenceCache = new Dictionary<AssetIdentity, AssetOccurrence>();
         foreach (var curatedAsset in _workspaceState.CuratedAssets)
         {
-            foreach (var occurrence in curatedAsset.AllOccurrences)
+            if (curatedAsset.Status != ResolutionStatus.Resolved)
             {
-                if (!_occurrenceCache.ContainsKey(occurrence.Identity))
-                {
-                    _occurrenceCache[occurrence.Identity] = occurrence;
-                }
+                continue;
+            }
+
+            var winner = curatedAsset.ResolvedOccurrence;
+            if (winner != null)
+            {
+                _occurrenceCache[curatedAsset.Identity] = winner;
             }
         }
     }

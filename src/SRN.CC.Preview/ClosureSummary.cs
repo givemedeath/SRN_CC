@@ -33,18 +33,31 @@ public sealed class ClosureSummary
     /// </summary>
     public int DuplicatesSuppressed { get; }
 
+    /// <summary>
+    /// The budget that excluded at least one asset, or <see cref="TraversalLimit.None"/> if the
+    /// closure completed within every budget.
+    /// </summary>
+    public TraversalLimit LimitHit { get; }
+
+    /// <summary>
+    /// True when a budget excluded at least one asset, so the closure is incomplete.
+    /// </summary>
+    public bool IsTruncated => LimitHit != TraversalLimit.None;
+
     public ClosureSummary(
         IReadOnlySet<AssetIdentity> resolved,
         IReadOnlyList<UnresolvedDependencyGroup> unresolvedGroups,
         long totalBytes,
         int maxDepth,
-        int duplicatesSuppressed)
+        int duplicatesSuppressed,
+        TraversalLimit limitHit = TraversalLimit.None)
     {
         Resolved = resolved ?? throw new ArgumentNullException(nameof(resolved));
         UnresolvedGroups = unresolvedGroups ?? throw new ArgumentNullException(nameof(unresolvedGroups));
         TotalBytes = totalBytes;
         MaxDepth = maxDepth;
         DuplicatesSuppressed = duplicatesSuppressed;
+        LimitHit = limitHit;
 
         if (totalBytes < 0)
         {

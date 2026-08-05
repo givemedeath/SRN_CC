@@ -29,6 +29,7 @@ public partial class AssetTableViewModel : ObservableObject
     private readonly Action<ConflictFilterMode>? _onSelectedFilterModeChanged;
     private List<AssetRowViewModel> _allRows = new();
     private bool _isBatchUpdating;
+    private bool _isRebuildingResourceTypes;
 
     [ObservableProperty]
     private ObservableCollection<AssetRowViewModel> _filteredRows = new();
@@ -52,6 +53,22 @@ public partial class AssetTableViewModel : ObservableObject
     private int _selectedAssetCount;
 
     public Array FilterModes => Enum.GetValues(typeof(ConflictFilterMode));
+
+    /// <summary>
+    /// The <see cref="SelectedResourceType"/> value meaning "do not filter by type". A sentinel
+    /// string rather than null so the picker always has a selected item to display.
+    /// </summary>
+    public const string AllResourceTypes = "All types";
+
+    /// <summary>
+    /// <see cref="AllResourceTypes"/> followed by every type name present in the loaded workspace,
+    /// ordered. Only types that actually occur are offered — a picker listing every type the
+    /// registry knows would be mostly dead entries that filter to nothing.
+    /// </summary>
+    public ObservableCollection<string> ResourceTypes { get; } = new() { AllResourceTypes };
+
+    [ObservableProperty]
+    private string _selectedResourceType = AllResourceTypes;
 
     public AssetTableViewModel(
         IResourceTypeRegistry registry,
@@ -87,6 +104,64 @@ public partial class AssetTableViewModel : ObservableObject
         }).ToList();
 
         TotalAssetCount = _allRows.Count;
+        RebuildResourceTypes();
+        ApplyFilters();
+    }
+
+    /// <summary>
+    /// Refreshes the type picker to the types actually present. A selection that still exists is
+    /// kept — reloading a workspace should not silently widen a filter the operator set — and one
+    /// that no longer occurs falls back to <see cref="AllResourceTypes"/> rather than leaving the
+    /// grid filtered to a type that cannot match anything.
+    /// </summary>
+    private void RebuildResourceTypes()
+    {
+        List<string> desired = new() { AllResourceTypes };
+        desired.AddRange(_allRows
+            .Select(r => r.ResourceTypeName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase));
+
+        // A rescan usually finds the same set of types. Leaving the bound collection untouched in
+        // that case avoids disturbing the picker at all — see below for why disturbing it is costly.
+        if (ResourceTypes.SequenceEqual(desired, StringComparer.Ordinal))
+        {
+            return;
+        }
+
+        string restored = desired.Contains(SelectedResourceType, StringComparer.OrdinalIgnoreCase)
+            ? SelectedResourceType
+            : AllResourceTypes;
+
+        // Clearing an ObservableCollection that a ComboBox binds its SelectedItem to makes the
+        // control reset that selection, and the two-way binding writes the reset straight back here.
+        // Left unguarded, that intermediate value would run a filter pass matching nothing — an
+        // empty grid, briefly, and a wasted traversal of every row. The suppression holds until the
+        // real selection is back; LoadAssets runs the one filter pass that matters afterwards.
+        _isRebuildingResourceTypes = true;
+        try
+        {
+            ResourceTypes.Clear();
+            foreach (string typeName in desired)
+            {
+                ResourceTypes.Add(typeName);
+            }
+
+            SelectedResourceType = restored;
+        }
+        finally
+        {
+            _isRebuildingResourceTypes = false;
+        }
+    }
+
+    partial void OnSelectedResourceTypeChanged(string value)
+    {
+        if (_isRebuildingResourceTypes)
+        {
+            return;
+        }
+
         ApplyFilters();
     }
 
@@ -124,6 +199,12 @@ public partial class AssetTableViewModel : ObservableObject
             string search = SearchText.Trim().ToLowerInvariant();
             query = query.Where(r => r.Resref.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                                      r.ResourceTypeName.Contains(search, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.Equals(SelectedResourceType, AllResourceTypes, StringComparison.Ordinal))
+        {
+            query = query.Where(r => string.Equals(
+                r.ResourceTypeName, SelectedResourceType, StringComparison.OrdinalIgnoreCase));
         }
 
         query = SelectedFilterMode switch

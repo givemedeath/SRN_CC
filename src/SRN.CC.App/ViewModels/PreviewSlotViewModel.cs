@@ -77,7 +77,54 @@ public partial class PreviewSlotViewModel : ObservableObject
         SlotTitle = $"Slot {slotIndex + 1}";
     }
 
-    public async Task AssignOccurrenceAsync(CuratedAsset? asset, AssetOccurrence? occ, AssetSource? source)
+    /// <summary>
+    /// The families the operator may choose between for a slot, in the order the picker shows them.
+    /// <see cref="PreviewFamily.Unknown"/> is deliberately absent: it is a result state a provider
+    /// can report, never a rendering the operator can ask for.
+    /// </summary>
+    public static IReadOnlyList<PreviewFamily> SelectableFamilies { get; } =
+    [
+        PreviewFamily.Metadata,
+        PreviewFamily.Image,
+        PreviewFamily.Text,
+        PreviewFamily.Audio,
+        PreviewFamily.Tree,
+        PreviewFamily.Model,
+        PreviewFamily.Hex
+    ];
+
+    /// <summary>
+    /// <see cref="SelectableFamilies"/> as an instance path, because the slot picker uses a compiled
+    /// binding and those resolve against the data context, not against static members.
+    /// </summary>
+    public IReadOnlyList<PreviewFamily> Families => SelectableFamilies;
+
+    /// <summary>
+    /// The re-render started by the most recent <see cref="PreferredFamily"/> change, or a completed
+    /// task when none is outstanding. A property setter cannot be awaited, so the work it starts is
+    /// published here rather than being left as an untrackable fire-and-forget.
+    /// </summary>
+    public Task FamilyReloadTask { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
+    /// Set while auto-detection assigns <see cref="PreferredFamily"/>, so the change notification
+    /// does not start a second render of the load that is already in flight.
+    /// </summary>
+    private bool _suppressFamilyReload;
+
+    /// <summary>
+    /// Shows <paramref name="occ"/> in this slot, choosing the family that fits it. An explicit
+    /// choice the operator made for a previous occurrence is not carried over — a new asset gets the
+    /// rendering that suits it.
+    /// </summary>
+    public Task AssignOccurrenceAsync(CuratedAsset? asset, AssetOccurrence? occ, AssetSource? source)
+        => RenderAsync(asset, occ, source, autoSelectFamily: true);
+
+    private async Task RenderAsync(
+        CuratedAsset? asset,
+        AssetOccurrence? occ,
+        AssetSource? source,
+        bool autoSelectFamily)
     {
         _currentCts?.Cancel();
         _currentCts?.Dispose();
@@ -99,6 +146,12 @@ public partial class PreviewSlotViewModel : ObservableObject
             IsPinned = false;
             UpdatePinAvailability();
             return;
+        }
+
+        if (autoSelectFamily)
+        {
+            SetFamilyWithoutReload(
+                _previewEngine.ResolveNaturalFamily(new PreviewRequest(occ, source, PreferredFamily)));
         }
 
         IsActive = true;
@@ -181,14 +234,62 @@ public partial class PreviewSlotViewModel : ObservableObject
     [RelayCommand]
     private async Task SwitchFamilyAsync(string familyName)
     {
-        if (Enum.TryParse<PreviewFamily>(familyName, out var fam))
+        if (!Enum.TryParse<PreviewFamily>(familyName, out var fam))
         {
-            PreferredFamily = fam;
-            if (AssignedAsset != null && AssignedOccurrence != null && AssignedSource != null)
-            {
-                await AssignOccurrenceAsync(AssignedAsset, AssignedOccurrence, AssignedSource).ConfigureAwait(false);
-            }
+            return;
         }
+
+        if (fam != PreferredFamily)
+        {
+            // The change notification starts the re-render; awaiting the task it published keeps
+            // this command's contract — "returns when the new family is on screen" — intact.
+            PreferredFamily = fam;
+            await FamilyReloadTask.ConfigureAwait(false);
+            return;
+        }
+
+        // Re-asked for the family already showing. No notification fires, so render directly rather
+        // than returning without having done the refresh the caller asked for.
+        if (AssignedAsset != null && AssignedOccurrence != null && AssignedSource != null)
+        {
+            await RenderAsync(AssignedAsset, AssignedOccurrence, AssignedSource, autoSelectFamily: false)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Assigns <see cref="PreferredFamily"/> without triggering the re-render its change normally
+    /// starts. Used by auto-detection, which is already inside the render it would otherwise queue.
+    /// </summary>
+    private void SetFamilyWithoutReload(PreviewFamily family)
+    {
+        _suppressFamilyReload = true;
+        try
+        {
+            PreferredFamily = family;
+        }
+        finally
+        {
+            _suppressFamilyReload = false;
+        }
+    }
+
+    /// <summary>
+    /// A family change coming from the operator — the slot's picker — re-renders the occupied slot.
+    /// </summary>
+    partial void OnPreferredFamilyChanged(PreviewFamily value)
+    {
+        if (_suppressFamilyReload)
+        {
+            return;
+        }
+
+        // Assigned unconditionally, including when there is nothing to render: SwitchFamilyCommand
+        // awaits whatever this holds, and leaving a previous render's task in place would make the
+        // command wait on unrelated work instead of on the change it just requested.
+        FamilyReloadTask = AssignedOccurrence is null || AssignedSource is null
+            ? Task.CompletedTask
+            : RenderAsync(AssignedAsset, AssignedOccurrence, AssignedSource, autoSelectFamily: false);
     }
 
     partial void OnIsActiveChanged(bool value) => UpdatePinAvailability();

@@ -356,14 +356,17 @@ public sealed class ModelViewportControl : OpenGlControlBase, ICustomHitTest
     /// </summary>
     private static Vector3 ScreenDeltaToWorldPan(Avalonia.Vector delta, RenderCamera camera)
     {
+        // Mirrors RenderCamera.EyeOffset, including its Z-up convention — see RenderCamera.UpAxis.
+        // A pan basis built around a different vertical than the view matrix uses would drag the
+        // model along axes that do not match what the operator sees.
         float cosPitch = MathF.Cos(camera.Pitch);
         var eyeDirection = new Vector3(
             cosPitch * MathF.Sin(camera.Yaw),
-            MathF.Sin(camera.Pitch),
-            cosPitch * MathF.Cos(camera.Yaw));
+            cosPitch * MathF.Cos(camera.Yaw),
+            MathF.Sin(camera.Pitch));
 
         Vector3 forward = Vector3.Normalize(-eyeDirection);
-        Vector3 right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, forward));
+        Vector3 right = Vector3.Normalize(Vector3.Cross(RenderCamera.UpAxis, forward));
         Vector3 up = Vector3.Cross(forward, right);
 
         float scale = camera.Distance * (float)PanUnitsPerPixelAtUnitDistance;

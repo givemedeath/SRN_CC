@@ -420,4 +420,55 @@ public class RenderCameraTests
         // A model declaring more room than its bounds occupy keeps that room.
         Assert.That(camera.Distance, Is.GreaterThan(fromBoundsOnly.Distance));
     }
+
+    // ---------------------------------------------------------------------
+    // Up-axis convention (Z-up, matching how Neverwinter Nights authors models)
+    // ---------------------------------------------------------------------
+
+    private static Vector3 EyePosition(RenderCamera camera)
+    {
+        Assert.That(Matrix4x4.Invert(camera.View, out Matrix4x4 inverse), Is.True);
+        return inverse.Translation;
+    }
+
+    [Test]
+    public void View_PutsTheEyeAboveTheTargetInZ_WhenPitched()
+    {
+        RenderCamera level = RenderCamera.Frame(new Vector3(-1f), new Vector3(1f), 1f) with { Pitch = 0f };
+        RenderCamera raised = level with { Pitch = 0.7f };
+
+        // Pitch is elevation, and elevation is Z for these models.
+        Assert.That(EyePosition(raised).Z, Is.GreaterThan(EyePosition(level).Z));
+    }
+
+    [Test]
+    public void View_YawSweepKeepsTheEyeAtOneHeight()
+    {
+        RenderCamera camera = RenderCamera.Frame(new Vector3(-1f), new Vector3(1f), 1f) with { Pitch = 0.4f };
+
+        float height = EyePosition(camera).Z;
+        foreach (float yaw in new[] { 0.5f, 1.5f, 3f, 4.5f })
+        {
+            // Yaw must sweep around the models' vertical axis, not tumble the model over.
+            Assert.That(EyePosition(camera with { Yaw = yaw }).Z, Is.EqualTo(height).Within(Tolerance));
+        }
+    }
+
+    [Test]
+    public void View_MapsTheModelsUpAxisToScreenUp()
+    {
+        RenderCamera camera = RenderCamera.Frame(new Vector3(-1f), new Vector3(1f), 1f);
+
+        Vector3 target = Vector3.Transform(camera.Target, camera.View);
+        Vector3 above = Vector3.Transform(camera.Target + RenderCamera.UpAxis, camera.View);
+
+        // A point higher up the model must land higher up the screen: +Y in view space.
+        Assert.That(above.Y, Is.GreaterThan(target.Y));
+    }
+
+    [Test]
+    public void UpAxis_IsZ()
+    {
+        Assert.That(RenderCamera.UpAxis, Is.EqualTo(Vector3.UnitZ));
+    }
 }

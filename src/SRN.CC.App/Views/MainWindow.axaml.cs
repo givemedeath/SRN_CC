@@ -56,14 +56,25 @@ public partial class MainWindow : Window
                 return path?.Path.LocalPath;
             };
 
-            vm.BuildOutputFilePickerAsync = async () =>
+            vm.BuildOutputFilePickerAsync = async (suggestedFileName, suggestedDirectory) =>
             {
-                var path = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                var options = new FilePickerSaveOptions
                 {
                     Title = "Save HAK Output",
-                    SuggestedFileName = "output.hak",
+                    SuggestedFileName = string.IsNullOrWhiteSpace(suggestedFileName) ? "output.hak" : suggestedFileName,
+                    DefaultExtension = "hak",
                     FileTypeChoices = new[] { new FilePickerFileType("HAK Files (*.hak)") { Patterns = new[] { "*.hak" } } }
-                });
+                };
+
+                // Opening on the previous target's folder rather than wherever the picker last was.
+                // TryGetFolderFromPathAsync returns null for a directory that no longer exists, and a
+                // null SuggestedStartLocation is exactly the "pick for me" default.
+                if (!string.IsNullOrWhiteSpace(suggestedDirectory))
+                {
+                    options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(suggestedDirectory);
+                }
+
+                var path = await StorageProvider.SaveFilePickerAsync(options);
 
                 return path?.Path.LocalPath;
             };

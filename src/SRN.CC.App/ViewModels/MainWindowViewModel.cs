@@ -114,7 +114,8 @@ public partial class MainWindowViewModel : ObservableObject
             AddHakSourceAsync,
             AddFolderSourceAsync,
             RescanSourcesAsync,
-            CanMoveSources);
+            CanMoveSources,
+            RemoveSourceAsync);
         AssetTable = new AssetTableViewModel(
             new FallbackResourceTypeRegistry(),
             OnRowSelectionChanged,
@@ -165,7 +166,8 @@ public partial class MainWindowViewModel : ObservableObject
             AddHakSourceAsync,
             AddFolderSourceAsync,
             RescanSourcesAsync,
-            CanMoveSources);
+            CanMoveSources,
+            RemoveSourceAsync);
         AssetTable = new AssetTableViewModel(
             _registry,
             OnRowSelectionChanged,
@@ -369,6 +371,7 @@ public partial class MainWindowViewModel : ObservableObject
         BuildHakCommand.NotifyCanExecuteChanged();
         SourceStack.MoveUpCommand.NotifyCanExecuteChanged();
         SourceStack.MoveDownCommand.NotifyCanExecuteChanged();
+        SourceStack.RemoveSourceCommand.NotifyCanExecuteChanged();
 
         // The source stack's own rescan button shares CanMoveSources with the toolbar's RescanCommand
         // above. Refreshing one without the other leaves two controls for the same action disagreeing
@@ -390,7 +393,11 @@ public partial class MainWindowViewModel : ObservableObject
 
     public Func<Task<string?>>? OpenFilePickerAsync { get; set; }
     public Func<Task<string?>>? SaveProjectFilePickerAsync { get; set; }
-    public Func<Task<string?>>? BuildOutputFilePickerAsync { get; set; }
+    /// <summary>
+    /// Asks the user where to write the built HAK, given a suggested file name and directory.
+    /// Returns null when the user cancels, which cancels the build.
+    /// </summary>
+    public Func<string, string?, Task<string?>>? BuildOutputFilePickerAsync { get; set; }
     public Func<Task<IReadOnlyList<string>>>? HakFilePickerAsync { get; set; }
     public Func<Task<string?>>? FolderPickerAsync { get; set; }
 
@@ -717,32 +724,19 @@ public partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        string? destPath = null;
-        if (_currentProjectPath is null && BuildOutputFilePickerAsync != null)
+        string defaultPath = ResolveDefaultBuildOutputPath(_workspaceState, _currentProjectPath);
+
+        // Always ask, even when the project or its preferences already name a target. A build
+        // overwrites whatever is at the destination, and the destination is usually a live override
+        // or hak directory, so the one place the user gets to see and change it is here.
+        string destPath = defaultPath;
+        if (BuildOutputFilePickerAsync != null)
         {
-            destPath = await BuildOutputFilePickerAsync().ConfigureAwait(true);
-            if (string.IsNullOrWhiteSpace(destPath)) return;
-        }
-
-        if (string.IsNullOrWhiteSpace(destPath))
-        {
-            string projectDir = !string.IsNullOrWhiteSpace(_currentProjectPath)
-                ? Path.GetDirectoryName(_currentProjectPath) ?? Directory.GetCurrentDirectory()
-                : Directory.GetCurrentDirectory();
-
-            string baseName = !string.IsNullOrWhiteSpace(_currentProjectPath)
-                ? Path.GetFileNameWithoutExtension(_currentProjectPath)
-                : "output";
-
-            string? configuredTargetHak = ResolveConfiguredTargetHakPath(_workspaceState, _currentProjectPath);
-            if (!string.IsNullOrWhiteSpace(configuredTargetHak))
-            {
-                destPath = configuredTargetHak;
-            }
-            else
-            {
-                destPath = Path.Combine(projectDir, $"{baseName}.hak");
-            }
+            string? chosen = await BuildOutputFilePickerAsync(
+                Path.GetFileName(defaultPath),
+                Path.GetDirectoryName(defaultPath)).ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(chosen)) return;
+            destPath = chosen;
         }
 
         var cts = StatusBar.BeginOperation("Building HAK package...");
@@ -780,6 +774,29 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The path the build output picker opens on: the project's configured target HAK if it has
+    /// one, otherwise a <c>.hak</c> named after the project beside it.
+    /// </summary>
+    private string ResolveDefaultBuildOutputPath(WorkspaceState state, string? projectPath)
+    {
+        string? configuredTargetHak = ResolveConfiguredTargetHakPath(state, projectPath);
+        if (!string.IsNullOrWhiteSpace(configuredTargetHak))
+        {
+            return configuredTargetHak;
+        }
+
+        string projectDir = !string.IsNullOrWhiteSpace(projectPath)
+            ? Path.GetDirectoryName(projectPath) ?? Directory.GetCurrentDirectory()
+            : Directory.GetCurrentDirectory();
+
+        string baseName = !string.IsNullOrWhiteSpace(projectPath)
+            ? Path.GetFileNameWithoutExtension(projectPath)
+            : "output";
+
+        return Path.Combine(projectDir, $"{baseName}.hak");
+    }
+
     private bool CanBuildHak() => _workspaceState != null && !_workspaceState.IsReadOnly;
 
     private bool CanMoveSources() => _workspaceState is { IsReadOnly: false };
@@ -798,6 +815,47 @@ public partial class MainWindowViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(path))
         {
             await AddSourcesAsync(new[] { AssetSource.CreateFolder(path) }).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Drops a source from the workspace and rebuilds resolution without it.
+    /// </summary>
+    /// <remarks>
+    /// Pins that named the removed source go with it. Keeping them would leave the workspace
+    /// carrying a pin to a source it no longer knows about, which resolution can only report as a
+    /// permanently invalid pin the user has no way to clear. Selection state is kept: it is keyed by
+    /// identity, so an identity still present in another source stays selected, and one that has
+    /// left the workspace entirely is simply no longer referenced.
+    /// </remarks>
+    private async Task RemoveSourceAsync(SourceItemViewModel item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly) return;
+
+        Guid removedId = item.Source.Id;
+        var remaining = _workspaceState.Sources
+            .Where(source => source.Id != removedId)
+            .Select((source, index) => source with { PriorityOrdinal = index })
+            .ToList();
+
+        if (remaining.Count == _workspaceState.Sources.Count) return;
+
+        var pins = _workspaceState.Pins.Where(pin => pin.SourceId != removedId).ToList();
+        int droppedPins = _workspaceState.Pins.Count - pins.Count;
+
+        var (state, _) = await _workspaceService.InitializeAsync(
+            remaining,
+            pins,
+            _workspaceState.SelectionState,
+            _workspaceState.Preferences).ConfigureAwait(true);
+        await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
+
+        OperationLog.AddEntry("INFO", $"Removed source {item.Title}.");
+        if (droppedPins > 0)
+        {
+            OperationLog.AddEntry("WARN", $"  {droppedPins} pin(s) to that source were discarded.");
         }
     }
 

@@ -240,7 +240,14 @@ public sealed class SilkGlDevice : IGlDevice
         // Transparent, so the slot's own background shows through around the model rather than the
         // viewport painting a black rectangle over it.
         _gl.ClearColor(0f, 0f, 0f, 0f);
-        _gl.ClearDepth(1.0);
+
+        // The clear depth is deliberately left at GL's default of 1.0 rather than set explicitly.
+        // glClearDepth takes a double and exists only in desktop GL; OpenGL ES spells it
+        // glClearDepthf. This device runs on whatever the host hands it — ANGLE gives an ES 3.0
+        // context on Windows — and Silk resolves entry points lazily through GetProcAddress, so
+        // naming an absent one yields a null pointer and calling it takes the process down with an
+        // access violation rather than a catchable error. Since the default is already the value
+        // wanted here, the safe move is to name neither variant.
         _gl.Clear((uint)(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit));
     }
 

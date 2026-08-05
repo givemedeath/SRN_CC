@@ -16,7 +16,7 @@ the corpus and performance measurements at `PLAN.md:229`, because `SRNCC_CORPUS_
 corpus is present, and the manual real-GPU operator checklist in section 13, which is carried in full
 and marked unrun with its reason. An honest gap is auditable; an implied pass is not.
 
-Authoritative record: `tools/VerifyBuild.ps1` run `20260805T052015Z-28984`, status SUCCESS, on a
+Authoritative record: `tools/VerifyBuild.ps1` run `20260805T060309Z-16300`, status SUCCESS, on a
 clean tree.
 
 ---
@@ -302,7 +302,7 @@ dotnet test SRN.CC.sln
 ```
 
 - **Build**: 0 Warnings, 0 Errors.
-- **`SRN.CC.Tests`**: 1019 passed, 0 failed, 0 skipped.
+- **`SRN.CC.Tests`**: 1022 passed, 0 failed, 0 skipped.
 - **`SRN.CC.CorpusTests`**: 0 passed, 0 failed, 6 skipped — no corpus present, the gate behaving as
   designed.
 
@@ -324,13 +324,13 @@ No row in this document names a test that was not observed to pass.
 powershell -NoProfile -File tools/VerifyBuild.ps1
 ```
 
-**Run ID `20260805T052015Z-28984` — SUCCESS**, on a clean tree.
+**Run ID `20260805T060309Z-16300` — SUCCESS**, on a clean tree.
 
 ```json
 {
     "status":  "SUCCESS",
-    "timestampUtc":  "2026-08-05T05:22:03.0715405Z",
-    "runId":  "20260805T052015Z-28984",
+    "timestampUtc":  "2026-08-05T06:04:47.4256638Z",
+    "runId":  "20260805T060309Z-16300",
     "sdkVersion":  "10.0.302",
     "runtimeFrameworkVersion":  "10.0.10",
     "configuration":  "Release",
@@ -342,7 +342,7 @@ powershell -NoProfile -File tools/VerifyBuild.ps1
 }
 ```
 
-`gitStatus` is empty, so this is a genuine clean-tree run. The prior best run,
+`gitStatus` is empty, so this is a genuine clean-tree run. The last pre-milestone run,
 `20260804T212248Z-1592`, was made on a dirty tree and is explicitly **not** the record cited here.
 
 All eleven steps:
@@ -353,7 +353,7 @@ All eleven steps:
    signatures, sources, audit results, and project references.
    **Vendored sources audit PASSED** — 47 verbatim blobs, 40 source files, 8 portable test files.
 4. **Build Release/win-x64: 0 Warnings, 0 Errors.**
-5. **Tests: 1019 passed, 0 failed, 0 skipped** (`SRN.CC.Tests`). `SRN.CC.CorpusTests` matched no test
+5. **Tests: 1022 passed, 0 failed, 0 skipped** (`SRN.CC.Tests`). `SRN.CC.CorpusTests` matched no test
    under `Category!=Corpus&Category!=Performance`, as expected.
 6. Self-contained `win-x64` publish, as a folder.
 7. Reviewed licenses and notices added.
@@ -372,14 +372,21 @@ All eleven steps:
 `sha256` per file. Every ZIP entry timestamp is pinned to `1980-01-01T00:00:00Z`, which is what makes
 the repack byte-identical.
 
-**Determinism across independent runs.** A second full verifier pass, run `20260805T053710Z-3956`,
-also SUCCESS on a clean tree, produced the **same archive SHA-256**
-`db162257a83647aa0a903b1b8a1c326adfebffd5950b7312128514e6579ddb03` from a separate build, publish,
-and pack. That is a stronger result than step 9's within-run probe: the archive is reproducible
+**Determinism across independent runs.** Three full verifier passes on clean trees —
+`20260805T052015Z-28984`, `20260805T053710Z-3956`, and the authoritative
+`20260805T060309Z-16300` — all produced the **same archive SHA-256**
+`db162257a83647aa0a903b1b8a1c326adfebffd5950b7312128514e6579ddb03` from separate builds, publishes,
+and packs. That is a stronger result than step 9's within-run probe: the archive is reproducible
 across independent compilations, not merely across two packs of one publish tree.
 
+The third run also confirms a property worth stating explicitly: it carried three more tests than the
+first (1022 against 1019) and produced a byte-identical archive, because test assemblies are not
+shipped. Test changes cannot move the release artifact.
+
 **Clean-machine smoke** (`tools/SmokeCleanMachine.ps1`), run against the extracted archive:
-**PASSED**. The release-tree audit passed over 252 files; `--srncc-preflight-only` reported all four
+**PASSED**. The smoke was run against the archive produced by run `20260805T052015Z-28984`, which is
+byte-identical to the authoritative run's archive — same SHA-256, as recorded above — so the result
+transfers exactly rather than approximately. The release-tree audit passed over 252 files; `--srncc-preflight-only` reported all four
 checks — `cache`, `settings`, `publication-journal`, `tool-capability` — as `Ok`; the application
 launched and survived its ten-second window; and the log and cache were present with the first log
 line parsing as JSON.

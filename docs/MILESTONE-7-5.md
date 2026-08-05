@@ -105,13 +105,23 @@ Both deliverables landed: `docs/evidence/MILESTONE-7-EVIDENCE.md` and
 Wave 4 also closed two code gaps wave 3 had recorded rather than fixed, because the evidence document
 could not otherwise name a test for `PLAN.md:225` or `PLAN.md:221` (commit `9082dc8`): closure size
 and count budgets in `DependencyTraversalEngine`, and `DependencyLocator`'s blindness to pins. Sixteen
-tests landed; the suite went from 1019 to 1019 passing with those included, 0 failing.
+tests landed, and three more with the banner-rendering tests below; the suite finished at 1022
+passing, 0 failing.
 
-**Authoritative record:** `tools/VerifyBuild.ps1` run `20260805T052015Z-28984`, status SUCCESS, on a
+**Authoritative record:** `tools/VerifyBuild.ps1` run `20260805T060309Z-16300`, status SUCCESS, on a
 clean tree (`gitStatus` empty). Version 1.0.0; `SRN.CC-1.0.0-win-x64.zip`, 252 files, SHA-256
 `db162257a83647aa0a903b1b8a1c326adfebffd5950b7312128514e6579ddb03`, reproduced byte-identically by
-the independent repack in step 9. Build 0 warnings / 0 errors; tests 1019 passed / 0 failed / 0
-skipped.
+the independent repack in step 9 **and by two earlier full passes on clean trees**. Build 0 warnings
+/ 0 errors; tests 1022 passed / 0 failed / 0 skipped.
+
+**Found while verifying, not while building.** The truncation banner added to
+`ConfirmDependenciesDialog` was unverified: no project sets `AvaloniaUseCompiledBindingsByDefault`,
+so `x:DataType` is declarative only and an unresolvable binding path fails silently at runtime while
+still compiling. Three headless tests now render the real dialog
+(`UI.ConfirmDependenciesDialogTests`), the load-bearing one being the null-`Summary` case, since
+`IsVisible` defaults to `true`. The same pass also corrected a wrong startup-check order stated in an
+early draft of the evidence document. Both are recorded because "the build is green" was, in this
+codebase, not evidence for either claim.
 
 **Two items are ticked as recorded, not as measured.** Both were closed the way this document's own
 notes require — stated plainly rather than left ambiguous — and both remain open work for an

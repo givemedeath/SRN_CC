@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Numerics;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
@@ -78,6 +79,9 @@ public sealed class ModelViewportControl : OpenGlControlBase
     private Point? _lastPointerPosition;
     private bool _isPanning;
 
+    /// <summary>Guards <see cref="LogFrameOnce"/>; cleared whenever a new scene is uploaded.</summary>
+    private bool _frameDiagnosticLogged;
+
     /// <summary>
     /// True once <see cref="OnOpenGlInit"/> has actually run (as opposed to merely being scheduled).
     /// Test-observable diagnostic: headless test hosts have no GL backend, so this must stay false
@@ -145,7 +149,14 @@ public sealed class ModelViewportControl : OpenGlControlBase
         if (!initResult.IsSupported)
         {
             device.Dispose();
-            ReportUnavailable(initResult.Reason ?? "model rendering is not supported on this device.");
+            string reason = initResult.Reason ?? "model rendering is not supported on this device.";
+
+            // An unsupported device is reported to the slot as text, but the reason never reached
+            // the log, which is where an operator looks when a viewport comes up empty.
+            _frameDiagnosticLogged = false;
+            LogFrameOnce($"renderer initialization refused: {reason}");
+
+            ReportUnavailable(reason);
             return;
         }
 
@@ -155,6 +166,7 @@ public sealed class ModelViewportControl : OpenGlControlBase
         if (_boundViewModel is { } viewModel)
         {
             renderer.Upload(viewModel.Scene);
+            _frameDiagnosticLogged = false;
             RequestNextFrameRendering();
         }
     }
@@ -163,10 +175,68 @@ public sealed class ModelViewportControl : OpenGlControlBase
     {
         if (_renderer is not { State: RendererState.Ready } renderer || _boundViewModel is not { } viewModel)
         {
+            LogFrameOnce(
+                $"render skipped: renderer={(_renderer is null ? "null" : _renderer.State.ToString())}, "
+                + $"viewModel={(_boundViewModel is null ? "null" : "bound")}.");
             return;
         }
 
-        renderer.Render(fb, viewModel.Camera, (int)Bounds.Width, (int)Bounds.Height, viewModel.ShowWalkmesh);
+        // OpenGlControlBase hands over a framebuffer sized in physical pixels, but Bounds is in
+        // device-independent pixels. On any display with scaling the two differ, and passing the DIP
+        // size sets a viewport covering only part of the framebuffer.
+        (int pixelWidth, int pixelHeight) = FramebufferPixelSize();
+
+        renderer.Render(fb, viewModel.Camera, pixelWidth, pixelHeight, viewModel.ShowWalkmesh);
+
+        LogFrameOnce(
+            $"rendered: drawCalls={renderer.LastFrameDrawCallCount}, "
+            + $"boundTextures={renderer.LastFrameBoundTextureNames.Count}, "
+            + $"pixels={pixelWidth}x{pixelHeight}, dips={(int)Bounds.Width}x{(int)Bounds.Height}, "
+            + $"scaling={TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0:0.##}, "
+            + $"meshes={viewModel.Scene.ArtworkMeshes.Count}, "
+            + $"walkmesh={viewModel.ShowWalkmesh}, "
+            + $"camera=(distance {viewModel.Camera.Distance:0.###}, near {viewModel.Camera.NearPlane:0.####}, "
+            + $"far {viewModel.Camera.FarPlane:0.#}), model='{viewModel.Scene.ModelName}'.");
+    }
+
+    /// <summary>
+    /// The framebuffer's size in physical pixels: the control's device-independent bounds scaled by
+    /// the render scaling of the window hosting it.
+    /// </summary>
+    private (int Width, int Height) FramebufferPixelSize()
+    {
+        double scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        if (scaling <= 0 || double.IsNaN(scaling) || double.IsInfinity(scaling))
+        {
+            scaling = 1.0;
+        }
+
+        return ((int)Math.Round(Bounds.Width * scaling), (int)Math.Round(Bounds.Height * scaling));
+    }
+
+    /// <summary>
+    /// Emits one record describing the outcome of the first frame after each upload. Per-frame
+    /// logging would flood the drawer during an orbit drag; one record per scene is what makes an
+    /// empty viewport diagnosable at all, since every state this reports — renderer readiness, draw
+    /// call count, viewport size — is otherwise invisible from outside the GL context.
+    /// </summary>
+    private void LogFrameOnce(string message)
+    {
+        if (_frameDiagnosticLogged)
+        {
+            return;
+        }
+
+        _frameDiagnosticLogged = true;
+
+        try
+        {
+            Logger.Log(LogLevel.Info, LogCategory, message);
+        }
+        catch (Exception)
+        {
+            // A viewport must not fail because a log sink did.
+        }
     }
 
     protected override void OnOpenGlDeinit(GlInterface gl)
@@ -316,6 +386,7 @@ public sealed class ModelViewportControl : OpenGlControlBase
         if (_renderer is { State: RendererState.Ready } renderer)
         {
             renderer.Upload(viewModel.Scene);
+            _frameDiagnosticLogged = false;
             RequestNextFrameRendering();
         }
     }

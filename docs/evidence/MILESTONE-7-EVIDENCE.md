@@ -35,9 +35,14 @@ this over the real four rather than over a stub.
 
 ## 2. The Four Startup Checks
 
-`settings`, `cache`, `publication-journal`, and `tool-capability`, run in that order because the
-handoff requires it: settings are read before the cache path is known, and the journal is recovered
-before any publication can be attempted.
+`cache`, `settings`, `publication-journal`, `tool-capability` — asserted as an exact ordered sequence,
+not as a set, by `App.AppServicesTests.CreateAsync_RunsAllFourChecksInTheOrderTheHandoffRequires`.
+Asserting the order is what makes "the handoff requires it" checkable: a check reordered or dropped
+from the wiring fails the test rather than passing a count-only assertion.
+
+Note that `tools/SmokeCleanMachine.ps1` lists the same four ids in a different order in
+`$expectedCheckIds`. That is deliberate and not a contradiction — the smoke runner asserts the *set*
+of checks present in the report, while the ordering contract is asserted in the test above.
 
 Each degrades rather than blocks. A corrupt cache is quarantined and rebuilt; corrupt settings are
 quarantined and defaults returned; a journal left mid-publish is rolled back at startup, and a
@@ -116,6 +121,16 @@ traversal's diagnostic channel is the `Unresolved` reason map, which `Unresolved
 already buckets by exact reason, so truncation reaches `ConfirmDependenciesDialog` through the
 existing path. A banner bound to `Summary.IsTruncated` keeps a bounded closure from reading as
 complete.
+
+The banner is asserted by rendering the real view headlessly, not by inspecting the view model:
+`UI.ConfirmDependenciesDialogTests.TruncatedClosure_ShowsTheTruncationBannerNamingTheBudgetThatFired`,
+`UI.ConfirmDependenciesDialogTests.CompleteClosure_ShowsNoTruncationBanner`, and
+`UI.ConfirmDependenciesDialogTests.NoClosureAtAll_ShowsNoTruncationBanner`. That last case is the one
+worth having: this project does **not** set `AvaloniaUseCompiledBindingsByDefault`, so `x:DataType` is
+declarative only and an unresolvable binding path fails silently at runtime while still compiling — a
+green build is no evidence that a binding works. Since `ConfirmDependenciesDialogViewModel.Summary` is
+nullable and `IsVisible` defaults to `true`, a banner bound naively could have announced a truncated
+closure on a dialog that had no closure at all. It does not, and now cannot regress silently.
 
 **Pin correctness.** `DependencyLocator` built its cache from `AllOccurrences` first-wins and never
 read `ResolvedOccurrence`, so a pin that moved the winner to a lower-priority source was invisible to
@@ -262,6 +277,19 @@ recorded, non-gate-blocking observations:
   `Architecture.NoticesCompletenessTests` now covers the file, but the release-gate script itself
   remains blind to it.
 
+One further observation, found in wave 4 while verifying this document rather than inherited from
+wave 3:
+
+- **XAML bindings are not compile-checked.** No project sets
+  `AvaloniaUseCompiledBindingsByDefault`, so every `x:DataType` in the codebase is declarative only.
+  A binding path that does not resolve fails silently at runtime and still compiles cleanly, which
+  means a green build — including the 0-warning Release build recorded in section 12b — is not
+  evidence that any given binding works. Anything asserted about UI behaviour must render the view.
+  This is not gate-blocking and is not a defect, but it is the reason
+  `UI.ConfirmDependenciesDialogTests` renders the real dialog instead of testing its view model, and
+  a future milestone considering `AvaloniaUseCompiledBindingsByDefault` should know the current
+  bindings have never been checked by the compiler.
+
 ---
 
 ## 12. Verification Pass Results
@@ -286,6 +314,7 @@ the Release build, in five batches:
 - Publication, render, startup classes: 143 passed, 0 failed.
 - Schema, release-pipeline, notices, version-stamping, acceptance classes: 45 passed, 0 failed.
 - `DependencyClosureTests` and `DependencyTraversalEngineTests`: 55 passed, 0 failed.
+- `UI.ConfirmDependenciesDialogTests`: 3 passed, 0 failed.
 
 No row in this document names a test that was not observed to pass.
 

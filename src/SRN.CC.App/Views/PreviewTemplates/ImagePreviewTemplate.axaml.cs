@@ -40,14 +40,28 @@ public sealed class ImagePreviewCanvas : Border
                 Children = { _scaleTransform, _translateTransform },
             },
         };
+        // The image is a control, so a plain binding resolves against the DataContext it inherits.
         _image.Bind(Image.SourceProperty, new Binding(nameof(ImageContentViewModel.Bitmap)));
-        _scaleTransform.Bind(ScaleTransform.ScaleXProperty, new Binding(nameof(ImageContentViewModel.ZoomScale)));
-        _scaleTransform.Bind(ScaleTransform.ScaleYProperty, new Binding(nameof(ImageContentViewModel.ZoomScale)));
-        _translateTransform.Bind(TranslateTransform.XProperty, new Binding(nameof(ImageContentViewModel.PanX)));
-        _translateTransform.Bind(TranslateTransform.YProperty, new Binding(nameof(ImageContentViewModel.PanY)));
+
+        // Transforms are not. ScaleTransform and TranslateTransform are bare AvaloniaObjects that
+        // sit outside the visual tree and have no DataContext of their own, so a plain binding
+        // throws "Cannot find a DataContext to bind to" — from this constructor, which means the
+        // whole DataTemplate fails to build and the slot renders nothing at all. Routing each one
+        // through this canvas's own DataContext keeps the binding declarative and still tracks the
+        // slot swapping one view model for another.
+        _scaleTransform.Bind(ScaleTransform.ScaleXProperty, CanvasBinding(nameof(ImageContentViewModel.ZoomScale)));
+        _scaleTransform.Bind(ScaleTransform.ScaleYProperty, CanvasBinding(nameof(ImageContentViewModel.ZoomScale)));
+        _translateTransform.Bind(TranslateTransform.XProperty, CanvasBinding(nameof(ImageContentViewModel.PanX)));
+        _translateTransform.Bind(TranslateTransform.YProperty, CanvasBinding(nameof(ImageContentViewModel.PanY)));
 
         Child = _image;
     }
+
+    /// <summary>
+    /// A binding to <paramref name="property"/> on this canvas's data context, usable from an object
+    /// that has no data context of its own.
+    /// </summary>
+    private Binding CanvasBinding(string property) => new($"{nameof(DataContext)}.{property}") { Source = this };
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {

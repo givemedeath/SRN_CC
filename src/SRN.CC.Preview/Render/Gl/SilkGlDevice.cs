@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using Silk.NET.OpenGL;
 
@@ -87,20 +88,43 @@ public sealed class SilkGlDevice : IGlDevice
 
         if (width > 0 && height > 0 && !bgra.IsEmpty)
         {
-            // BGRA import: ANGLE (and most desktop drivers) accept GL_BGRA as both format and
-            // internal format for 8-bit-per-channel uploads. hasAlpha does not change the upload
-            // path here — it is surfaced to the material/shading layer (alpha test/blend selection)
-            // rather than the texture storage format.
-            _gl.TexImage2D(
-                TextureTarget.Texture2D,
-                0,
-                InternalFormat.Rgba,
-                (uint)width,
-                (uint)height,
-                0,
-                PixelFormat.Bgra,
-                PixelType.UnsignedByte,
-                in bgra[0]);
+            // Swizzled to RGBA on the CPU and uploaded as GL_RGBA/GL_RGBA rather than handed over as
+            // GL_BGRA. OpenGL ES requires glTexImage2D's internal format to equal its format, so the
+            // GL_RGBA-internal/GL_BGRA-format pairing this used to pass is GL_INVALID_OPERATION on an
+            // ES context: the call is rejected, the texture keeps its undefined contents, and every
+            // sample of it comes back black. Nothing reports that — the texture name is valid and
+            // binds fine, so a model renders as a black silhouette with all its draw calls issued.
+            //
+            // GL_BGRA is reachable on ES only via EXT_texture_format_BGRA8888, and then only with
+            // GL_BGRA as the internal format too. Converting instead keeps this correct on desktop
+            // GL and ES alike without depending on an extension, at the cost of one pass over the
+            // pixels — which previews, bounded by PreviewStreamHelpers' budgets, can afford.
+            byte[] rgba = ArrayPool<byte>.Shared.Rent(bgra.Length);
+            try
+            {
+                for (int i = 0; i + 3 < bgra.Length; i += 4)
+                {
+                    rgba[i] = bgra[i + 2];
+                    rgba[i + 1] = bgra[i + 1];
+                    rgba[i + 2] = bgra[i];
+                    rgba[i + 3] = bgra[i + 3];
+                }
+
+                _gl.TexImage2D(
+                    TextureTarget.Texture2D,
+                    0,
+                    InternalFormat.Rgba,
+                    (uint)width,
+                    (uint)height,
+                    0,
+                    PixelFormat.Rgba,
+                    PixelType.UnsignedByte,
+                    in rgba[0]);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(rgba);
+            }
         }
 
         _gl.BindTexture(TextureTarget.Texture2D, 0);

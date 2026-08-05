@@ -351,17 +351,11 @@ public sealed class SilkGlDevice : IGlDevice
             return;
         }
 
-        ReadOnlySpan<float> values =
-        [
-            matrix.M11, matrix.M12, matrix.M13, matrix.M14,
-            matrix.M21, matrix.M22, matrix.M23, matrix.M24,
-            matrix.M31, matrix.M32, matrix.M33, matrix.M34,
-            matrix.M41, matrix.M42, matrix.M43, matrix.M44,
-        ];
-
-        // System.Numerics.Matrix4x4 is stored row-major; transpose:true tells GL to transpose on
-        // upload so the shader's column-major mat4 multiplication is correct.
-        _gl.UniformMatrix4(location, true, values);
+        // Element order and the transpose flag are one decision and live together in
+        // GlMatrixUpload, where they can be asserted without a driver. See that type for why an
+        // untransposed upload is what GLSL's column-vector convention actually wants.
+        ReadOnlySpan<float> values = GlMatrixUpload.Pack(matrix);
+        _gl.UniformMatrix4(location, GlMatrixUpload.Transpose, values);
     }
 
     private void SetVector3Uniform(uint program, string name, Vector3 value)

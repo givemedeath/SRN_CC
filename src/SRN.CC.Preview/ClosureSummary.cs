@@ -34,12 +34,13 @@ public sealed class ClosureSummary
     public int DuplicatesSuppressed { get; }
 
     /// <summary>
-    /// The budget that stopped traversal, or <see cref="TraversalLimit.None"/> if the closure completed.
+    /// The budget that excluded at least one asset, or <see cref="TraversalLimit.None"/> if the
+    /// closure completed within every budget.
     /// </summary>
     public TraversalLimit LimitHit { get; }
 
     /// <summary>
-    /// True when a budget stopped traversal, so the closure is incomplete.
+    /// True when a budget excluded at least one asset, so the closure is incomplete.
     /// </summary>
     public bool IsTruncated => LimitHit != TraversalLimit.None;
 

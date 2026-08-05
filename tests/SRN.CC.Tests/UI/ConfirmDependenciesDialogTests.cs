@@ -80,18 +80,25 @@ public class ConfirmDependenciesDialogTests
         }
     }
 
+    /// <summary>
+    /// Shows the real dialog. <see cref="ConfirmDependenciesDialog"/> is itself a
+    /// <see cref="Window"/>, so it is shown directly rather than having its content reparented into
+    /// a second window — that would leave the dialog window constructed, unshown, and never closed.
+    /// </summary>
     private static Window Render(ClosureSummary? summary)
     {
         var vm = new ConfirmDependenciesDialogViewModel();
         if (summary != null)
         {
+            // Fire and forget: the returned task completes only when the operator confirms or
+            // cancels, and these tests assert on what was rendered, not on the outcome.
             _ = vm.ShowDialogAsync(summary);
         }
 
-        var window = new Window { Content = new ConfirmDependenciesDialog { DataContext = vm }.Content, DataContext = vm, Width = 600, Height = 500 };
-        window.Show();
-        window.UpdateLayout();
-        return window;
+        var dialog = new ConfirmDependenciesDialog { DataContext = vm };
+        dialog.Show();
+        dialog.UpdateLayout();
+        return dialog;
     }
 
     private static IEnumerable<string> BannerTexts(Window window) =>

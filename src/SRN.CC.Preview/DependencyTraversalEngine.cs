@@ -56,6 +56,13 @@ public sealed class DependencyTraversalEngine
     /// reports the first one, because that is the budget that shaped the closure. Identities rejected
     /// by a budget are reported in <see cref="TraversalResult.Unresolved"/> with a distinct reason, and
     /// contribute neither bytes nor descendants.
+    /// <para>
+    /// A budget excludes nodes; it does not abort the walk. Once <paramref name="maxCount"/> is
+    /// reached nothing further can be admitted, so the effect is indistinguishable from stopping. The
+    /// <paramref name="maxBytes"/> budget is different: an oversized node is skipped and smaller
+    /// siblings behind it are still admitted. Enqueue order is sorted for exactly this reason, so the
+    /// resulting closure depends only on the graph and the budget.
+    /// </para>
     /// </remarks>
     public async Task<TraversalResult> TraverseAsync(
         IEnumerable<AssetIdentity> roots,
@@ -171,8 +178,9 @@ public sealed class DependencyTraversalEngine
 
                     // Check the closure size budget before admitting the payload. Tested here rather
                     // than before location because the byte cost is only known once the occurrence is
-                    // located. A rejected node contributes neither bytes nor descendants.
-                    if (!_resolved.Contains(identity) && _totalBytes + occurrence.Size > maxBytes)
+                    // located. A rejected node contributes neither bytes nor descendants, but it does
+                    // not end the traversal: smaller siblings still fit and are still admitted.
+                    if (_totalBytes + occurrence.Size > maxBytes)
                     {
                         RecordLimit(TraversalLimit.Size);
                         _unresolved[identity] = $"Closure size limit ({maxBytes} bytes) exceeded";
@@ -187,8 +195,12 @@ public sealed class DependencyTraversalEngine
                         _totalBytes += occurrence.Size;
                     }
 
-                    // Enqueue discovered dependencies
-                    foreach (var dep in directDeps)
+                    // Enqueue discovered dependencies in a deterministic order. The analyzer returns
+                    // an IReadOnlySet, whose enumeration order is unspecified, and under a size
+                    // budget the order decides which siblings fit: two 300-byte siblings under a
+                    // 500-byte budget admit whichever is dequeued first. Sorting makes the closure a
+                    // function of the graph and the budget alone, never of set internals.
+                    foreach (var dep in SortedForDeterminism(directDeps))
                     {
                         if (!_visited.Contains(dep) && !_inFlight.Contains(dep))
                         {
@@ -237,5 +249,25 @@ public sealed class DependencyTraversalEngine
         {
             _limitHit = limit;
         }
+    }
+
+    /// <summary>
+    /// Orders dependencies by resource type, then by canonical resref bytes, so traversal visits a
+    /// given graph in the same order on every run regardless of how the analyzer's set enumerates.
+    /// </summary>
+    private static IEnumerable<AssetIdentity> SortedForDeterminism(IReadOnlySet<AssetIdentity> dependencies) =>
+        dependencies
+            .OrderBy(dependency => dependency.ResourceType)
+            .ThenBy(dependency => dependency.CanonicalResrefBytes, CanonicalResrefComparer.Instance);
+
+    /// <summary>
+    /// Ordinal comparison over canonical resref bytes. Bytes rather than the string form, because
+    /// the canonical bytes are the identity and are already case-folded.
+    /// </summary>
+    private sealed class CanonicalResrefComparer : IComparer<ReadOnlyMemory<byte>>
+    {
+        public static readonly CanonicalResrefComparer Instance = new();
+
+        public int Compare(ReadOnlyMemory<byte> x, ReadOnlyMemory<byte> y) => x.Span.SequenceCompareTo(y.Span);
     }
 }

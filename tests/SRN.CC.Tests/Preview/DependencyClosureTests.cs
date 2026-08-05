@@ -293,6 +293,48 @@ public class DependencyClosureTests
     }
 
     [Test]
+    public async Task Closure_SizeLimit_SkipsTheOversizedNodeButStillAdmitsSmallerSiblings()
+    {
+        AssetIdentity root = _graph.AddNode("fan_root", size: 100);
+        AssetIdentity big = _graph.AddNode("fan_big", size: 9000);
+        AssetIdentity small = _graph.AddNode("fan_small", size: 10);
+        _graph.SetDependencies(root, big, small);
+
+        TraversalResult result = await _engine.TraverseAsync([root], maxBytes: 500);
+
+        result.Resolved.Should().BeEquivalentTo(
+            new[] { root, small },
+            "a size budget excludes the nodes that do not fit; it does not abort the walk");
+        result.Unresolved.Should().ContainKey(big);
+        result.TotalBytes.Should().Be(110);
+        result.LimitHit.Should().Be(TraversalLimit.Size);
+    }
+
+    [Test]
+    public async Task Closure_SizeLimit_WithSiblingsThatCannotBothFit_AdmitsTheSortedFirstNotTheSetFirst()
+    {
+        AssetIdentity root = _graph.AddNode("tie_root", size: 100);
+        AssetIdentity alpha = _graph.AddNode("tie_alpha", size: 300);
+        AssetIdentity beta = _graph.AddNode("tie_beta", size: 300);
+
+        // Inserted beta-first, deliberately the reverse of sorted order. Both siblings fit alone but
+        // not together, so whichever is dequeued first is the one admitted. The analyzer hands back
+        // an IReadOnlySet whose enumeration order is unspecified; without the engine's own sort this
+        // closure would follow that order, and this assertion would pick beta.
+        _graph.SetDependencies(root, beta, alpha);
+
+        TraversalResult result = await _engine.TraverseAsync([root], maxBytes: 500);
+
+        result.Resolved.Should().BeEquivalentTo(
+            new[] { root, alpha },
+            "enqueue order is sorted by resource type then canonical resref bytes, so the closure "
+            + "depends on the graph and the budget rather than on set internals");
+        result.Unresolved.Should().ContainKey(beta);
+        result.TotalBytes.Should().Be(400);
+        result.LimitHit.Should().Be(TraversalLimit.Size);
+    }
+
+    [Test]
     public async Task Closure_SizeLimit_UnderBudgetCompletesWithoutTruncation()
     {
         AssetIdentity[] chain = _graph.AddChain("roomy", length: 3, sizePerNode: 10);

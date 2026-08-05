@@ -1,8 +1,13 @@
 namespace SRN.CC.Preview;
 
 /// <summary>
-/// Identifies which traversal budget stopped a dependency closure before it completed.
+/// Identifies which traversal budget excluded assets from a dependency closure.
 /// </summary>
+/// <remarks>
+/// A budget excludes nodes rather than aborting the walk. <see cref="Count"/> and <see cref="Depth"/>
+/// admit nothing further once reached, so they read as a stop; <see cref="Size"/> skips an oversized
+/// node and keeps going, so smaller siblings behind it still enter the closure.
+/// </remarks>
 public enum TraversalLimit
 {
     /// <summary>

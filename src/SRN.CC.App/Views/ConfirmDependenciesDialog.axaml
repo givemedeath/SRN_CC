@@ -46,7 +46,7 @@
                     <TextBlock Foreground="#FFD27F" TextWrapping="Wrap">
                         <TextBlock.Text>
                             <Binding Path="Summary.LimitHit"
-                                     StringFormat="This closure is incomplete: the {0} budget stopped traversal. Assets beyond the budget are listed as unresolved."/>
+                                     StringFormat="This closure is incomplete: the {0} budget was reached. Assets excluded by the budget are listed below as unresolved."/>
                         </TextBlock.Text>
                     </TextBlock>
                 </Border>

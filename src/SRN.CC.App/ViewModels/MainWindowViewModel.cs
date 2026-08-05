@@ -732,9 +732,24 @@ public partial class MainWindowViewModel : ObservableObject
         string destPath = defaultPath;
         if (BuildOutputFilePickerAsync != null)
         {
-            string? chosen = await BuildOutputFilePickerAsync(
-                Path.GetFileName(defaultPath),
-                Path.GetDirectoryName(defaultPath)).ConfigureAwait(true);
+            string? chosen;
+            try
+            {
+                chosen = await BuildOutputFilePickerAsync(
+                    Path.GetFileName(defaultPath),
+                    Path.GetDirectoryName(defaultPath)).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                // This runs before the try that wraps the build itself, and an async command handler
+                // that throws takes the process down rather than reporting. The picker reaches the
+                // shell's storage provider with a directory taken from the project file, so a
+                // targetHak naming a disconnected share or a removed drive is enough to get here.
+                OperationLog.AddEntry("ERROR", $"Could not open the build output picker: {ex.Message}");
+                _logger.Log(LogLevel.Error, LogCategory, "The build output picker failed to open.", ex);
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(chosen)) return;
             destPath = chosen;
         }

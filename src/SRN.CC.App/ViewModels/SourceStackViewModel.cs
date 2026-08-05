@@ -63,7 +63,17 @@ public partial class SourceStackViewModel : ObservableObject
 
     public void UpdateSources(IEnumerable<SourceItemViewModel> sources)
     {
+        Guid? selectedId = SelectedSource?.Source.Id;
         Sources = new ObservableCollection<SourceItemViewModel>(sources.OrderBy(s => s.PriorityOrdinal));
+
+        // Every reload builds fresh item view models, so the old selection is an object that is no
+        // longer in the list. Left alone it reads as a selection to CanRemoveSource while
+        // Sources.IndexOf returns -1 to the move commands — an enabled remove button and two move
+        // buttons that silently do nothing. Re-point it at the same source, or clear it if that
+        // source has gone.
+        SelectedSource = selectedId is null
+            ? null
+            : Sources.FirstOrDefault(s => s.Source.Id == selectedId.Value);
     }
 
     [RelayCommand(CanExecute = nameof(CanMoveSource))]

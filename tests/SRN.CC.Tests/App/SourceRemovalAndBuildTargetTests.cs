@@ -129,6 +129,38 @@ public class SourceRemovalAndBuildTargetTests
         vm.SourceStack.RemoveSourceCommand.CanExecute(null).Should().BeFalse();
     }
 
+    [Test]
+    public async Task RemovingTheSelectedSource_ClearsTheSelection()
+    {
+        MainWindowViewModel vm = CreateViewModel(out _);
+        await AddThreeSourcesAsync(vm);
+
+        vm.SourceStack.SelectedSource = vm.SourceStack.Sources.Single(s => s.Title == "b.hak");
+        await vm.SourceStack.RemoveSourceCommand.ExecuteAsync(null);
+
+        // A reload rebuilds every item view model, so a selection held across one points at an
+        // object no longer in the list: the remove button stays enabled over a source that is gone
+        // and the move commands see IndexOf == -1 and silently do nothing.
+        vm.SourceStack.SelectedSource.Should().BeNull();
+        vm.SourceStack.RemoveSourceCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task ASurvivingSelection_FollowsTheReloadToItsNewItem()
+    {
+        MainWindowViewModel vm = CreateViewModel(out _);
+        await AddThreeSourcesAsync(vm);
+
+        SourceItemViewModel before = vm.SourceStack.Sources.Single(s => s.Title == "a.hak");
+        vm.SourceStack.SelectedSource = before;
+
+        await vm.SourceStack.RescanSourcesCommand.ExecuteAsync(null);
+
+        vm.SourceStack.SelectedSource.Should().NotBeNull();
+        vm.SourceStack.SelectedSource!.Title.Should().Be("a.hak");
+        vm.SourceStack.Sources.Should().Contain(vm.SourceStack.SelectedSource);
+    }
+
     // -------------------------------------------------------------- build target
 
     [Test]
@@ -180,6 +212,25 @@ public class SourceRemovalAndBuildTargetTests
 
         // The prompt is a confirmation of the path the build would have used, not a blank field.
         suggestedName.Should().Be("output.hak");
+    }
+
+    [Test]
+    public async Task AThrowingOutputPicker_AbortsTheBuildInsteadOfTheProcess()
+    {
+        var orchestrator = new RecordingBuildOrchestrator();
+        MainWindowViewModel vm = CreateViewModel(out _, buildOrchestrator: orchestrator);
+        await vm.NewProjectCommand.ExecuteAsync(null);
+
+        vm.BuildOutputFilePickerAsync = (_, _) => throw new IOException("the share is gone");
+
+        // The picker call sits ahead of the try that wraps the build, and an async command handler
+        // that throws takes the process down rather than reporting — the same failure mode as the
+        // comparison panel's off-thread mutation.
+        Func<Task> build = () => vm.BuildHakCommand.ExecuteAsync(null);
+
+        await build.Should().NotThrowAsync();
+        orchestrator.DestinationPath.Should().BeNull();
+        vm.OperationLog.Entries.Should().Contain(e => e.Level == "ERROR");
     }
 
     // ------------------------------------------------------------------ setup

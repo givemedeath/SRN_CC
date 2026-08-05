@@ -148,10 +148,23 @@ public partial class ComparisonPanelViewModel : ObservableObject
     }
 
     [RelayCommand]
+    /// <remarks>
+    /// Every await in this view model keeps its context. The awaits here all lead to slot state that
+    /// is bound to live UI — content, titles, pin availability — and Avalonia throws when bound
+    /// state is mutated off the UI thread, which on a command handler means the process goes down
+    /// rather than an exception being reported.
+    /// <para>
+    /// The failure was not evenly distributed, which is what made it look like a mode-switch bug
+    /// specifically. A slot assignment invoked <em>from</em> the UI thread resumes there, so the
+    /// first one in a loop is always safe; it is the second and later ones, resumed on a pool thread
+    /// after the first completed, that cross over. Toggling the mode reassigns every slot at once
+    /// and so hits that path immediately.
+    /// </para>
+    /// </remarks>
     private async Task ToggleModeAsync()
     {
         Mode = Mode == ComparisonMode.OccurrenceMode ? ComparisonMode.ResolvedMode : ComparisonMode.OccurrenceMode;
-        await UpdateSelectionAsync(_selectedAssets, _sourceMap).ConfigureAwait(false);
+        await UpdateSelectionAsync(_selectedAssets, _sourceMap).ConfigureAwait(true);
     }
 
     public async Task UpdateSelectionAsync(
@@ -175,7 +188,7 @@ public partial class ComparisonPanelViewModel : ObservableObject
             var targetAsset = effectiveAssets.FirstOrDefault();
             if (targetAsset == null)
             {
-                await ClearAllSlotsAsync(generation).ConfigureAwait(false);
+                await ClearAllSlotsAsync(generation).ConfigureAwait(true);
                 return;
             }
 
@@ -187,11 +200,11 @@ public partial class ComparisonPanelViewModel : ObservableObject
                 {
                     var occ = occurrences[i];
                     effectiveSourceMap.TryGetValue(occ.SourceId, out var src);
-                    await Slots[i].AssignOccurrenceAsync(targetAsset, occ, src).ConfigureAwait(false);
+                    await Slots[i].AssignOccurrenceAsync(targetAsset, occ, src).ConfigureAwait(true);
                 }
                 else
                 {
-                    await Slots[i].AssignOccurrenceAsync(null, null, null).ConfigureAwait(false);
+                    await Slots[i].AssignOccurrenceAsync(null, null, null).ConfigureAwait(true);
                 }
             }
         }
@@ -206,16 +219,16 @@ public partial class ComparisonPanelViewModel : ObservableObject
                     var winner = asset.ResolvedOccurrence;
                     if (winner != null && effectiveSourceMap.TryGetValue(winner.SourceId, out var src))
                     {
-                        await Slots[i].AssignOccurrenceAsync(asset, winner, src).ConfigureAwait(false);
+                        await Slots[i].AssignOccurrenceAsync(asset, winner, src).ConfigureAwait(true);
                     }
                     else
                     {
-                        await Slots[i].AssignOccurrenceAsync(asset, null, null).ConfigureAwait(false);
+                        await Slots[i].AssignOccurrenceAsync(asset, null, null).ConfigureAwait(true);
                     }
                 }
                 else
                 {
-                    await Slots[i].AssignOccurrenceAsync(null, null, null).ConfigureAwait(false);
+                    await Slots[i].AssignOccurrenceAsync(null, null, null).ConfigureAwait(true);
                 }
             }
         }
@@ -226,7 +239,7 @@ public partial class ComparisonPanelViewModel : ObservableObject
         int generation = Interlocked.Increment(ref _selectionUpdateGeneration);
         _selectedAssets = Array.Empty<CuratedAsset>();
         _sourceMap = new Dictionary<Guid, AssetSource>();
-        await ClearAllSlotsAsync(generation).ConfigureAwait(false);
+        await ClearAllSlotsAsync(generation).ConfigureAwait(true);
     }
 
     private async Task ClearAllSlotsAsync(int generation)
@@ -239,7 +252,7 @@ public partial class ComparisonPanelViewModel : ObservableObject
         foreach (var slot in Slots)
         {
             if (generation != _selectionUpdateGeneration) return;
-            await slot.AssignOccurrenceAsync(null, null, null).ConfigureAwait(false);
+            await slot.AssignOccurrenceAsync(null, null, null).ConfigureAwait(true);
         }
     }
 

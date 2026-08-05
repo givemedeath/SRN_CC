@@ -2,7 +2,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using SRN.CC.Core.Build;
+using SRN.CC.Core.Logging;
 using SRN.CC.Core.Services;
+using SRN.CC.Infrastructure.Logging;
 
 namespace SRN.CC.Infrastructure.Build;
 
@@ -11,6 +13,32 @@ public sealed class ArtifactPublisher : IArtifactPublisher
     private const string JournalFileName = "publication-journal.json";
     private const string TransactionJournalSuffix = ".publication-journal.json";
     private const int PublicationLockTimeoutMs = 20_000;
+
+    /// <summary>A single rollback or recovery file operation did not complete.</summary>
+    public const string RollbackStepFailedEventCode = "PublicationRollbackStepFailed";
+
+    /// <summary>Rollback finished with at least one failed step; the transaction is only partly undone.</summary>
+    public const string RollbackIncompleteEventCode = "PublicationRollbackIncomplete";
+
+    /// <summary>The transaction committed, but post-commit cleanup was left for recovery.</summary>
+    public const string CommitCleanupDeferredEventCode = "PublicationCommitCleanupDeferred";
+
+    /// <summary>A journal file on disk could not be read or parsed.</summary>
+    public const string JournalUnreadableEventCode = "PublicationJournalUnreadable";
+
+    /// <summary>Recovery could not take the publication lock, so it left the destination untouched.</summary>
+    public const string RecoveryContendedEventCode = "PublicationRecoveryContended";
+
+    private readonly IAppLogger _logger;
+
+    /// <param name="logger">
+    /// Optional and last so every existing call site keeps compiling unchanged; defaults to
+    /// <see cref="NullAppLogger.Instance"/>.
+    /// </param>
+    public ArtifactPublisher(IAppLogger? logger = null)
+    {
+        _logger = logger ?? NullAppLogger.Instance;
+    }
 
     public async Task<PublicationResult> PublishAsync(
         BuildPlan plan,
@@ -113,6 +141,16 @@ public sealed class ArtifactPublisher : IArtifactPublisher
                     catch (Exception cleanupException)
                     {
                         logs.Add($"Publication committed; deferred cleanup after error: {cleanupException.Message}");
+                        _logger.Log(
+                            LogLevel.Warn,
+                            nameof(ArtifactPublisher),
+                            $"Publication committed; post-commit cleanup deferred to recovery for journal '{journalPath}'.",
+                            cleanupException,
+                            new Dictionary<string, string>
+                            {
+                                [AppLogger.EventCodeKey] = CommitCleanupDeferredEventCode,
+                                ["journalPath"] = journalPath
+                            });
                     }
 
                     logs.Add("Publication committed successfully.");
@@ -131,7 +169,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
                     {
                         if (journal is not null)
                         {
-                            await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+                            RollbackOutcome cancelRollback = await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+                            ReportRollback(cancelRollback, logs, journalPath);
                         }
                     }
 
@@ -148,7 +187,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
                     logs.Add($"Publication error: {ex.Message}. Rolling back transaction...");
                     if (journal is not null)
                     {
-                        await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+                        RollbackOutcome rollback = await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+                        ReportRollback(rollback, logs, journalPath);
                     }
 
                     return new PublicationResult(
@@ -169,7 +209,8 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         {
             if (journal is not null && !(journal.State == PublicationState.Committed && persistedCommitState))
             {
-                await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+                RollbackOutcome outerRollback = await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+                ReportRollback(outerRollback, logs, journalPath);
             }
 
             throw;
@@ -210,35 +251,106 @@ public sealed class ArtifactPublisher : IArtifactPublisher
 
         async Task<bool> TryRecoverJournalAsync(string journalPath, CancellationToken ct)
         {
+            PublicationJournal? journal;
             try
             {
                 byte[] bytes = await File.ReadAllBytesAsync(journalPath, ct).ConfigureAwait(false);
-                var journal = JsonSerializer.Deserialize<PublicationJournal>(bytes);
-                if (journal == null) return false;
+                journal = JsonSerializer.Deserialize<PublicationJournal>(bytes);
+            }
+            catch (Exception ex)
+            {
+                // As broad as the bare `catch` this replaced — including cancellation, which recovery
+                // has always reported as "not recovered" rather than propagated. Narrowing it here
+                // would be a behaviour change smuggled in behind a logging change.
+                _logger.Log(
+                    LogLevel.Warn,
+                    nameof(ArtifactPublisher),
+                    $"Publication journal '{journalPath}' could not be read; leaving it in place for a later attempt.",
+                    ex,
+                    new Dictionary<string, string>
+                    {
+                        [AppLogger.EventCodeKey] = JournalUnreadableEventCode,
+                        ["journalPath"] = journalPath
+                    });
+                return false;
+            }
 
-                string lockDir = Path.GetDirectoryName(journal.DestinationHakPath) ?? journalDirectory;
-                string publicationLockPath = GetPublicationLockPath(
-                    journal.DestinationHakPath,
-                    journal.DestinationManifestPath,
-                    lockDir);
+            if (journal is null)
+            {
+                _logger.Log(
+                    LogLevel.Warn,
+                    nameof(ArtifactPublisher),
+                    $"Publication journal '{journalPath}' deserialized to null; leaving it in place for a later attempt.",
+                    exception: null,
+                    new Dictionary<string, string>
+                    {
+                        [AppLogger.EventCodeKey] = JournalUnreadableEventCode,
+                        ["journalPath"] = journalPath
+                    });
+                return false;
+            }
 
-                await using (await AcquirePublicationLockAsync(publicationLockPath, ct).ConfigureAwait(false))
+            string lockDir = Path.GetDirectoryName(journal.DestinationHakPath) ?? journalDirectory;
+            string publicationLockPath = GetPublicationLockPath(
+                journal.DestinationHakPath,
+                journal.DestinationManifestPath,
+                lockDir);
+
+            PublicationLock publicationLock;
+            try
+            {
+                publicationLock = await AcquirePublicationLockAsync(publicationLockPath, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Contention is the expected reason to arrive here: another publication holds the
+                // lock. Reporting it beats touching a destination somebody else is mid-way through.
+                _logger.Log(
+                    LogLevel.Warn,
+                    nameof(ArtifactPublisher),
+                    $"Recovery of '{journalPath}' skipped: the publication lock '{publicationLockPath}' is held.",
+                    ex,
+                    new Dictionary<string, string>
+                    {
+                        [AppLogger.EventCodeKey] = RecoveryContendedEventCode,
+                        ["journalPath"] = journalPath,
+                        ["lockPath"] = publicationLockPath
+                    });
+                return false;
+            }
+
+            await using (publicationLock.ConfigureAwait(false))
+            {
+                if (journal.State == PublicationState.Committed)
                 {
-                    if (journal.State == PublicationState.Committed)
+                    // The artifacts are already in place; everything below is hygiene. A failure
+                    // must not be reported as a failed recovery, but it must not be silent either.
+                    List<string> cleanupFailures = new();
+                    TryFileStep(cleanupFailures, LogLevel.Warn, "delete HAK backup", journal.HakBackupPath, () =>
                     {
                         if (File.Exists(journal.HakBackupPath)) File.Delete(journal.HakBackupPath);
+                    });
+                    TryFileStep(cleanupFailures, LogLevel.Warn, "delete manifest backup", journal.ManifestBackupPath, () =>
+                    {
                         if (File.Exists(journal.ManifestBackupPath)) File.Delete(journal.ManifestBackupPath);
-                        if (File.Exists(journalPath)) File.Delete(journalPath);
-                        return true;
+                    });
+
+                    // The journal is the only record that these backups exist, so it outlives a
+                    // cleanup failure and a later recovery pass finishes the job.
+                    if (cleanupFailures.Count == 0)
+                    {
+                        TryFileStep(cleanupFailures, LogLevel.Warn, "delete journal", journalPath, () =>
+                        {
+                            if (File.Exists(journalPath)) File.Delete(journalPath);
+                        });
                     }
 
-                    await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
                     return true;
                 }
-            }
-            catch
-            {
-                return false;
+
+                RollbackOutcome outcome = await RollbackJournalAsync(journal, journalPath).ConfigureAwait(false);
+                ReportRollback(outcome, logs: null, journalPath);
+                return outcome.DestinationRestored;
             }
         }
     }
@@ -265,50 +377,187 @@ public sealed class ArtifactPublisher : IArtifactPublisher
         File.Move(tempPath, journalPath, overwrite: true);
     }
 
-    private static Task RollbackJournalAsync(PublicationJournal journal, string journalPath)
+    /// <summary>
+    /// Undoes as much of a transaction as its recorded state requires, one file operation at a time.
+    /// </summary>
+    /// <remarks>
+    /// Every step is attempted even when an earlier one failed, and the failures are returned rather
+    /// than swallowed: the single <c>catch { }</c> this replaced made a rollback that left the new
+    /// HAK sitting on top of the old one indistinguishable from a clean restore.
+    /// </remarks>
+    private Task<RollbackOutcome> RollbackJournalAsync(PublicationJournal journal, string journalPath)
+    {
+        List<string> critical = new();
+        List<string> cleanup = new();
+
+        // Critical failures that no future pass can do anything about, because the backup they would
+        // need is already gone. Counted separately so a transaction that is merely unfinishable does
+        // not masquerade as one that is still worth retrying — see the journal cleanup below.
+        int unrecoverableCount = 0;
+
+        // If HakReplaced state was reached, restore or delete target HAK
+        if (journal.State >= PublicationState.HakReplaced)
+        {
+            if (journal.HakExistedBefore && File.Exists(journal.HakBackupPath))
+            {
+                TryFileStep(critical, LogLevel.Error, "restore destination HAK from backup", journal.DestinationHakPath, () =>
+                    File.Copy(journal.HakBackupPath, journal.DestinationHakPath, overwrite: true));
+            }
+            else if (!journal.HakExistedBefore && File.Exists(journal.DestinationHakPath))
+            {
+                TryFileStep(critical, LogLevel.Error, "delete destination HAK created by this transaction", journal.DestinationHakPath, () =>
+                    File.Delete(journal.DestinationHakPath));
+            }
+            else if (journal.HakExistedBefore)
+            {
+                RecordMissingBackup(critical, "HAK", journal.HakBackupPath, journal.DestinationHakPath);
+                unrecoverableCount++;
+            }
+        }
+
+        // If ManifestReplaced state was reached, restore or delete target Manifest
+        if (journal.State >= PublicationState.ManifestReplaced)
+        {
+            if (journal.ManifestExistedBefore && File.Exists(journal.ManifestBackupPath))
+            {
+                TryFileStep(critical, LogLevel.Error, "restore destination manifest from backup", journal.DestinationManifestPath, () =>
+                    File.Copy(journal.ManifestBackupPath, journal.DestinationManifestPath, overwrite: true));
+            }
+            else if (!journal.ManifestExistedBefore && File.Exists(journal.DestinationManifestPath))
+            {
+                TryFileStep(critical, LogLevel.Error, "delete destination manifest created by this transaction", journal.DestinationManifestPath, () =>
+                    File.Delete(journal.DestinationManifestPath));
+            }
+            else if (journal.ManifestExistedBefore)
+            {
+                RecordMissingBackup(critical, "manifest", journal.ManifestBackupPath, journal.DestinationManifestPath);
+                unrecoverableCount++;
+            }
+        }
+
+        // Cleanup temp files
+        TryFileStep(cleanup, LogLevel.Warn, "delete temp HAK", journal.TempHakPath, () =>
+        {
+            if (File.Exists(journal.TempHakPath)) File.Delete(journal.TempHakPath);
+        });
+        TryFileStep(cleanup, LogLevel.Warn, "delete temp manifest", journal.TempManifestPath, () =>
+        {
+            if (File.Exists(journal.TempManifestPath)) File.Delete(journal.TempManifestPath);
+        });
+
+        // Cleanup backup and journal files. Both are kept when the destination could not be
+        // restored: they are the only means of finishing the job, and the journal is what keeps the
+        // unfinished transaction visible to the next recovery pass instead of letting it vanish.
+        //
+        // The exception is a transaction whose every critical failure is a *missing* backup. Retrying
+        // that can only ever produce the same failure, so keeping the journal would report the same
+        // unrecoverable transaction on every launch forever. It is reported once — the outcome below
+        // still says the destination was not restored — and then cleared. This case is reached
+        // routinely when a previous pass restored the destination and deleted the backups but could
+        // not delete the journal itself.
+        bool nothingLeftToRetry = critical.Count > 0 && critical.Count == unrecoverableCount;
+        if (critical.Count == 0 || nothingLeftToRetry)
+        {
+            TryFileStep(cleanup, LogLevel.Warn, "delete HAK backup", journal.HakBackupPath, () =>
+            {
+                if (File.Exists(journal.HakBackupPath)) File.Delete(journal.HakBackupPath);
+            });
+            TryFileStep(cleanup, LogLevel.Warn, "delete manifest backup", journal.ManifestBackupPath, () =>
+            {
+                if (File.Exists(journal.ManifestBackupPath)) File.Delete(journal.ManifestBackupPath);
+            });
+            if (!File.Exists(journal.HakBackupPath) && !File.Exists(journal.ManifestBackupPath))
+            {
+                TryFileStep(cleanup, LogLevel.Warn, "delete journal", journalPath, () =>
+                {
+                    if (File.Exists(journalPath)) File.Delete(journalPath);
+                });
+            }
+        }
+
+        return Task.FromResult(new RollbackOutcome(critical, cleanup));
+    }
+
+    /// <summary>Runs one rollback/recovery file operation, recording and logging any failure.</summary>
+    private void TryFileStep(List<string> failures, LogLevel level, string operation, string path, Action step)
     {
         try
         {
-            // If HakReplaced state was reached, restore or delete target HAK
-            if (journal.State >= PublicationState.HakReplaced)
-            {
-                if (journal.HakExistedBefore && File.Exists(journal.HakBackupPath))
-                {
-                    File.Copy(journal.HakBackupPath, journal.DestinationHakPath, overwrite: true);
-                }
-                else if (!journal.HakExistedBefore && File.Exists(journal.DestinationHakPath))
-                {
-                    File.Delete(journal.DestinationHakPath);
-                }
-            }
-
-            // If ManifestReplaced state was reached, restore or delete target Manifest
-            if (journal.State >= PublicationState.ManifestReplaced)
-            {
-                if (journal.ManifestExistedBefore && File.Exists(journal.ManifestBackupPath))
-                {
-                    File.Copy(journal.ManifestBackupPath, journal.DestinationManifestPath, overwrite: true);
-                }
-                else if (!journal.ManifestExistedBefore && File.Exists(journal.DestinationManifestPath))
-                {
-                    File.Delete(journal.DestinationManifestPath);
-                }
-            }
-
-            // Cleanup temp files
-            if (File.Exists(journal.TempHakPath)) File.Delete(journal.TempHakPath);
-            if (File.Exists(journal.TempManifestPath)) File.Delete(journal.TempManifestPath);
-
-            // Cleanup backup files
-            if (File.Exists(journal.HakBackupPath)) File.Delete(journal.HakBackupPath);
-            if (File.Exists(journal.ManifestBackupPath)) File.Delete(journal.ManifestBackupPath);
-
-            // Cleanup journal file
-            if (File.Exists(journalPath)) File.Delete(journalPath);
+            step();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Deliberately as broad as the bare `catch { }` this replaced: the point of the change is
+            // that the failure is now visible, not that fewer failures are tolerated.
+            failures.Add($"{operation} '{path}': {ex.Message}");
+            _logger.Log(
+                level,
+                nameof(ArtifactPublisher),
+                $"Publication rollback step failed: {operation} '{path}'.",
+                ex,
+                new Dictionary<string, string>
+                {
+                    [AppLogger.EventCodeKey] = RollbackStepFailedEventCode,
+                    ["operation"] = operation,
+                    ["path"] = path
+                });
+        }
+    }
 
-        return Task.CompletedTask;
+    private void RecordMissingBackup(List<string> failures, string artifact, string backupPath, string destinationPath)
+    {
+        string detail = $"restore destination {artifact} '{destinationPath}': backup '{backupPath}' is missing";
+        failures.Add(detail);
+        _logger.Log(
+            LogLevel.Error,
+            nameof(ArtifactPublisher),
+            $"Publication rollback cannot restore {artifact} '{destinationPath}': backup '{backupPath}' is missing.",
+            exception: null,
+            new Dictionary<string, string>
+            {
+                [AppLogger.EventCodeKey] = RollbackStepFailedEventCode,
+                ["operation"] = $"restore destination {artifact}",
+                ["path"] = destinationPath
+            });
+    }
+
+    /// <summary>Surfaces a partial rollback to the caller's log list and to the application log.</summary>
+    private void ReportRollback(RollbackOutcome outcome, List<string>? logs, string journalPath)
+    {
+        if (outcome.IsComplete)
+        {
+            return;
+        }
+
+        string detail = outcome.Describe();
+        string message = outcome.DestinationRestored
+            ? $"Rollback restored the destination but left files behind: {detail}"
+            : $"Rollback INCOMPLETE - the destination may not match the previous artifacts: {detail}";
+
+        logs?.Add(message);
+        _logger.Log(
+            outcome.DestinationRestored ? LogLevel.Warn : LogLevel.Error,
+            nameof(ArtifactPublisher),
+            message,
+            exception: null,
+            new Dictionary<string, string>
+            {
+                [AppLogger.EventCodeKey] = RollbackIncompleteEventCode,
+                ["journalPath"] = journalPath,
+                ["destinationRestored"] = outcome.DestinationRestored ? "true" : "false"
+            });
+    }
+
+    /// <summary>Result of one rollback attempt, split by whether the destination itself is sound.</summary>
+    private sealed record RollbackOutcome(IReadOnlyList<string> CriticalFailures, IReadOnlyList<string> CleanupFailures)
+    {
+        /// <summary>True when the destination pair is back to its pre-transaction contents.</summary>
+        public bool DestinationRestored => CriticalFailures.Count == 0;
+
+        /// <summary>True when the destination is sound and no temp, backup or journal file was left.</summary>
+        public bool IsComplete => CriticalFailures.Count == 0 && CleanupFailures.Count == 0;
+
+        public string Describe() => string.Join("; ", CriticalFailures.Concat(CleanupFailures));
     }
 
     private static async Task<PublicationLock> AcquirePublicationLockAsync(string lockPath, CancellationToken cancellationToken)

@@ -15,11 +15,16 @@
         <Border Grid.Row="0" Background="#333337" Padding="6">
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="SRN.CC Asset Curator" FontWeight="Bold" FontSize="15" VerticalAlignment="Center" Margin="8,0,16,0" Foreground="#FFFFFF"/>
-                <Button Content="New Project" Command="{Binding NewProjectCommand}"/>
-                <Button Content="Open..." Command="{Binding OpenProjectCommand}"/>
-                <Button Content="Save" Command="{Binding SaveProjectCommand}"/>
+                <Button x:Name="NewProjectButton" Content="New Project" Command="{Binding NewProjectCommand}"/>
+                <Button x:Name="OpenProjectButton" Content="Open..." Command="{Binding OpenProjectCommand}"/>
+                <Button x:Name="SaveProjectButton" Content="Save" Command="{Binding SaveProjectCommand}"/>
+                <Button x:Name="SaveProjectAsButton" Content="Save As..." Command="{Binding SaveProjectAsCommand}"/>
                 <Rectangle Width="1" Height="20" Fill="#555555" Margin="4,0"/>
-                <Button Content="Build HAK" Command="{Binding BuildHakCommand}" Background="#007ACC" Foreground="#FFFFFF" FontWeight="Bold"/>
+                <Button x:Name="RescanButton" Content="Rescan" Command="{Binding RescanCommand}"/>
+                <Rectangle Width="1" Height="20" Fill="#555555" Margin="4,0"/>
+                <Button x:Name="BuildHakButton" Content="Build HAK" Command="{Binding BuildHakCommand}" Background="#007ACC" Foreground="#FFFFFF" FontWeight="Bold"/>
+                <Rectangle Width="1" Height="20" Fill="#555555" Margin="4,0"/>
+                <Button x:Name="SettingsButton" Content="Settings..." Command="{Binding OpenSettingsCommand}"/>
             </StackPanel>
         </Border>
 

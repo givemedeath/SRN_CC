@@ -26,6 +26,7 @@ public sealed class DependencyTraversalEngine
 
     private int _maxDepthReached = 0;
     private int _duplicatesSuppressed = 0;
+    private long _totalBytes = 0;
 
     public DependencyTraversalEngine(
         IDependencyAnalyzer analyzer,
@@ -61,6 +62,7 @@ public sealed class DependencyTraversalEngine
         _queue.Clear();
         _maxDepthReached = 0;
         _duplicatesSuppressed = 0;
+        _totalBytes = 0;
 
         // Enqueue initial roots
         foreach (var root in roots)
@@ -128,8 +130,13 @@ public sealed class DependencyTraversalEngine
                     var directDeps = await _analyzer.AnalyzeDependenciesAsync(occurrence, stream, cancellationToken)
                         .ConfigureAwait(false);
 
-                    // Mark as resolved
-                    _resolved.Add(identity);
+                    // Mark as resolved and accumulate the located occurrence's payload size.
+                    // Counted once per identity: duplicate references are suppressed by the
+                    // visited set, so a shared dependency contributes its bytes only once.
+                    if (_resolved.Add(identity))
+                    {
+                        _totalBytes += occurrence.Size;
+                    }
 
                     // Enqueue discovered dependencies
                     foreach (var dep in directDeps)
@@ -164,7 +171,7 @@ public sealed class DependencyTraversalEngine
         return new TraversalResult(
             resolved: new HashSet<AssetIdentity>(_resolved),
             unresolved: new Dictionary<AssetIdentity, string>(_unresolved),
-            totalBytes: 0, // TODO: track during traversal if occurrence sizes are available
+            totalBytes: _totalBytes,
             count: _resolved.Count,
             maxDepth: _maxDepthReached,
             duplicatesSuppressed: _duplicatesSuppressed);

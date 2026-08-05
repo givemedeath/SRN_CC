@@ -25,6 +25,39 @@ public sealed class PreviewEngine
         _thumbnailCache = thumbnailCache;
     }
 
+    /// <summary>
+    /// The family that best fits <paramref name="request"/>'s occurrence, ignoring whatever family
+    /// the request currently prefers. This is what a slot should show before the operator has
+    /// expressed a preference — an image opens as an image rather than as a metadata table.
+    /// </summary>
+    /// <remarks>
+    /// Metadata and Hex are skipped during the scan even though they are registered providers,
+    /// because both answer <c>CanPreview</c> with an unconditional <c>true</c>: they are the
+    /// universal fallbacks, so including them would make the first one in registration order the
+    /// answer for every occurrence and the scan meaningless. Metadata remains the result when no
+    /// specific provider claims the occurrence, which is the same fallback
+    /// <see cref="ExecutePreviewAsync"/> lands on.
+    /// </remarks>
+    public PreviewFamily ResolveNaturalFamily(PreviewRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        foreach (IPreviewProvider provider in _providers)
+        {
+            if (provider.Family is PreviewFamily.Metadata or PreviewFamily.Hex or PreviewFamily.Unknown)
+            {
+                continue;
+            }
+
+            if (provider.CanPreview(request))
+            {
+                return provider.Family;
+            }
+        }
+
+        return PreviewFamily.Metadata;
+    }
+
     public async Task<PreviewResult> ExecutePreviewAsync(
         PreviewRequest request,
         int debounceMs = 150,

@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # Directory.Build.props enables RestoreLockedMode when this is true. Without it the property never
+  # fires and locked restore happens only because VerifyBuild.ps1 passes --locked-mode explicitly,
+  # so any other build invoked in CI would silently restore unlocked.
+  ContinuousIntegrationBuild: true
+
 jobs:
   verify-windows:
     runs-on: windows-2025
@@ -30,6 +36,60 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: milestones-1-2-verification
-          path: artifacts/verification-runs/
+          name: verification-evidence
+          # The release directory is excluded because it is uploaded on its own below; including it
+          # here would put a second copy of the archive in every run's evidence.
+          path: |
+            artifacts/verification-runs/
+            !artifacts/verification-runs/*/release/
           if-no-files-found: warn
+
+      # Uploaded separately so the clean-machine job downloads the archive alone rather than the
+      # whole evidence tree, which also contains the unpacked publish output.
+      - name: Upload release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-archive
+          path: artifacts/verification-runs/*/release/
+          if-no-files-found: error
+
+  # Must live in this workflow file: it consumes verify-windows's artifact, and artifacts are not
+  # shared between workflows.
+  clean-machine-smoke:
+    needs: verify-windows
+    runs-on: windows-2025
+    steps:
+      # Only the scripts and the policies they read. Checking out src/ or tests/ would let the smoke
+      # accidentally depend on the repository rather than on the shipped artifact, and would give
+      # AuditRelease.ps1's PublishSingleFile scan build files that are not part of the release.
+      - name: Checkout tooling and policies only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          sparse-checkout: |
+            tools
+            eng
+          sparse-checkout-cone-mode: false
+
+      - name: Download release archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-archive
+          path: ${{ runner.temp }}\smoke\artifact
+
+      - name: Expand the release archive
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $appDir = Join-Path $env:RUNNER_TEMP "smoke\app"
+          New-Item -ItemType Directory -Force -Path $appDir | Out-Null
+          $zip = Get-ChildItem -Path (Join-Path $env:RUNNER_TEMP "smoke\artifact") -Filter "*.zip" -Recurse |
+              Select-Object -First 1
+          if (-not $zip) { throw "The release-archive artifact contains no .zip." }
+          Write-Host "Expanding $($zip.FullName) into $appDir"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+          [System.IO.Compression.ZipFile]::ExtractToDirectory($zip.FullName, $appDir)
+
+      - name: Run clean-machine smoke
+        shell: powershell
+        run: |
+          .\tools\SmokeCleanMachine.ps1 -AppRoot (Join-Path $env:RUNNER_TEMP "smoke\app")

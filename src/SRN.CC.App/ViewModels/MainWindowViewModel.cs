@@ -5,12 +5,15 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SRN.CC.App.Services;
 using SRN.CC.Core.Identity;
+using SRN.CC.Core.Logging;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Project;
 using SRN.CC.Core.Resolution;
 using SRN.CC.Core.Selection;
 using SRN.CC.Core.Services;
+using SRN.CC.Core.Settings;
 using SRN.CC.Core.Sources;
+using SRN.CC.Core.Startup;
 using SRN.CC.Core.Workspace;
 using SRN.CC.Preview;
 
@@ -20,6 +23,22 @@ public record AssetRowItem(int Id, string Resref, string ResourceType, string So
 
 public partial class MainWindowViewModel : ObservableObject
 {
+    /// <summary>
+    /// Extension of a project file, per the plan. The application previously wrote and filtered on
+    /// <c>.srncc</c> in five places while every test, every fixture, and the startup journal check
+    /// used <c>.srnccproj</c> — see <c>ProjectExtensionTests</c>, which pins the two together.
+    /// </summary>
+    public const string ProjectFileExtension = ".srnccproj";
+
+    /// <summary>Default project file name used when no path is known and no picker is wired.</summary>
+    public const string DefaultProjectFileName = "project" + ProjectFileExtension;
+
+    /// <summary>Ceiling on the persisted recent-project list.</summary>
+    public const int MaxRecentProjectPaths = 10;
+
+    /// <summary>Log category for records this view model emits directly.</summary>
+    public const string LogCategory = nameof(MainWindowViewModel);
+
     private readonly IWorkspaceService? _workspaceService;
     private readonly IProjectStore? _projectStore;
     private readonly ISettingsStore? _settingsStore;
@@ -29,13 +48,44 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly IResourceTypeRegistry? _registry;
     private readonly ISourceReaderDispatcher? _dispatcher;
     private readonly TextureSourceHolder? _textureSourceHolder;
+    private readonly IBaseGameResourceCatalog? _baseGameCatalog;
+    private readonly IAppLogger _logger;
+    private readonly string? _settingsPath;
 
     private WorkspaceState? _workspaceState;
     private string? _currentProjectPath;
     private Task _pendingSelectionUpdate = Task.CompletedTask;
+    private ApplicationSettings _settings = new();
 
     [ObservableProperty]
     private string _title = "SRN.CC Asset Curator";
+
+    /// <summary>
+    /// The project reopened by default when no path and no picker are available. Sourced from
+    /// persisted settings and rewritten on every successful open or save.
+    /// </summary>
+    [ObservableProperty]
+    private string? _lastProjectPath;
+
+    /// <summary>
+    /// The configured game install root, or null to auto-discover. Surfaced read-only here; the
+    /// value is consumed during composition to build the base-game resource catalog.
+    /// </summary>
+    [ObservableProperty]
+    private string? _nwnInstallOverride;
+
+    /// <summary>
+    /// The settings dialog most recently opened by <see cref="OpenSettingsCommand"/>, or null before
+    /// one has been. Exposed so a host — or a headless test — can drive the dialog it created.
+    /// </summary>
+    [ObservableProperty]
+    private SettingsDialogViewModel? _settingsDialog;
+
+    /// <summary>
+    /// Most-recently-opened projects, newest first, capped at <see cref="MaxRecentProjectPaths"/>.
+    /// Mirrors the persisted settings list.
+    /// </summary>
+    public ObservableCollection<string> RecentProjectPaths { get; } = new();
 
     public SourceStackViewModel SourceStack { get; }
     public AssetTableViewModel AssetTable { get; }
@@ -56,6 +106,7 @@ public partial class MainWindowViewModel : ObservableObject
     // Parameterless constructor for XAML designer preview & synthetic performance probe
     public MainWindowViewModel()
     {
+        _logger = NullAppLogger.Instance;
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
         SourceStack = new SourceStackViewModel(
@@ -63,7 +114,8 @@ public partial class MainWindowViewModel : ObservableObject
             AddHakSourceAsync,
             AddFolderSourceAsync,
             RescanSourcesAsync,
-            CanMoveSources);
+            CanMoveSources,
+            RemoveSourceAsync);
         AssetTable = new AssetTableViewModel(
             new FallbackResourceTypeRegistry(),
             OnRowSelectionChanged,
@@ -88,7 +140,11 @@ public partial class MainWindowViewModel : ObservableObject
         PreviewEngine previewEngine,
         IResourceTypeRegistry registry,
         ISourceReaderDispatcher dispatcher,
-        TextureSourceHolder? textureSourceHolder = null)
+        TextureSourceHolder? textureSourceHolder = null,
+        IBaseGameResourceCatalog? baseGameCatalog = null,
+        IAppLogger? logger = null,
+        ApplicationSettings? initialSettings = null,
+        string? settingsPath = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
@@ -99,6 +155,9 @@ public partial class MainWindowViewModel : ObservableObject
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _textureSourceHolder = textureSourceHolder;
+        _baseGameCatalog = baseGameCatalog;
+        _logger = logger ?? NullAppLogger.Instance;
+        _settingsPath = settingsPath;
 
         OperationLog = new OperationLogViewModel();
         StatusBar = new StatusBarViewModel();
@@ -107,7 +166,8 @@ public partial class MainWindowViewModel : ObservableObject
             AddHakSourceAsync,
             AddFolderSourceAsync,
             RescanSourcesAsync,
-            CanMoveSources);
+            CanMoveSources,
+            RemoveSourceAsync);
         AssetTable = new AssetTableViewModel(
             _registry,
             OnRowSelectionChanged,
@@ -120,6 +180,144 @@ public partial class MainWindowViewModel : ObservableObject
         ComparisonPanel = new ComparisonPanelViewModel(
             _previewEngine,
             OnPinRequestedAsync);
+
+        ApplySettings(initialSettings ?? new ApplicationSettings());
+    }
+
+    /// <summary>
+    /// Adopts a loaded settings document: the last project, the recent-project list, and the
+    /// configured install override all become live state. Before milestone 7 <c>ISettingsStore</c>
+    /// was injected and never read.
+    /// </summary>
+    public void ApplySettings(ApplicationSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        _settings = settings;
+        LastProjectPath = settings.LastProjectPath;
+        NwnInstallOverride = settings.NwnInstallOverride;
+
+        RecentProjectPaths.Clear();
+        foreach (string path in settings.RecentProjectPaths.Take(MaxRecentProjectPaths))
+        {
+            RecentProjectPaths.Add(path);
+        }
+    }
+
+    /// <summary>
+    /// Renders a completed startup preflight into the operation log, worst outcomes included. This
+    /// is the only place the user learns that their cache was quarantined, their settings were left
+    /// untouched because a newer build owns them, or an interrupted publish was rolled back.
+    /// </summary>
+    public void ReplayStartupReport(StartupReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+
+        foreach (StartupCheckResult result in report.Results)
+        {
+            string level = result.Severity switch
+            {
+                StartupCheckSeverity.Blocking => "ERROR",
+                StartupCheckSeverity.Degraded => "WARN",
+                _ => "INFO"
+            };
+
+            OperationLog.AddEntry(level, $"Startup check '{result.CheckId}': {result.Summary}");
+
+            if (result.Severity == StartupCheckSeverity.Ok)
+            {
+                continue;
+            }
+
+            foreach (string detail in result.Details)
+            {
+                OperationLog.AddEntry(level, $"  {detail}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Promotes <paramref name="projectPath"/> to the front of the recent list, records it as the
+    /// last project, and persists. Never throws: a settings store that refuses the write degrades
+    /// to an in-memory update plus a log record.
+    /// </summary>
+    private async Task RecordProjectPathAsync(string projectPath)
+    {
+        if (string.IsNullOrWhiteSpace(projectPath))
+        {
+            return;
+        }
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(projectPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            full = projectPath;
+        }
+
+        LastProjectPath = full;
+
+        int existing = IndexOfRecent(full);
+        if (existing >= 0)
+        {
+            RecentProjectPaths.RemoveAt(existing);
+        }
+
+        RecentProjectPaths.Insert(0, full);
+        while (RecentProjectPaths.Count > MaxRecentProjectPaths)
+        {
+            RecentProjectPaths.RemoveAt(RecentProjectPaths.Count - 1);
+        }
+
+        _settings = _settings with
+        {
+            LastProjectPath = full,
+            RecentProjectPaths = RecentProjectPaths.ToArray()
+        };
+
+        await PersistSettingsAsync().ConfigureAwait(true);
+    }
+
+    private int IndexOfRecent(string path)
+    {
+        for (int i = 0; i < RecentProjectPaths.Count; i++)
+        {
+            if (string.Equals(RecentProjectPaths[i], path, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private async Task PersistSettingsAsync()
+    {
+        if (_settingsStore is null)
+        {
+            return;
+        }
+
+        if (_settings.IsReadOnly)
+        {
+            // A newer build owns the file. Overwriting it would destroy that build's settings, so
+            // this session keeps its changes in memory only — the startup report already told the
+            // user why.
+            _logger.Log(LogLevel.Debug, LogCategory, "Settings are read-only this session; not persisting.");
+            return;
+        }
+
+        try
+        {
+            await _settingsStore.SaveAsync(_settings, _settingsPath).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Log(LogLevel.Warn, LogCategory, "Could not persist application settings.", ex);
+        }
     }
 
     /// <summary>
@@ -140,7 +338,7 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         _textureSourceHolder.Current = _workspaceState != null && _dispatcher != null && _registry != null
-            ? new WorkspaceTextureSource(_workspaceState, _dispatcher, _registry, baseGameCatalog: null)
+            ? new WorkspaceTextureSource(_workspaceState, _dispatcher, _registry, _baseGameCatalog)
             : null;
     }
 
@@ -168,9 +366,17 @@ public partial class MainWindowViewModel : ObservableObject
         ComparisonPanel.SetCanPin(!_workspaceState.IsReadOnly);
 
         SaveProjectCommand.NotifyCanExecuteChanged();
+        SaveProjectAsCommand.NotifyCanExecuteChanged();
+        RescanCommand.NotifyCanExecuteChanged();
         BuildHakCommand.NotifyCanExecuteChanged();
         SourceStack.MoveUpCommand.NotifyCanExecuteChanged();
         SourceStack.MoveDownCommand.NotifyCanExecuteChanged();
+        SourceStack.RemoveSourceCommand.NotifyCanExecuteChanged();
+
+        // The source stack's own rescan button shares CanMoveSources with the toolbar's RescanCommand
+        // above. Refreshing one without the other leaves two controls for the same action disagreeing
+        // about whether it is available.
+        SourceStack.RescanSourcesCommand.NotifyCanExecuteChanged();
 
         OperationLog.AddEntry("INFO", $"Loaded workspace with {state.Sources.Count} sources and {state.CuratedAssets.Count} assets.");
     }
@@ -187,9 +393,20 @@ public partial class MainWindowViewModel : ObservableObject
 
     public Func<Task<string?>>? OpenFilePickerAsync { get; set; }
     public Func<Task<string?>>? SaveProjectFilePickerAsync { get; set; }
-    public Func<Task<string?>>? BuildOutputFilePickerAsync { get; set; }
+    /// <summary>
+    /// Asks the user where to write the built HAK, given a suggested file name and directory.
+    /// Returns null when the user cancels, which cancels the build.
+    /// </summary>
+    public Func<string, string?, Task<string?>>? BuildOutputFilePickerAsync { get; set; }
     public Func<Task<IReadOnlyList<string>>>? HakFilePickerAsync { get; set; }
     public Func<Task<string?>>? FolderPickerAsync { get; set; }
+
+    /// <summary>
+    /// Shows the settings dialog and returns when it has closed. Set by the window; left null in
+    /// headless contexts, where <see cref="OpenSettingsCommand"/> simply publishes the dialog view
+    /// model on <see cref="SettingsDialog"/> for the caller to drive.
+    /// </summary>
+    public Func<SettingsDialogViewModel, Task>? ShowSettingsDialogAsync { get; set; }
 
     [RelayCommand]
     private async Task NewProjectAsync()
@@ -215,7 +432,14 @@ public partial class MainWindowViewModel : ObservableObject
 
         if (string.IsNullOrEmpty(path))
         {
-            path = Path.Combine(Directory.GetCurrentDirectory(), "project.srncc");
+            // Settings are live since milestone 7: reopening the last project is the whole point of
+            // having persisted its path.
+            path = LastProjectPath;
+        }
+
+        if (string.IsNullOrEmpty(path))
+        {
+            path = Path.Combine(Directory.GetCurrentDirectory(), DefaultProjectFileName);
         }
 
         if (!File.Exists(path))
@@ -233,6 +457,7 @@ public partial class MainWindowViewModel : ObservableObject
             project.Preferences,
             isReadOnly: project.IsReadOnly).ConfigureAwait(true);
         await LoadWorkspaceStateAsync(state, path).ConfigureAwait(true);
+        await RecordProjectPathAsync(path).ConfigureAwait(true);
     }
 
     [RelayCommand(CanExecute = nameof(CanSaveProject))]
@@ -254,16 +479,106 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         path = string.IsNullOrWhiteSpace(path)
-            ? Path.Combine(Directory.GetCurrentDirectory(), "project.srncc")
+            ? Path.Combine(Directory.GetCurrentDirectory(), DefaultProjectFileName)
             : path;
 
         await _projectStore.SaveAsync(_workspaceState, path).ConfigureAwait(true);
         _currentProjectPath = path;
         Title = $"SRN.CC Asset Curator — {Path.GetFileName(path)}";
         OperationLog.AddEntry("INFO", $"Saved project state to '{path}'.");
+        await RecordProjectPathAsync(path).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Writes the current workspace to a new path and continues editing there.
+    /// </summary>
+    /// <param name="targetProjectPath">
+    /// Where to write. Null asks <see cref="SaveProjectFilePickerAsync"/>; unlike
+    /// <see cref="SaveProjectCommand"/> there is no current-directory fallback, because "Save As"
+    /// with no destination is a cancelled operation, not a silent write to an unnamed file.
+    /// </param>
+    /// <remarks>
+    /// Read-only gating is identical to <see cref="SaveProjectCommand"/> — same
+    /// <see cref="CanSaveProject"/> predicate and the same in-method guard, so a read-only workspace
+    /// cannot be laundered into a writable copy by routing around the disabled Save button.
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanSaveProject))]
+    private async Task SaveProjectAsAsync(string? targetProjectPath = null)
+    {
+        await _pendingSelectionUpdate.ConfigureAwait(true);
+        if (_workspaceState == null || _projectStore == null) return;
+        if (_workspaceState.IsReadOnly)
+        {
+            OperationLog.AddEntry("WARN", "Workspace is read-only. Open a writable copy before saving.");
+            return;
+        }
+
+        string? path = targetProjectPath;
+        if (string.IsNullOrWhiteSpace(path) && SaveProjectFilePickerAsync != null)
+        {
+            path = await SaveProjectFilePickerAsync().ConfigureAwait(true);
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            OperationLog.AddEntry("INFO", "Save As canceled: no destination was chosen.");
+            return;
+        }
+
+        await _projectStore.SaveAsAsync(_workspaceState, path).ConfigureAwait(true);
+        _currentProjectPath = path;
+        Title = $"SRN.CC Asset Curator — {Path.GetFileName(path)}";
+        OperationLog.AddEntry("INFO", $"Saved a copy of the project state to '{path}'.");
+        await RecordProjectPathAsync(path).ConfigureAwait(true);
     }
 
     private bool CanSaveProject() => _workspaceState != null && !_workspaceState.IsReadOnly;
+
+    /// <summary>
+    /// Re-indexes every source and reports what changed. The rescan itself is the pre-existing
+    /// <see cref="RescanSourcesAsync"/> path the source-stack button already drives; this is the
+    /// toolbar entry point for it.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRescan))]
+    private Task RescanAsync() => RescanSourcesAsync();
+
+    private bool CanRescan() => _workspaceState is { IsReadOnly: false };
+
+    /// <summary>
+    /// Opens the settings dialog over the single injected settings store, then adopts whatever it
+    /// wrote so the running session reflects the change without a restart.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenSettingsAsync()
+    {
+        if (_settingsStore is null)
+        {
+            OperationLog.AddEntry("WARN", "Settings are unavailable in this session.");
+            return;
+        }
+
+        // The store is the composed singleton; its read-only-newer write guard is per-instance state
+        // keyed by path, so a dialog-local store could overwrite a newer build's settings.
+        var dialog = new SettingsDialogViewModel(
+            _settingsStore,
+            _settings,
+            _settings.IsReadOnly ? SettingsLoadStatus.ReadOnlyNewer : SettingsLoadStatus.Loaded,
+            _settingsPath);
+
+        SettingsDialog = dialog;
+        dialog.ShowDialog();
+
+        if (ShowSettingsDialogAsync is not null)
+        {
+            await ShowSettingsDialogAsync(dialog).ConfigureAwait(true);
+        }
+
+        if (dialog.SavedSettings is { } saved)
+        {
+            ApplySettings(saved);
+            OperationLog.AddEntry("INFO", "Application settings were updated.");
+        }
+    }
 
     private async Task OnWorkspaceChangedAsync()
     {
@@ -409,32 +724,34 @@ public partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        string? destPath = null;
-        if (_currentProjectPath is null && BuildOutputFilePickerAsync != null)
+        string defaultPath = ResolveDefaultBuildOutputPath(_workspaceState, _currentProjectPath);
+
+        // Always ask, even when the project or its preferences already name a target. A build
+        // overwrites whatever is at the destination, and the destination is usually a live override
+        // or hak directory, so the one place the user gets to see and change it is here.
+        string destPath = defaultPath;
+        if (BuildOutputFilePickerAsync != null)
         {
-            destPath = await BuildOutputFilePickerAsync().ConfigureAwait(true);
-            if (string.IsNullOrWhiteSpace(destPath)) return;
-        }
-
-        if (string.IsNullOrWhiteSpace(destPath))
-        {
-            string projectDir = !string.IsNullOrWhiteSpace(_currentProjectPath)
-                ? Path.GetDirectoryName(_currentProjectPath) ?? Directory.GetCurrentDirectory()
-                : Directory.GetCurrentDirectory();
-
-            string baseName = !string.IsNullOrWhiteSpace(_currentProjectPath)
-                ? Path.GetFileNameWithoutExtension(_currentProjectPath)
-                : "output";
-
-            string? configuredTargetHak = ResolveConfiguredTargetHakPath(_workspaceState, _currentProjectPath);
-            if (!string.IsNullOrWhiteSpace(configuredTargetHak))
+            string? chosen;
+            try
             {
-                destPath = configuredTargetHak;
+                chosen = await BuildOutputFilePickerAsync(
+                    Path.GetFileName(defaultPath),
+                    Path.GetDirectoryName(defaultPath)).ConfigureAwait(true);
             }
-            else
+            catch (Exception ex)
             {
-                destPath = Path.Combine(projectDir, $"{baseName}.hak");
+                // This runs before the try that wraps the build itself, and an async command handler
+                // that throws takes the process down rather than reporting. The picker reaches the
+                // shell's storage provider with a directory taken from the project file, so a
+                // targetHak naming a disconnected share or a removed drive is enough to get here.
+                OperationLog.AddEntry("ERROR", $"Could not open the build output picker: {ex.Message}");
+                _logger.Log(LogLevel.Error, LogCategory, "The build output picker failed to open.", ex);
+                return;
             }
+
+            if (string.IsNullOrWhiteSpace(chosen)) return;
+            destPath = chosen;
         }
 
         var cts = StatusBar.BeginOperation("Building HAK package...");
@@ -472,6 +789,29 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The path the build output picker opens on: the project's configured target HAK if it has
+    /// one, otherwise a <c>.hak</c> named after the project beside it.
+    /// </summary>
+    private string ResolveDefaultBuildOutputPath(WorkspaceState state, string? projectPath)
+    {
+        string? configuredTargetHak = ResolveConfiguredTargetHakPath(state, projectPath);
+        if (!string.IsNullOrWhiteSpace(configuredTargetHak))
+        {
+            return configuredTargetHak;
+        }
+
+        string projectDir = !string.IsNullOrWhiteSpace(projectPath)
+            ? Path.GetDirectoryName(projectPath) ?? Directory.GetCurrentDirectory()
+            : Directory.GetCurrentDirectory();
+
+        string baseName = !string.IsNullOrWhiteSpace(projectPath)
+            ? Path.GetFileNameWithoutExtension(projectPath)
+            : "output";
+
+        return Path.Combine(projectDir, $"{baseName}.hak");
+    }
+
     private bool CanBuildHak() => _workspaceState != null && !_workspaceState.IsReadOnly;
 
     private bool CanMoveSources() => _workspaceState is { IsReadOnly: false };
@@ -493,6 +833,47 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Drops a source from the workspace and rebuilds resolution without it.
+    /// </summary>
+    /// <remarks>
+    /// Pins that named the removed source go with it. Keeping them would leave the workspace
+    /// carrying a pin to a source it no longer knows about, which resolution can only report as a
+    /// permanently invalid pin the user has no way to clear. Selection state is kept: it is keyed by
+    /// identity, so an identity still present in another source stays selected, and one that has
+    /// left the workspace entirely is simply no longer referenced.
+    /// </remarks>
+    private async Task RemoveSourceAsync(SourceItemViewModel item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly) return;
+
+        Guid removedId = item.Source.Id;
+        var remaining = _workspaceState.Sources
+            .Where(source => source.Id != removedId)
+            .Select((source, index) => source with { PriorityOrdinal = index })
+            .ToList();
+
+        if (remaining.Count == _workspaceState.Sources.Count) return;
+
+        var pins = _workspaceState.Pins.Where(pin => pin.SourceId != removedId).ToList();
+        int droppedPins = _workspaceState.Pins.Count - pins.Count;
+
+        var (state, _) = await _workspaceService.InitializeAsync(
+            remaining,
+            pins,
+            _workspaceState.SelectionState,
+            _workspaceState.Preferences).ConfigureAwait(true);
+        await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
+
+        OperationLog.AddEntry("INFO", $"Removed source {item.Title}.");
+        if (droppedPins > 0)
+        {
+            OperationLog.AddEntry("WARN", $"  {droppedPins} pin(s) to that source were discarded.");
+        }
+    }
+
     private async Task RescanSourcesAsync()
     {
         if (_workspaceService == null || _workspaceState == null)
@@ -506,8 +887,45 @@ public partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        var (state, _) = await _workspaceService.RescanAsync().ConfigureAwait(true);
+        var (state, report) = await _workspaceService.RescanAsync().ConfigureAwait(true);
         await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
+        ReportChangedInputs(report);
+    }
+
+    /// <summary>
+    /// Renders a <see cref="ChangedInputReport"/> into the operation log. The rescan path already
+    /// produced this report and threw it away, which is why a rescan that silently invalidated a pin
+    /// looked identical to one that changed nothing.
+    /// </summary>
+    private void ReportChangedInputs(ChangedInputReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+
+        if (!report.HasChanges)
+        {
+            OperationLog.AddEntry("INFO", "Rescan complete: no inputs changed.");
+            return;
+        }
+
+        OperationLog.AddEntry("INFO", "Rescan complete. Changed inputs:");
+        Line("INFO", "sources added", report.AddedSources.Count);
+        Line("INFO", "sources removed", report.RemovedSources.Count);
+        Line("WARN", "source availability transitions", report.AvailabilityTransitions.Count);
+        Line("INFO", "source fingerprint changes", report.FingerprintChanges.Count);
+        Line("INFO", "identities added", report.AddedIdentities.Count);
+        Line("INFO", "identities removed", report.RemovedIdentities.Count);
+        Line("INFO", "winner changes", report.WinnerChanges.Count);
+        Line("INFO", "pins reattached", report.PinReattachments.Count);
+        Line("WARN", "pins invalidated", report.PinInvalidations.Count);
+        Line("INFO", "selection changes", report.SelectionChanges.Count);
+
+        void Line(string level, string label, int count)
+        {
+            if (count > 0)
+            {
+                OperationLog.AddEntry(level, $"  {count} {label}.");
+            }
+        }
     }
 
     private async Task AddSourcesAsync(IEnumerable<AssetSource> newSources)
@@ -630,7 +1048,7 @@ public partial class MainWindowViewModel : ObservableObject
         return false;
     }
 
-    private static string? ResolveConfiguredTargetHakPath(WorkspaceState workspaceState, string? projectPath)
+    private string? ResolveConfiguredTargetHakPath(WorkspaceState workspaceState, string? projectPath)
     {
         try
         {
@@ -664,8 +1082,15 @@ public partial class MainWindowViewModel : ObservableObject
 
             return Path.GetFullPath(Path.Combine(projectDir, targetHak));
         }
-        catch
+        catch (Exception ex)
         {
+            // A configured targetHak that will not resolve to a path is a real project-file problem;
+            // falling back to the default output name silently is what made it invisible.
+            _logger.Log(
+                LogLevel.Warn,
+                LogCategory,
+                $"Could not resolve the configured target HAK path for project '{projectPath}'.",
+                ex);
             return null;
         }
     }
@@ -686,7 +1111,14 @@ public partial class MainWindowViewModel : ObservableObject
                 recoveryDirectories.Add(Path.GetFullPath(projectDir));
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.Log(
+                LogLevel.Warn,
+                LogCategory,
+                $"Could not derive a journal recovery directory from project path '{projectPath}'.",
+                ex);
+        }
 
         try
         {
@@ -700,7 +1132,14 @@ public partial class MainWindowViewModel : ObservableObject
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.Log(
+                LogLevel.Warn,
+                LogCategory,
+                "Could not derive a journal recovery directory from the configured target HAK path.",
+                ex);
+        }
 
         foreach (string journalDirectory in recoveryDirectories)
         {
@@ -810,8 +1249,28 @@ public partial class MainWindowViewModel : ObservableObject
         public bool TryGetType(string extension, out ushort typeId) { typeId = 2000; return true; }
     }
 
+    /// <summary>
+    /// Stand-in dispatcher for the designer preview and the synthetic performance probe, whose
+    /// 187 943 rows describe sources that do not exist on disk.
+    /// </summary>
+    /// <remarks>
+    /// It previously threw <see cref="NotImplementedException"/>, which turned any designer-time
+    /// preview attempt into an unhandled exception in the XAML previewer. Every occurrence resolves
+    /// to zero bytes instead: the preview providers this dispatcher is paired with handle an empty
+    /// stream by reporting "nothing to preview", which is exactly the truth for synthetic data.
+    /// </remarks>
     private sealed class FallbackSourceReaderDispatcher : ISourceReaderDispatcher
     {
-        public Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<Stream> OpenOccurrenceAsync(
+            AssetSource source,
+            AssetOccurrence occurrence,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(occurrence);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult<Stream>(new MemoryStream(Array.Empty<byte>(), writable: false));
+        }
     }
 }

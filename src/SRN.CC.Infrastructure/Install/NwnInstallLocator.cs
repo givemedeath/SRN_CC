@@ -107,11 +107,19 @@ public sealed class NwnInstallLocator
     {
         HashSet<string> candidates = new(StringComparer.OrdinalIgnoreCase);
 
-        // Probe 1: Default Steam location
-        string defaultSteam = @"C:\Program Files (x86)\Steam\steamapps\common\Neverwinter Nights";
-        if (Directory.Exists(defaultSteam))
+        // Probe 1: Default Steam location.
+        // Derived from the well-known folder rather than written as a literal path: a machine whose
+        // Program Files (x86) is not on C: would otherwise never get this probe, and an absolute
+        // path literal is a release-audit violation once it is baked into the assembly.
+        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        if (!string.IsNullOrEmpty(programFilesX86))
         {
-            candidates.Add(Path.GetFullPath(defaultSteam));
+            string defaultSteam = Path.Combine(
+                programFilesX86, "Steam", "steamapps", "common", "Neverwinter Nights");
+            if (Directory.Exists(defaultSteam))
+            {
+                candidates.Add(Path.GetFullPath(defaultSteam));
+            }
         }
 
         // Probe 2: Steam registry + libraryfolders.vdf (app ID 704450)

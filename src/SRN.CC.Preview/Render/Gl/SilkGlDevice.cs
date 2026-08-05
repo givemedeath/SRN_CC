@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using Silk.NET.OpenGL;
 
@@ -87,20 +88,43 @@ public sealed class SilkGlDevice : IGlDevice
 
         if (width > 0 && height > 0 && !bgra.IsEmpty)
         {
-            // BGRA import: ANGLE (and most desktop drivers) accept GL_BGRA as both format and
-            // internal format for 8-bit-per-channel uploads. hasAlpha does not change the upload
-            // path here — it is surfaced to the material/shading layer (alpha test/blend selection)
-            // rather than the texture storage format.
-            _gl.TexImage2D(
-                TextureTarget.Texture2D,
-                0,
-                InternalFormat.Rgba,
-                (uint)width,
-                (uint)height,
-                0,
-                PixelFormat.Bgra,
-                PixelType.UnsignedByte,
-                in bgra[0]);
+            // Swizzled to RGBA on the CPU and uploaded as GL_RGBA/GL_RGBA rather than handed over as
+            // GL_BGRA. OpenGL ES requires glTexImage2D's internal format to equal its format, so the
+            // GL_RGBA-internal/GL_BGRA-format pairing this used to pass is GL_INVALID_OPERATION on an
+            // ES context: the call is rejected, the texture keeps its undefined contents, and every
+            // sample of it comes back black. Nothing reports that — the texture name is valid and
+            // binds fine, so a model renders as a black silhouette with all its draw calls issued.
+            //
+            // GL_BGRA is reachable on ES only via EXT_texture_format_BGRA8888, and then only with
+            // GL_BGRA as the internal format too. Converting instead keeps this correct on desktop
+            // GL and ES alike without depending on an extension, at the cost of one pass over the
+            // pixels — which previews, bounded by PreviewStreamHelpers' budgets, can afford.
+            byte[] rgba = ArrayPool<byte>.Shared.Rent(bgra.Length);
+            try
+            {
+                for (int i = 0; i + 3 < bgra.Length; i += 4)
+                {
+                    rgba[i] = bgra[i + 2];
+                    rgba[i + 1] = bgra[i + 1];
+                    rgba[i + 2] = bgra[i];
+                    rgba[i + 3] = bgra[i + 3];
+                }
+
+                _gl.TexImage2D(
+                    TextureTarget.Texture2D,
+                    0,
+                    InternalFormat.Rgba,
+                    (uint)width,
+                    (uint)height,
+                    0,
+                    PixelFormat.Rgba,
+                    PixelType.UnsignedByte,
+                    in rgba[0]);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(rgba);
+            }
         }
 
         _gl.BindTexture(TextureTarget.Texture2D, 0);
@@ -220,6 +244,37 @@ public sealed class SilkGlDevice : IGlDevice
         }
     }
 
+    public void Clear(int framebuffer, int viewportWidth, int viewportHeight)
+    {
+        if (ShouldNoOp)
+        {
+            return;
+        }
+
+        _gl.BindFramebuffer(FramebufferTarget.Framebuffer, (uint)framebuffer);
+        if (viewportWidth > 0 && viewportHeight > 0)
+        {
+            _gl.Viewport(0, 0, (uint)viewportWidth, (uint)viewportHeight);
+        }
+
+        // Depth writes must be on for glClear to touch the depth buffer at all. Nothing in this
+        // device disables them, but clearing is worthless if that ever changes silently.
+        _gl.DepthMask(true);
+
+        // Transparent, so the slot's own background shows through around the model rather than the
+        // viewport painting a black rectangle over it.
+        _gl.ClearColor(0f, 0f, 0f, 0f);
+
+        // The clear depth is deliberately left at GL's default of 1.0 rather than set explicitly.
+        // glClearDepth takes a double and exists only in desktop GL; OpenGL ES spells it
+        // glClearDepthf. This device runs on whatever the host hands it — ANGLE gives an ES 3.0
+        // context on Windows — and Silk resolves entry points lazily through GetProcAddress, so
+        // naming an absent one yields a null pointer and calling it takes the process down with an
+        // access violation rather than a catchable error. Since the default is already the value
+        // wanted here, the safe move is to name neither variant.
+        _gl.Clear((uint)(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit));
+    }
+
     public unsafe void Draw(in GlDrawCall call)
     {
         if (ShouldNoOp || call.IndexCount <= 0)
@@ -242,6 +297,7 @@ public sealed class SilkGlDevice : IGlDevice
         {
             _gl.Viewport(0, 0, (uint)call.ViewportWidth, (uint)call.ViewportHeight);
         }
+
 
         uint vao = _gl.GenVertexArray();
         _gl.BindVertexArray(vao);
@@ -295,17 +351,11 @@ public sealed class SilkGlDevice : IGlDevice
             return;
         }
 
-        ReadOnlySpan<float> values =
-        [
-            matrix.M11, matrix.M12, matrix.M13, matrix.M14,
-            matrix.M21, matrix.M22, matrix.M23, matrix.M24,
-            matrix.M31, matrix.M32, matrix.M33, matrix.M34,
-            matrix.M41, matrix.M42, matrix.M43, matrix.M44,
-        ];
-
-        // System.Numerics.Matrix4x4 is stored row-major; transpose:true tells GL to transpose on
-        // upload so the shader's column-major mat4 multiplication is correct.
-        _gl.UniformMatrix4(location, true, values);
+        // Element order and the transpose flag are one decision and live together in
+        // GlMatrixUpload, where they can be asserted without a driver. See that type for why an
+        // untransposed upload is what GLSL's column-vector convention actually wants.
+        ReadOnlySpan<float> values = GlMatrixUpload.Pack(matrix);
+        _gl.UniformMatrix4(location, GlMatrixUpload.Transpose, values);
     }
 
     private void SetVector3Uniform(uint program, string name, Vector3 value)

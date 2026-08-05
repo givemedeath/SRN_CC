@@ -67,7 +67,11 @@ public class BaseGameCatalogTests
 
         Action act = () => _ = catalog.OpenAsync(new AssetIdentity("sample", 2002));
 
-        act.Should().Throw<InvalidDataException>().WithMessage("*KEY/BIF resource mismatch*");
+        // Wording only: the guard still rejects a BIF whose resource type disagrees with the KEY,
+        // which is what this test is named for and what it has always exercised. The message gained
+        // "type" when the accompanying id comparison was dropped — that comparison held only for
+        // BIF 0 and rejected every real base-game resource outside it.
+        act.Should().Throw<InvalidDataException>().WithMessage("*KEY/BIF resource type mismatch*");
     }
 
     private static byte[] BuildKey()

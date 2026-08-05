@@ -1,10 +1,13 @@
 using System.ComponentModel;
 using System.Numerics;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
+using Avalonia.Rendering;
 using SRN.CC.App.ViewModels.Preview;
+using SRN.CC.Core.Logging;
 using SRN.CC.Preview.Render;
 using SRN.CC.Preview.Render.Gl;
 
@@ -35,8 +38,22 @@ namespace SRN.CC.App.Views;
 /// <see cref="ModelViewportViewModel.ShowWalkmesh"/> property changes (observed via
 /// <see cref="INotifyPropertyChanged.PropertyChanged"/>), and directly from the pointer handlers below.
 /// </remarks>
-public sealed class ModelViewportControl : OpenGlControlBase
+public sealed class ModelViewportControl : OpenGlControlBase, ICustomHitTest
 {
+    /// <summary>
+    /// Makes the viewport hit-testable across its whole area.
+    /// </summary>
+    /// <remarks>
+    /// Without this the control is invisible to the input system. Avalonia hit-tests a bare
+    /// <see cref="Control"/> against what it actually rendered, and this one's picture is produced by
+    /// GL through a custom draw operation rather than by anything the hit test can see — so
+    /// <c>InputHitTest</c> returns null over the viewport even though its bounds are correct and
+    /// <c>IsHitTestVisible</c> is true. Every pointer handler below was therefore dead code: orbit,
+    /// pan and dolly silently did nothing. Controls that paint their own background solve this by
+    /// having one; a GL surface has to say so explicitly.
+    /// </remarks>
+    public bool HitTest(Point point) => new Rect(Bounds.Size).Contains(point);
+
     // Chosen so a full-width drag (a few hundred pixels) covers roughly one full turn; matches the
     // "mouse-drag-style" orbit the plan describes without needing per-platform DPI awareness.
     private const double OrbitRadiansPerPixel = 0.01;
@@ -57,6 +74,18 @@ public sealed class ModelViewportControl : OpenGlControlBase
     /// </summary>
     public static ModelViewportRegistry SharedRegistry { get; set; } = new();
 
+    /// <summary>Log category used for the one GPU capability record this control emits.</summary>
+    public const string LogCategory = nameof(ModelViewportControl);
+
+    /// <summary>
+    /// Application logger, assigned once during composition. A control is constructed by the XAML
+    /// runtime and cannot be given constructor dependencies, so this is a static seam rather than
+    /// an injected one; it defaults to the no-op logger for the designer and for headless tests.
+    /// </summary>
+    public static IAppLogger Logger { get; set; } = NullAppLogger.Instance;
+
+    private static int _capabilitiesLogged;
+
     private IGlDevice? _device;
     private ModelRenderer? _renderer;
     private ModelViewportViewModel? _boundViewModel;
@@ -64,6 +93,9 @@ public sealed class ModelViewportControl : OpenGlControlBase
     private string? _pendingUnavailableReason;
     private Point? _lastPointerPosition;
     private bool _isPanning;
+
+    /// <summary>Guards <see cref="LogFrameOnce"/>; cleared whenever a new scene is uploaded.</summary>
+    private bool _frameDiagnosticLogged;
 
     /// <summary>
     /// True once <see cref="OnOpenGlInit"/> has actually run (as opposed to merely being scheduled).
@@ -125,12 +157,21 @@ public sealed class ModelViewportControl : OpenGlControlBase
         }
 
         var device = new SilkGlDevice(gl.GetProcAddress);
+        LogCapabilitiesOnce(device.Capabilities);
+
         var renderer = new ModelRenderer(device);
         RendererInitResult initResult = renderer.Initialize(device.Capabilities);
         if (!initResult.IsSupported)
         {
             device.Dispose();
-            ReportUnavailable(initResult.Reason ?? "model rendering is not supported on this device.");
+            string reason = initResult.Reason ?? "model rendering is not supported on this device.";
+
+            // An unsupported device is reported to the slot as text, but the reason never reached
+            // the log, which is where an operator looks when a viewport comes up empty.
+            _frameDiagnosticLogged = false;
+            LogFrameOnce($"renderer initialization refused: {reason}");
+
+            ReportUnavailable(reason);
             return;
         }
 
@@ -140,6 +181,7 @@ public sealed class ModelViewportControl : OpenGlControlBase
         if (_boundViewModel is { } viewModel)
         {
             renderer.Upload(viewModel.Scene);
+            _frameDiagnosticLogged = false;
             RequestNextFrameRendering();
         }
     }
@@ -148,10 +190,68 @@ public sealed class ModelViewportControl : OpenGlControlBase
     {
         if (_renderer is not { State: RendererState.Ready } renderer || _boundViewModel is not { } viewModel)
         {
+            LogFrameOnce(
+                $"render skipped: renderer={(_renderer is null ? "null" : _renderer.State.ToString())}, "
+                + $"viewModel={(_boundViewModel is null ? "null" : "bound")}.");
             return;
         }
 
-        renderer.Render(fb, viewModel.Camera, (int)Bounds.Width, (int)Bounds.Height, viewModel.ShowWalkmesh);
+        // OpenGlControlBase hands over a framebuffer sized in physical pixels, but Bounds is in
+        // device-independent pixels. On any display with scaling the two differ, and passing the DIP
+        // size sets a viewport covering only part of the framebuffer.
+        (int pixelWidth, int pixelHeight) = FramebufferPixelSize();
+
+        renderer.Render(fb, viewModel.Camera, pixelWidth, pixelHeight, viewModel.ShowWalkmesh);
+
+        LogFrameOnce(
+            $"rendered: drawCalls={renderer.LastFrameDrawCallCount}, "
+            + $"boundTextures={renderer.LastFrameBoundTextureNames.Count}, "
+            + $"pixels={pixelWidth}x{pixelHeight}, dips={(int)Bounds.Width}x{(int)Bounds.Height}, "
+            + $"scaling={TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0:0.##}, "
+            + $"meshes={viewModel.Scene.ArtworkMeshes.Count}, "
+            + $"walkmesh={viewModel.ShowWalkmesh}, "
+            + $"camera=(distance {viewModel.Camera.Distance:0.###}, near {viewModel.Camera.NearPlane:0.####}, "
+            + $"far {viewModel.Camera.FarPlane:0.#}), model='{viewModel.Scene.ModelName}'.");
+    }
+
+    /// <summary>
+    /// The framebuffer's size in physical pixels: the control's device-independent bounds scaled by
+    /// the render scaling of the window hosting it.
+    /// </summary>
+    private (int Width, int Height) FramebufferPixelSize()
+    {
+        double scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        if (scaling <= 0 || double.IsNaN(scaling) || double.IsInfinity(scaling))
+        {
+            scaling = 1.0;
+        }
+
+        return ((int)Math.Round(Bounds.Width * scaling), (int)Math.Round(Bounds.Height * scaling));
+    }
+
+    /// <summary>
+    /// Emits one record describing the outcome of the first frame after each upload. Per-frame
+    /// logging would flood the drawer during an orbit drag; one record per scene is what makes an
+    /// empty viewport diagnosable at all, since every state this reports — renderer readiness, draw
+    /// call count, viewport size — is otherwise invisible from outside the GL context.
+    /// </summary>
+    private void LogFrameOnce(string message)
+    {
+        if (_frameDiagnosticLogged)
+        {
+            return;
+        }
+
+        _frameDiagnosticLogged = true;
+
+        try
+        {
+            Logger.Log(LogLevel.Info, LogCategory, message);
+        }
+        catch (Exception)
+        {
+            // A viewport must not fail because a log sink did.
+        }
     }
 
     protected override void OnOpenGlDeinit(GlInterface gl)
@@ -256,14 +356,17 @@ public sealed class ModelViewportControl : OpenGlControlBase
     /// </summary>
     private static Vector3 ScreenDeltaToWorldPan(Avalonia.Vector delta, RenderCamera camera)
     {
+        // Mirrors RenderCamera.EyeOffset, including its Z-up convention — see RenderCamera.UpAxis.
+        // A pan basis built around a different vertical than the view matrix uses would drag the
+        // model along axes that do not match what the operator sees.
         float cosPitch = MathF.Cos(camera.Pitch);
         var eyeDirection = new Vector3(
             cosPitch * MathF.Sin(camera.Yaw),
-            MathF.Sin(camera.Pitch),
-            cosPitch * MathF.Cos(camera.Yaw));
+            cosPitch * MathF.Cos(camera.Yaw),
+            MathF.Sin(camera.Pitch));
 
         Vector3 forward = Vector3.Normalize(-eyeDirection);
-        Vector3 right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, forward));
+        Vector3 right = Vector3.Normalize(Vector3.Cross(RenderCamera.UpAxis, forward));
         Vector3 up = Vector3.Cross(forward, right);
 
         float scale = camera.Distance * (float)PanUnitsPerPixelAtUnitDistance;
@@ -301,6 +404,7 @@ public sealed class ModelViewportControl : OpenGlControlBase
         if (_renderer is { State: RendererState.Ready } renderer)
         {
             renderer.Upload(viewModel.Scene);
+            _frameDiagnosticLogged = false;
             RequestNextFrameRendering();
         }
     }
@@ -310,6 +414,30 @@ public sealed class ModelViewportControl : OpenGlControlBase
         if (e.PropertyName is nameof(ModelViewportViewModel.Camera) or nameof(ModelViewportViewModel.ShowWalkmesh))
         {
             RequestNextFrameRendering();
+        }
+    }
+
+    /// <summary>
+    /// Records the probed GPU capabilities exactly once per process, the first time a device is
+    /// constructed. The startup preflight deliberately reports GPU capability as deferred rather
+    /// than probing it — creating a GL context at launch would turn a driver bug into a launch
+    /// failure — so this is where the real answer finally reaches the log.
+    /// </summary>
+    private static void LogCapabilitiesOnce(GlCapabilities capabilities)
+    {
+        if (Interlocked.Exchange(ref _capabilitiesLogged, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            Logger.Log(LogLevel.Info, LogCategory, $"render-gpu: {capabilities}");
+        }
+        catch (Exception)
+        {
+            // A logger is contractually forbidden from throwing, but a diagnostic must never be
+            // the reason a 3D preview fails to initialise.
         }
     }
 

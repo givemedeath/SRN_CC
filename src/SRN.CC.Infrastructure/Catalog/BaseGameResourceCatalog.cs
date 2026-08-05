@@ -92,10 +92,27 @@ public sealed class BaseGameResourceCatalog : IBaseGameResourceCatalog
         }
 
         var bifResource = bifFile.VariableResources[keyResource.VariableTableIndex];
-        if (bifResource.Id != keyResource.ResourceId || bifResource.ResourceType != keyResource.ResourceType)
+
+        // The resource type is checked; the id deliberately is not. This used to compare the BIF's
+        // id field against KeyResourceEntry.ResourceId, which cannot hold: the KEY's id is a
+        // composite carrying the BIF index in its top bits and the variable index in the low twenty
+        // (see KeyResourceEntry), and a BIF's id field is neither that composite nor the plain
+        // index. Measured against the shipped nwn_base.key, TTR01_splotch01 sits at BIF 26 variable
+        // 4965 while its BIF reports id 911217509, and the same disagreement holds for every sample
+        // taken outside BIF 0 — where the comparison only passed because the composite degenerates
+        // to zero. The field is not a usable cross-reference and other readers of this format
+        // ignore it too.
+        //
+        // The consequence of getting this wrong was invisible: OpenAsync threw for effectively every
+        // base-game resource, WorkspaceTextureSource turned the exception into a null lookup, and
+        // models rendered as untextured white silhouettes with no error anywhere. The type check is
+        // what actually guards against handing back the wrong payload, and it held in every sample.
+        if (bifResource.ResourceType != keyResource.ResourceType)
         {
             throw new InvalidDataException(
-                $"KEY/BIF resource mismatch at BIF {keyResource.BifIndex}, variable index {keyResource.VariableTableIndex}.");
+                $"KEY/BIF resource type mismatch at BIF {keyResource.BifIndex}, variable index "
+                + $"{keyResource.VariableTableIndex}: BIF reports type {bifResource.ResourceType}, "
+                + $"KEY expects {keyResource.ResourceType}.");
         }
 
         Stream stream = BifReader.OpenPayloadStream(bifResource, bifPath);

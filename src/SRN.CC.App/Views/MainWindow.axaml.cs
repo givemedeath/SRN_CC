@@ -7,6 +7,18 @@ namespace SRN.CC.App.Views;
 
 public partial class MainWindow : Window
 {
+    /// <summary>
+    /// The single project-file picker filter. Both the open and the save picker used to spell the
+    /// extension inline, and both spelled it <c>.srncc</c> while the store, the tests, and the
+    /// startup journal recovery all used <c>.srnccproj</c>; deriving it from
+    /// <see cref="MainWindowViewModel.ProjectFileExtension"/> makes that divergence impossible.
+    /// </summary>
+    private static FilePickerFileType ProjectFileType => new(
+        $"SRN.CC Project Files (*{MainWindowViewModel.ProjectFileExtension})")
+    {
+        Patterns = new[] { $"*{MainWindowViewModel.ProjectFileExtension}" }
+    };
+
     public MainWindow()
     {
         InitializeComponent();
@@ -25,7 +37,7 @@ public partial class MainWindow : Window
                     AllowMultiple = false,
                     FileTypeFilter = new[]
                     {
-                        new FilePickerFileType("SRN.CC Project Files (*.srncc)") { Patterns = new[] { "*.srncc" } },
+                        ProjectFileType,
                         new FilePickerFileType("All Files (*.*)") { Patterns = new[] { "*" } }
                     }
                 });
@@ -37,21 +49,32 @@ public partial class MainWindow : Window
                 var path = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
                 {
                     Title = "Save SRN.CC Project",
-                    SuggestedFileName = "project.srncc",
-                    FileTypeChoices = new[] { new FilePickerFileType("SRN.CC Project Files (*.srncc)") { Patterns = new[] { "*.srncc" } } }
+                    SuggestedFileName = MainWindowViewModel.DefaultProjectFileName,
+                    FileTypeChoices = new[] { ProjectFileType }
                 });
 
                 return path?.Path.LocalPath;
             };
 
-            vm.BuildOutputFilePickerAsync = async () =>
+            vm.BuildOutputFilePickerAsync = async (suggestedFileName, suggestedDirectory) =>
             {
-                var path = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                var options = new FilePickerSaveOptions
                 {
                     Title = "Save HAK Output",
-                    SuggestedFileName = "output.hak",
+                    SuggestedFileName = string.IsNullOrWhiteSpace(suggestedFileName) ? "output.hak" : suggestedFileName,
+                    DefaultExtension = "hak",
                     FileTypeChoices = new[] { new FilePickerFileType("HAK Files (*.hak)") { Patterns = new[] { "*.hak" } } }
-                });
+                };
+
+                // Opening on the previous target's folder rather than wherever the picker last was.
+                // TryGetFolderFromPathAsync returns null for a directory that no longer exists, and a
+                // null SuggestedStartLocation is exactly the "pick for me" default.
+                if (!string.IsNullOrWhiteSpace(suggestedDirectory))
+                {
+                    options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(suggestedDirectory);
+                }
+
+                var path = await StorageProvider.SaveFilePickerAsync(options);
 
                 return path?.Path.LocalPath;
             };
@@ -78,6 +101,12 @@ public partial class MainWindow : Window
                     AllowMultiple = false
                 });
                 return folders.Count > 0 ? folders[0].Path.LocalPath : null;
+            };
+
+            vm.ShowSettingsDialogAsync = async settingsViewModel =>
+            {
+                var dialog = new SettingsDialog { DataContext = settingsViewModel };
+                await dialog.ShowDialog(this);
             };
         }
     }

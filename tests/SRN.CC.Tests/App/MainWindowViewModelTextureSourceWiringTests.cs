@@ -191,7 +191,7 @@ public class MainWindowViewModelTextureSourceWiringTests
 
     private sealed class NotSupportedSettingsStore : ISettingsStore
     {
-        public Task<ApplicationSettings> LoadAsync(string? overrideFilePath = null, CancellationToken cancellationToken = default)
+        public Task<SettingsLoadResult> LoadAsync(string? overrideFilePath = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task SaveAsync(ApplicationSettings settings, string? overrideFilePath = null, CancellationToken cancellationToken = default)

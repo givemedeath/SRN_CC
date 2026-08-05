@@ -52,7 +52,14 @@ public readonly record struct RenderCamera(
     public static RenderCamera Frame(Vector3 boundsMin, Vector3 boundsMax, float radius)
     {
         Vector3 center = (boundsMin + boundsMax) * 0.5f;
-        float safeRadius = MathF.Max(radius, MinimumRadius);
+
+        // Framed on whichever is larger: the radius the model declares, or the sphere its own bounds
+        // actually need. A declared radius is not a reliable bound on the geometry — a stock NWN
+        // asteroid model reports 449.6 while its bounds span a half-diagonal of roughly 501 — and
+        // trusting the smaller value seats the camera inside the model's extent, so it opens
+        // partly outside the view with no obvious way to tell that is what happened.
+        float boundsRadius = (boundsMax - boundsMin).Length() * 0.5f;
+        float safeRadius = MathF.Max(MathF.Max(radius, boundsRadius), MinimumRadius);
         float fov = DefaultFieldOfViewRadians;
         float halfFov = fov * 0.5f;
 
@@ -66,8 +73,22 @@ public readonly record struct RenderCamera(
         return new RenderCamera(center, distance, DefaultYaw, DefaultPitch, fov, near, far);
     }
 
+    /// <summary>
+    /// The axis models treat as vertical. Neverwinter Nights authors geometry Z-up: a stock
+    /// character model spans 0 to 1.94 in Z with a footprint well under half that in X and Y, and
+    /// tiles are wide in X/Y and thin in Z.
+    /// </summary>
+    /// <remarks>
+    /// Orbiting around Y instead — the usual convention, and what this used to do — swings the eye
+    /// about an axis that is horizontal in model space. A tile viewed face-on then foreshortens to
+    /// an edge and back as the yaw changes, which reads as the model stretching rather than turning.
+    /// The camera adopts the models' convention rather than the geometry being rotated to suit the
+    /// camera: this is a curation tool, and it should show the bytes as authored.
+    /// </remarks>
+    public static Vector3 UpAxis => Vector3.UnitZ;
+
     /// <summary>Standard look-at view matrix; eye orbits <see cref="Target"/> by <see cref="Yaw"/>/<see cref="Pitch"/>/<see cref="Distance"/>.</summary>
-    public Matrix4x4 View => Matrix4x4.CreateLookAt(Target + EyeOffset, Target, Vector3.UnitY);
+    public Matrix4x4 View => Matrix4x4.CreateLookAt(Target + EyeOffset, Target, UpAxis);
 
     /// <summary>Standard perspective field-of-view projection matrix.</summary>
     public Matrix4x4 Projection(float aspect)
@@ -95,10 +116,12 @@ public readonly record struct RenderCamera(
     {
         get
         {
+            // Z carries the elevation, so yaw sweeps the eye around the models' own vertical axis
+            // and pitch raises it. See UpAxis for why this is Z-up rather than the usual Y-up.
             float cosPitch = MathF.Cos(Pitch);
             float x = Distance * cosPitch * MathF.Sin(Yaw);
-            float y = Distance * MathF.Sin(Pitch);
-            float z = Distance * cosPitch * MathF.Cos(Yaw);
+            float y = Distance * cosPitch * MathF.Cos(Yaw);
+            float z = Distance * MathF.Sin(Pitch);
             return new Vector3(x, y, z);
         }
     }

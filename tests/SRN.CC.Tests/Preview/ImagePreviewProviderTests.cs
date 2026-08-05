@@ -114,8 +114,14 @@ public class ImagePreviewProviderTests
     #region DDS Tests
 
     [Test]
-    public async Task GeneratePreviewAsync_DdsPayloadTooSmall_ReturnsFailure()
+    public async Task GeneratePreviewAsync_DdsPayloadIsUnrecognisedGarbage_ReturnsFailure()
     {
+        // Fifty zero bytes: no "DDS " signature, and read as BioWare's variant it declares a
+        // bytes-per-pixel of zero, which is neither DXT1 nor DXT5. This used to be reported as
+        // "too small" only because the 128-byte Microsoft header gate ran ahead of the signature
+        // check; a missing signature now selects the BioWare path instead, so an unrecognised
+        // payload is described as unrecognised. A genuinely truncated *signed* payload still
+        // reports "too small" — see BioWareDdsDecodeTests.
         byte[] garbage = new byte[50];
         var provider = new ImagePreviewProvider(new StubRegistry("dds"));
         var request = CreateRequest("broken.dds");
@@ -124,7 +130,7 @@ public class ImagePreviewProviderTests
         PreviewResult result = await provider.GeneratePreviewAsync(request, stream);
 
         Assert.That(result.IsSuccess, Is.False);
-        Assert.That(result.ErrorMessage, Does.Contain("too small"));
+        Assert.That(result.ErrorMessage, Does.Contain("DDS signature not found"));
     }
 
     [Test]

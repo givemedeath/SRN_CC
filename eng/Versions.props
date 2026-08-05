@@ -4,5 +4,15 @@
     <RuntimeFrameworkVersion>10.0.10</RuntimeFrameworkVersion>
     <TargetLatestRuntimePatch>false</TargetLatestRuntimePatch>
     <TargetRuntimeIdentifier>win-x64</TargetRuntimeIdentifier>
+
+    <!--
+      Single source of truth for the product version. Directory.Build.props derives Version,
+      AssemblyVersion, FileVersion, and InformationalVersion from SRNCCVersionPrefix, and
+      ProvenanceManifestGenerator reads the resulting AssemblyInformationalVersion at runtime.
+      Changing the version here changes every stamped assembly and every emitted manifest.
+    -->
+    <SRNCCVersionPrefix>1.0.0</SRNCCVersionPrefix>
+    <SRNCCProductName>SRN.CC Asset Curator</SRNCCProductName>
+    <SRNCCCompany>SRN.CC Authors</SRNCCCompany>
   </PropertyGroup>
 </Project>

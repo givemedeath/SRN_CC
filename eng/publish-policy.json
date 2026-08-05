@@ -8,6 +8,9 @@
     "SRN.CC.App.deps.json",
     "SRN.CC.App.runtimeconfig.json",
     "e_sqlite3.dll",
+    "av_libglesv2.dll",
+    "libSkiaSharp.dll",
+    "libHarfBuzzSharp.dll",
     "LICENSE.txt",
     "NOTICES.md",
     "THIRD-PARTY-LICENSES/SWLOR-LICENSE.txt",
@@ -26,7 +29,13 @@
     ".pdb",
     ".sqlite",
     ".db",
-    ".trx"
+    ".trx",
+    ".log",
+    ".srnccproj",
+    ".srncc",
+    ".sqlite-wal",
+    ".sqlite-shm",
+    ".zip"
   ],
   "forbiddenAssemblies": [
     "SRN.CC.Tests.dll",
@@ -43,7 +52,12 @@
     "/content/",
     "\\content\\",
     ".srncc-cache",
-    ".srncc-project"
+    ".srncc-project",
+    "nwn_erf",
+    "Radoub",
+    "SRNCC_CORPUS_ROOT",
+    "sqlite3_64.dll",
+    "verification-runs"
   ],
   "specialOrigins": {
     "SRN.CC.App.exe": "apphost:Microsoft.NETCore.App.Host.win-x64@10.0.10",

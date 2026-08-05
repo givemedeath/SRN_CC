@@ -98,14 +98,19 @@ public static class TextureDecoder
     {
         try
         {
+            // BioWare's own DDS variant carries no signature at all, so its absence is a format
+            // branch rather than a failure. This is the variant Neverwinter Nights actually ships:
+            // in a stock tileset HAK every single type-2033 resource is one of these, and none is a
+            // Microsoft DDS. Microsoft's layout is still handled below for content authored outside
+            // the toolset.
+            if (!TryReadAscii(bytes, 0, 4, out var magic) || !string.Equals(magic, "DDS ", StringComparison.Ordinal))
+            {
+                return TryDecodeBioWareDds(bytes, out texture, out error);
+            }
+
             if (bytes.Length < 128)
             {
                 return Fail("DDS payload is too small.", out texture, out error);
-            }
-
-            if (!TryReadAscii(bytes, 0, 4, out var magic) || !string.Equals(magic, "DDS ", StringComparison.Ordinal))
-            {
-                return Fail("DDS signature not found.", out texture, out error);
             }
 
             if (!PreviewStreamHelpers.TryReadUInt32LittleEndian(bytes, 12, out uint height) ||
@@ -164,6 +169,162 @@ public static class TextureDecoder
         {
             return Fail($"DDS preview failed: {ex.Message}", out texture, out error);
         }
+    }
+
+    /// <summary>
+    /// The header BioWare's DDS variant uses in place of Microsoft's: twenty bytes of width,
+    /// height, bytes-per-pixel, top-level payload size, and one float, immediately followed by
+    /// block-compressed data.
+    /// </summary>
+    private const int BioWareDdsHeaderBytes = 20;
+
+    /// <summary>Value of the bytes-per-pixel field meaning DXT1 (no alpha).</summary>
+    private const uint BioWareDdsBppDxt1 = 3;
+
+    /// <summary>Value of the bytes-per-pixel field meaning DXT5 (interpolated alpha).</summary>
+    private const uint BioWareDdsBppDxt5 = 4;
+
+    /// <summary>
+    /// Decodes BioWare's DDS variant — the one Neverwinter Nights ships — by rewriting its
+    /// twenty-byte header as the Microsoft header Pfim expects and handing the block-compressed
+    /// payload straight through.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The layout was confirmed against every type-2033 resource in a stock tileset HAK (2,315 of
+    /// them, zero mismatches): four little-endian <c>uint32</c>s — width, height, bytes-per-pixel,
+    /// and the size of the top mip level — then a float, then a full mipmap chain. A
+    /// bytes-per-pixel of 3 is DXT1 at eight bytes per 4×4 block, 4 is DXT5 at sixteen. Every
+    /// dimension observed was a power of two, and every file's length was exactly the header plus
+    /// the complete chain, which is what pins the header at twenty bytes rather than sixteen.
+    /// </para>
+    /// <para>
+    /// Translating the header rather than decompressing here is deliberate: DXT1 and DXT5 block
+    /// decoding is intricate, and Pfim already does it and is already referenced. Writing a second
+    /// decoder would be new, untested code doing what a dependency in the lock file does today.
+    /// Only the top mip level is forwarded — it is the only one a preview draws — so the
+    /// synthesised header declares a single level and the remaining chain is left unread.
+    /// </para>
+    /// </remarks>
+    private static bool TryDecodeBioWareDds(
+        ReadOnlySpan<byte> bytes,
+        [NotNullWhen(true)] out DecodedTexture? texture,
+        [NotNullWhen(false)] out string? error)
+    {
+        if (bytes.Length < BioWareDdsHeaderBytes)
+        {
+            return Fail("DDS payload is too small to carry either a Microsoft or a BioWare header.", out texture, out error);
+        }
+
+        if (!PreviewStreamHelpers.TryReadUInt32LittleEndian(bytes, 0, out uint width) ||
+            !PreviewStreamHelpers.TryReadUInt32LittleEndian(bytes, 4, out uint height) ||
+            !PreviewStreamHelpers.TryReadUInt32LittleEndian(bytes, 8, out uint bytesPerPixel))
+        {
+            return Fail("DDS header is truncated.", out texture, out error);
+        }
+
+        if (bytesPerPixel is not (BioWareDdsBppDxt1 or BioWareDdsBppDxt5))
+        {
+            // Neither a Microsoft signature nor a BioWare bytes-per-pixel value: report the missing
+            // signature, because that is the more useful description of an unrecognised payload.
+            return Fail("DDS signature not found.", out texture, out error);
+        }
+
+        if (!PreviewStreamHelpers.IsValidImageDimensions(width, height))
+        {
+            return Fail(
+                $"DDS dimensions {width}x{height} exceed preview safety limits.",
+                out texture,
+                out error);
+        }
+
+        bool isDxt1 = bytesPerPixel == BioWareDdsBppDxt1;
+        int blockBytes = isDxt1 ? 8 : 16;
+        long topLevelBytes =
+            (long)Math.Max(1, ((int)width + 3) / 4) * Math.Max(1, ((int)height + 3) / 4) * blockBytes;
+
+        ReadOnlySpan<byte> compressed = bytes[BioWareDdsHeaderBytes..];
+        if (compressed.Length < topLevelBytes)
+        {
+            return Fail(
+                $"DDS payload holds {compressed.Length:N0} bytes of block data but its {width}x{height} "
+                + $"top mip level needs {topLevelBytes:N0}.",
+                out texture,
+                out error);
+        }
+
+        byte[] translated = BuildMicrosoftDdsForSingleLevel(
+            (int)width, (int)height, isDxt1, compressed[..(int)topLevelBytes]);
+
+        using IImage image = Pfimage.FromStream(new MemoryStream(translated));
+
+        byte[] bgra = image.Format switch
+        {
+            ImageFormat.Rgb24 => ConvertRgbToBgra(image.Data, image.Width, image.Height, image.Stride),
+            ImageFormat.Rgba32 => ConvertRgbaToBgra(image.Data, image.Width, image.Height, image.Stride),
+            ImageFormat.R5g5b5 => ConvertR5g5b5ToBgra(image.Data, image.Width, image.Height, image.Stride),
+            ImageFormat.R5g6b5 => ConvertR5g6b5ToBgra(image.Data, image.Width, image.Height, image.Stride),
+            ImageFormat.R5g5b5a1 => ConvertR5g5b5a1ToBgra(image.Data, image.Width, image.Height, image.Stride),
+            _ => throw new NotSupportedException($"Unsupported DDS pixel format '{image.Format}'.")
+        };
+
+        texture = new DecodedTexture(
+            image.Width,
+            image.Height,
+            bgra,
+            HasAlpha: !isDxt1,
+            DecodeDiagnostic:
+                $"BioWare DDS ({(isDxt1 ? "DXT1" : "DXT5")}) {width}x{height}, decoded via Pfim after header translation.");
+        error = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Wraps <paramref name="topLevel"/> in the 128-byte Microsoft DDS header describing exactly one
+    /// mip level of DXT1 or DXT5 data.
+    /// </summary>
+    private static byte[] BuildMicrosoftDdsForSingleLevel(
+        int width,
+        int height,
+        bool isDxt1,
+        ReadOnlySpan<byte> topLevel)
+    {
+        const int HeaderBytes = 128;
+        const uint DdsdCaps = 0x1;
+        const uint DdsdHeight = 0x2;
+        const uint DdsdWidth = 0x4;
+        const uint DdsdPixelFormat = 0x1000;
+        const uint DdsdLinearSize = 0x80000;
+        const uint DdpfFourCc = 0x4;
+        const uint DdscapsTexture = 0x1000;
+
+        byte[] buffer = new byte[HeaderBytes + topLevel.Length];
+        Span<byte> header = buffer.AsSpan(0, HeaderBytes);
+
+        "DDS "u8.CopyTo(header);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[4..], 124); // dwSize, header minus magic.
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            header[8..], DdsdCaps | DdsdHeight | DdsdWidth | DdsdPixelFormat | DdsdLinearSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[12..], (uint)height);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[16..], (uint)width);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[20..], (uint)topLevel.Length); // dwPitchOrLinearSize.
+        BinaryPrimitives.WriteUInt32LittleEndian(header[24..], 0); // dwDepth.
+        BinaryPrimitives.WriteUInt32LittleEndian(header[28..], 1); // dwMipMapCount: only the top level.
+
+        // dwReserved1[11] occupies 44..87 and stays zero.
+
+        BinaryPrimitives.WriteUInt32LittleEndian(header[76..], 32); // DDS_PIXELFORMAT.dwSize.
+        BinaryPrimitives.WriteUInt32LittleEndian(header[80..], DdpfFourCc);
+        (isDxt1 ? "DXT1"u8 : "DXT5"u8).CopyTo(header[84..]);
+
+        // The RGB bit-count and channel masks at 88..107 are meaningless for a FourCC format.
+
+        BinaryPrimitives.WriteUInt32LittleEndian(header[108..], DdscapsTexture);
+
+        // dwCaps2/3/4 and dwReserved2 occupy 112..127 and stay zero.
+
+        topLevel.CopyTo(buffer.AsSpan(HeaderBytes));
+        return buffer;
     }
 
     private static bool TryDecodePlt(
@@ -289,9 +450,12 @@ public static class TextureDecoder
                     throw new InvalidDataException("DDS scanline data is truncated.");
                 }
 
-                bgra[destination++] = rgb[source + 2];
-                bgra[destination++] = rgb[source + 1];
+                // Straight copy, not a reversal. Pfim names its formats in Direct3D order, so
+                // ImageFormat.Rgb24 already holds blue, green, red per pixel — the same order this
+                // buffer wants. Reversing here swapped red and blue in every decoded texture.
                 bgra[destination++] = rgb[source];
+                bgra[destination++] = rgb[source + 1];
+                bgra[destination++] = rgb[source + 2];
                 bgra[destination++] = 255;
             }
         }
@@ -325,9 +489,10 @@ public static class TextureDecoder
                     throw new InvalidDataException("DDS scanline data is truncated.");
                 }
 
-                bgra[destination++] = rgba[source + 2];
-                bgra[destination++] = rgba[source + 1];
+                // See ConvertRgbToBgra: Pfim's ImageFormat.Rgba32 is likewise already BGRA-ordered.
                 bgra[destination++] = rgba[source];
+                bgra[destination++] = rgba[source + 1];
+                bgra[destination++] = rgba[source + 2];
                 bgra[destination++] = rgba[source + 3];
             }
         }

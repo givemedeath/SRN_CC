@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "timestampUtc": null,
+  "recorded": false,
+  "notRecordedReason": "SRN.CC's 117-HAK reference corpus is not present in this environment: SRNCC_CORPUS_ROOT is unset and no corpus is available to the milestone-7 S8 slice. Every measured field below is therefore null. No value in this file was estimated, extrapolated, or invented. The non-null fields are structural constants taken from PLAN.md:229 and from the existing assertions in tests/SRN.CC.CorpusTests/CorpusIndexAcceptanceTests.cs, not measurements.",
+  "populate": {
+    "coldIndexCommand": "$env:SRNCC_CORPUS_ROOT='<path-to-corpus>'; $env:SRNCC_RUN_CORPUS='1'; dotnet test tests/SRN.CC.CorpusTests -c Release --filter 'Category=Corpus' -p:SRNCCVerificationRuntimeIdentifier=win-x64",
+    "coldIndexSource": "CorpusIndexAcceptanceTests.VerifyCorpusIndexing_ExactCountsAndPerformanceAcceptance writes 'Corpus Cold Indexing Median Duration: <n>s across 3 runs.' to the test output; the three per-run durations are the values it sorts to obtain that median.",
+    "idleCommand": "$env:SRNCC_CORPUS_ROOT='<path-to-corpus>'; $env:SRNCC_RUN_CORPUS='1'; $env:SRNCC_RUN_IDLE_PROBE='1'; dotnet test tests/SRN.CC.CorpusTests -c Release --filter 'Category=Performance' -p:SRNCCVerificationRuntimeIdentifier=win-x64",
+    "idleSource": "IdleWorkingSetTests.FullCorpusIndex_ThenThirtySecondsIdle_KeepsPrivateAndWorkingSetBelow750MiB prints 'privateBytes=<n> ... workingSetBytes=<n> ...' to the progress stream; copy those two values into idle.privateBytes and idle.workingSetBytes.",
+    "environmentSource": "Record the machine the run happened on: Environment.OSVersion, Environment.Version, %PROCESSOR_IDENTIFIER%, Environment.ProcessorCount, and the build configuration, matching docs/evidence/tableview-performance-baseline.json.",
+    "note": "Substitute SRNCC_REQUIRE_CORPUS='1' for SRNCC_RUN_CORPUS='1' to make a missing or non-existent SRNCC_CORPUS_ROOT a hard failure instead of an ignore; CorpusGate.IsRequired implies CorpusGate.IsEnabled, so the require flag alone is sufficient."
+  },
+  "environment": {
+    "os": null,
+    "dotnet": null,
+    "cpu": null,
+    "logicalProcessorCount": null,
+    "configuration": "Release"
+  },
+  "corpus": {
+    "hakCount": 117,
+    "occurrenceCount": 187943,
+    "type2078Count": 212,
+    "duplicateArchiveCount": 4
+  },
+  "coldIndex": {
+    "runs": [],
+    "medianSeconds": null,
+    "thresholdSeconds": 10.0
+  },
+  "idle": {
+    "privateBytes": null,
+    "workingSetBytes": null,
+    "thresholdBytes": 786432000
+  }
+}

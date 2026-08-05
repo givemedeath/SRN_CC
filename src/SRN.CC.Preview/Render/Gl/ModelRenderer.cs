@@ -165,6 +165,13 @@ public sealed class ModelRenderer : IDisposable
             return;
         }
 
+        // Before anything is drawn, and unconditionally — including for a scene with no meshes, so a
+        // cleared slot does not keep showing the previous model. The depth clear is the load-bearing
+        // half: depth testing is enabled for the device's whole lifetime and the host's framebuffer
+        // arrives with undefined depth, so without this every fragment can fail the test and the
+        // frame comes out empty with all its draw calls issued.
+        _device.Clear(framebuffer, pixelWidth, pixelHeight);
+
         float aspect = (float)pixelWidth / pixelHeight;
         Matrix4x4 viewProjection = camera.View * camera.Projection(aspect);
 

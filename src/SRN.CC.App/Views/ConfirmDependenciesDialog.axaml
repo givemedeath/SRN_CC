@@ -40,6 +40,17 @@
                     </Border>
                 </Grid>
 
+                <!-- Truncation banner: a bounded closure is incomplete and must not read as complete -->
+                <Border Padding="12" Background="#3A2A00" BorderBrush="#8A6D00" BorderThickness="1" CornerRadius="4"
+                        IsVisible="{Binding Summary.IsTruncated}">
+                    <TextBlock Foreground="#FFD27F" TextWrapping="Wrap">
+                        <TextBlock.Text>
+                            <Binding Path="Summary.LimitHit"
+                                     StringFormat="This closure is incomplete: the {0} budget stopped traversal. Assets beyond the budget are listed as unresolved."/>
+                        </TextBlock.Text>
+                    </TextBlock>
+                </Border>
+
                 <!-- Unresolved Dependencies -->
                 <StackPanel Orientation="Vertical" Spacing="8">
                     <TextBlock Text="Unresolved Dependencies" FontWeight="Bold" Foreground="#DDDDDD" FontSize="14"/>

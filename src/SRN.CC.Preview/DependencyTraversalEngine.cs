@@ -5,7 +5,8 @@ using SRN.CC.Core.Services;
 namespace SRN.CC.Preview;
 
 /// <summary>
-/// Performs cycle-safe transitive dependency traversal with bounded recursion depth.
+/// Performs cycle-safe transitive dependency traversal with bounded recursion depth, closure count,
+/// and closure size.
 /// </summary>
 /// <remarks>
 /// Maintains visited and inFlight sets to detect and prevent infinite loops from cyclic references.
@@ -14,6 +15,8 @@ namespace SRN.CC.Preview;
 public sealed class DependencyTraversalEngine
 {
     private const int DefaultMaxDepth = 512;
+    private const int DefaultMaxCount = int.MaxValue;
+    private const long DefaultMaxBytes = long.MaxValue;
     private readonly IDependencyAnalyzer _analyzer;
     private readonly Func<AssetIdentity, CancellationToken, Task<AssetOccurrence?>> _locator;
     private readonly Func<AssetOccurrence, Stream, CancellationToken, Task<Stream>> _streamProvider;
@@ -27,6 +30,7 @@ public sealed class DependencyTraversalEngine
     private int _maxDepthReached = 0;
     private int _duplicatesSuppressed = 0;
     private long _totalBytes = 0;
+    private TraversalLimit _limitHit = TraversalLimit.None;
 
     public DependencyTraversalEngine(
         IDependencyAnalyzer analyzer,
@@ -41,15 +45,39 @@ public sealed class DependencyTraversalEngine
     /// <summary>
     /// Traverse the dependency graph starting from the given root assets.
     /// </summary>
+    /// <param name="roots">The assets to start from.</param>
+    /// <param name="maxDepth">Maximum edges followed from any root.</param>
+    /// <param name="maxCount">Maximum number of assets admitted to the closure.</param>
+    /// <param name="maxBytes">Maximum accumulated payload size of the closure.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// Every budget defaults to effectively unlimited, so an unbounded call behaves exactly as it did
+    /// before budgets existed. When several budgets are breached, <see cref="TraversalResult.LimitHit"/>
+    /// reports the first one, because that is the budget that shaped the closure. Identities rejected
+    /// by a budget are reported in <see cref="TraversalResult.Unresolved"/> with a distinct reason, and
+    /// contribute neither bytes nor descendants.
+    /// </remarks>
     public async Task<TraversalResult> TraverseAsync(
         IEnumerable<AssetIdentity> roots,
         int maxDepth = DefaultMaxDepth,
+        int maxCount = DefaultMaxCount,
+        long maxBytes = DefaultMaxBytes,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(roots);
         if (maxDepth < 1)
         {
             throw new ArgumentException("Max depth must be at least 1.", nameof(maxDepth));
+        }
+
+        if (maxCount < 1)
+        {
+            throw new ArgumentException("Max count must be at least 1.", nameof(maxCount));
+        }
+
+        if (maxBytes < 1)
+        {
+            throw new ArgumentException("Max bytes must be at least 1.", nameof(maxBytes));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -63,6 +91,7 @@ public sealed class DependencyTraversalEngine
         _maxDepthReached = 0;
         _duplicatesSuppressed = 0;
         _totalBytes = 0;
+        _limitHit = TraversalLimit.None;
 
         // Enqueue initial roots
         foreach (var root in roots)
@@ -89,6 +118,7 @@ public sealed class DependencyTraversalEngine
             // Check depth limit
             if (depth >= maxDepth)
             {
+                RecordLimit(TraversalLimit.Depth);
                 _unresolved[identity] = $"Traversal depth limit ({maxDepth}) exceeded";
                 continue;
             }
@@ -104,6 +134,15 @@ public sealed class DependencyTraversalEngine
             if (_inFlight.Contains(identity))
             {
                 _unresolved[identity] = "Cyclic dependency detected";
+                continue;
+            }
+
+            // Check the closure count budget. Tested here because this is the point at which the
+            // engine commits to admitting a new identity; an exact-budget closure is not truncated.
+            if (_resolved.Count >= maxCount)
+            {
+                RecordLimit(TraversalLimit.Count);
+                _unresolved[identity] = $"Closure count limit ({maxCount}) exceeded";
                 continue;
             }
 
@@ -129,6 +168,16 @@ public sealed class DependencyTraversalEngine
 
                     var directDeps = await _analyzer.AnalyzeDependenciesAsync(occurrence, stream, cancellationToken)
                         .ConfigureAwait(false);
+
+                    // Check the closure size budget before admitting the payload. Tested here rather
+                    // than before location because the byte cost is only known once the occurrence is
+                    // located. A rejected node contributes neither bytes nor descendants.
+                    if (!_resolved.Contains(identity) && _totalBytes + occurrence.Size > maxBytes)
+                    {
+                        RecordLimit(TraversalLimit.Size);
+                        _unresolved[identity] = $"Closure size limit ({maxBytes} bytes) exceeded";
+                        continue;
+                    }
 
                     // Mark as resolved and accumulate the located occurrence's payload size.
                     // Counted once per identity: duplicate references are suppressed by the
@@ -174,6 +223,19 @@ public sealed class DependencyTraversalEngine
             totalBytes: _totalBytes,
             count: _resolved.Count,
             maxDepth: _maxDepthReached,
-            duplicatesSuppressed: _duplicatesSuppressed);
+            duplicatesSuppressed: _duplicatesSuppressed,
+            limitHit: _limitHit);
+    }
+
+    /// <summary>
+    /// Record the first budget breached. Later breaches do not overwrite it, because the first
+    /// budget to fire is the one that shaped the closure.
+    /// </summary>
+    private void RecordLimit(TraversalLimit limit)
+    {
+        if (_limitHit == TraversalLimit.None)
+        {
+            _limitHit = limit;
+        }
     }
 }

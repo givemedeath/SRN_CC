@@ -1436,8 +1436,13 @@ public partial class MainWindowViewModel : ObservableObject
                 .ConfigureAwait(true);
 
             // Split base-game hits out of the packageable set: they satisfy previews but are never
-            // added to the build selection (PLAN.md:134).
-            var baseSatisfied = resolver.BaseGameSatisfied;
+            // added to the build selection (PLAN.md:134). Count only base identities the traversal
+            // actually admitted as resolved — one whose BIF failed to open or parse lands in
+            // UnresolvedGroups, and intersecting with Resolved keeps it from being double-counted as
+            // both satisfied and unresolved.
+            var baseSatisfied = resolver.BaseGameSatisfied
+                .Where(id => rawClosure.Resolved.Contains(id))
+                .ToHashSet();
             IReadOnlySet<AssetIdentity> workspaceResolved =
                 rawClosure.Resolved.Where(id => !baseSatisfied.Contains(id)).ToHashSet();
             var closure = new ClosureSummary(

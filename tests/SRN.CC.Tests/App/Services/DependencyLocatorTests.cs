@@ -156,13 +156,13 @@ public class DependencyLocatorTests
         var result = await locator.ResolveAsync(new AssetIdentity("model_01", 2002));
 
         Assert.That(result, Is.Not.Null);
-        Assert.That(result!.SourceId, Is.Not.EqualTo(DependencyLocator.BaseGameSourceId),
+        Assert.That(result!.SourceId, Is.Not.EqualTo(locator.BaseGameSourceId),
             "a curated occurrence wins over the base game");
         Assert.That(locator.BaseGameSatisfied, Is.Empty);
     }
 
     [Test]
-    public async Task ResolveAsync_FallsBackToBaseGame_AndRecordsIt()
+    public async Task ResolveAsync_FallsBackToBaseGame_AndRecordsItOnRead()
     {
         var baseId = new AssetIdentity("base_tex", 2000);
         var catalog = new FakeCatalog();
@@ -173,13 +173,68 @@ public class DependencyLocatorTests
         var result = await locator.ResolveAsync(baseId);
 
         Assert.That(result, Is.Not.Null);
-        Assert.That(result!.SourceId, Is.EqualTo(DependencyLocator.BaseGameSourceId));
-        Assert.That(locator.BaseGameSatisfied, Does.Contain(baseId));
+        Assert.That(result!.SourceId, Is.EqualTo(locator.BaseGameSourceId));
+        // Satisfaction is recorded on a successful read, not at resolve time.
+        Assert.That(locator.BaseGameSatisfied, Is.Empty, "not yet satisfied until the payload is read");
 
         // The synthesized occurrence streams from the catalog so traversal can read it.
         using var stream = await locator.OpenStreamAsync(result, Stream.Null);
         using var reader = new StreamReader(stream);
         Assert.That(await reader.ReadToEndAsync(), Is.EqualTo("base:base_tex"));
+        Assert.That(locator.BaseGameSatisfied, Does.Contain(baseId), "recorded once the read succeeds");
+    }
+
+    [Test]
+    public async Task OpenStreamAsync_BaseGameReadFails_DoesNotRecordSatisfaction()
+    {
+        // The KEY lists the identity but its BIF is missing/corrupt, so OpenAsync throws. Traversal
+        // will report the identity unresolved; it must NOT also be counted as base-game-satisfied.
+        var baseId = new AssetIdentity("broken_base", 2000);
+        var catalog = new FakeCatalog();
+        catalog.Add(baseId, throwOnOpen: true);
+        async Task<Stream> StreamOpener(AssetSource s, AssetOccurrence o, Stream f, CancellationToken ct) => new MemoryStream();
+        var locator = new DependencyLocator(_workspaceState, StreamOpener, catalog);
+
+        var result = await locator.ResolveAsync(baseId);
+        Assert.That(result, Is.Not.Null);
+
+        Assert.ThrowsAsync<IOException>(async () => await locator.OpenStreamAsync(result!, Stream.Null));
+        Assert.That(locator.BaseGameSatisfied, Is.Empty, "a failed base-game read is never recorded as satisfied");
+    }
+
+    [Test]
+    public async Task OpenStreamAsync_WorkspaceSourceWithEmptyGuid_DoesNotRouteToBaseGame()
+    {
+        // A project whose source pathologically carries the all-zero GUID must still open from its own
+        // payload, never from the base-game catalog. The marker id is chosen to avoid this collision.
+        var emptyGuid = Guid.Empty;
+        var identity = new AssetIdentity("collide", 2002);
+        var occurrence = new AssetOccurrence(identity, emptyGuid, new HakEntryLocator(0), "collide.mdl", 10);
+        var source = new AssetSource(emptyGuid, AssetSourceKind.Hak, "c:/collide.hak", 0);
+        var curated = new CuratedAsset(identity, new[] { occurrence }, occurrence, null, ResolutionStatus.Resolved, false);
+
+        var state = new WorkspaceState(
+            sources: new[] { source },
+            snapshots: new Dictionary<Guid, SourceIndexSnapshot>(),
+            curatedAssets: new[] { curated },
+            selectionState: new SelectionState(),
+            pins: Array.Empty<WinnerPin>(),
+            preferences: new ProjectPreferences());
+
+        var catalog = new FakeCatalog();
+        catalog.Add(identity); // the base game also has this identity
+
+        async Task<Stream> StreamOpener(AssetSource s, AssetOccurrence o, Stream f, CancellationToken ct)
+            => new MemoryStream(Encoding.UTF8.GetBytes("workspace-payload"));
+        var locator = new DependencyLocator(state, StreamOpener, catalog);
+
+        Assert.That(locator.BaseGameSourceId, Is.Not.EqualTo(emptyGuid),
+            "the marker must avoid a workspace source's id");
+
+        using var stream = await locator.OpenStreamAsync(occurrence, Stream.Null);
+        using var reader = new StreamReader(stream);
+        Assert.That(await reader.ReadToEndAsync(), Is.EqualTo("workspace-payload"),
+            "the occurrence must open from its real source, not the base-game catalog");
     }
 
     [Test]
@@ -229,9 +284,20 @@ public class DependencyLocatorTests
     private sealed class FakeCatalog : IBaseGameResourceCatalog
     {
         private readonly HashSet<AssetIdentity> _ids = new();
-        public void Add(AssetIdentity id) => _ids.Add(id);
+        private readonly HashSet<AssetIdentity> _throwOnOpen = new();
+        public void Add(AssetIdentity id, bool throwOnOpen = false)
+        {
+            _ids.Add(id);
+            if (throwOnOpen) _throwOnOpen.Add(id);
+        }
         public bool Contains(AssetIdentity identity) => _ids.Contains(identity);
-        public Task<Stream> OpenAsync(AssetIdentity identity, CancellationToken cancellationToken = default) =>
-            Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes($"base:{identity.Resref}")));
+        public Task<Stream> OpenAsync(AssetIdentity identity, CancellationToken cancellationToken = default)
+        {
+            if (_throwOnOpen.Contains(identity))
+            {
+                throw new IOException($"BIF for {identity.Resref} is missing or corrupt.");
+            }
+            return Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes($"base:{identity.Resref}")));
+        }
     }
 }

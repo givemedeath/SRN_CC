@@ -139,6 +139,45 @@ public class BulkPreferSourceTests
             "a batch that never committed leaves no pins persisted");
     }
 
+    [Test]
+    public async Task BulkPreferSource_SourceHiddenDuringHashing_AbortsWithoutPinning()
+    {
+        Guid s1 = Guid.NewGuid();
+        Guid s2 = Guid.NewGuid();
+        AssetSource src1 = new(s1, AssetSourceKind.Hak, "c:/one.hak", 0);
+        AssetSource src2 = new(s2, AssetSourceKind.Hak, "c:/two.hak", 1);
+
+        AssetIdentity alpha = new("alpha", TgaType);
+        AssetIdentity beta = new("beta", TgaType);
+
+        var index = new MockIndexService();
+        index.Register(src1, Occ(alpha, s1, 0), Occ(beta, s1, 0));
+        index.Register(src2, Occ(alpha, s2, 0), Occ(beta, s2, 0));
+
+        var cache = new AssetHashCache();
+        var resolver = new WorkspaceResolver(new ConstantHashService(), cache);
+        var workspace = new WorkspaceService(index, resolver, cache);
+        await workspace.InitializeAsync(new[] { src1, src2 });
+
+        var dispatcher = new GatedDispatcher();
+        MainWindowViewModel vm = BuildViewModel(workspace, index, resolver, dispatcher);
+        await vm.LoadWorkspaceStateAsync(workspace.CurrentState);
+
+        // Begin the bulk operation; it suspends on the first gated payload read.
+        Task op = vm.BulkPreferSourceAsync(s2);
+
+        // While hashing is in flight, hide the preferred source. The prepared decisions are now stale.
+        vm.SourceStack.Sources.Single(s => s.Source.Id == s2).Mode = SourceMode.Hidden;
+
+        dispatcher.Release();
+        await op;
+
+        vm.OperationLog.Entries.Should().Contain(e => e.Message.Contains("aborted") && e.Message.Contains("hidden"),
+            "committing pins built from the pre-hide snapshot must be refused");
+        workspace.CurrentState.CuratedAssets.Should().OnlyContain(a => a.Pin == null,
+            "no pins are committed from a stale snapshot");
+    }
+
     private static MainWindowViewModel BuildViewModel(IWorkspaceService workspace, IAssetIndexService index, WorkspaceResolver resolver, ISourceReaderDispatcher? dispatcher = null)
     {
         var registry = new ResourceTypeRegistry();
@@ -195,6 +234,19 @@ public class BulkPreferSourceTests
     {
         public Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default)
             => throw new IOException("payload unreadable");
+    }
+
+    /// <summary>Blocks every payload read until <see cref="Release"/> is called.</summary>
+    private sealed class GatedDispatcher : ISourceReaderDispatcher
+    {
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Release() => _gate.TrySetResult();
+
+        public async Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default)
+        {
+            await _gate.Task.ConfigureAwait(false);
+            return new MemoryStream(Encoding.UTF8.GetBytes($"{source.Id}:{occurrence.Locator}"));
+        }
     }
 
     /// <summary>Once armed, succeeds for the first open then throws cancellation on the next.</summary>

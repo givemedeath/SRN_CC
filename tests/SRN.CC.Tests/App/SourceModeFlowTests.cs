@@ -82,6 +82,41 @@ public class SourceModeFlowTests
     }
 
     [Test]
+    public async Task Save_DrainsLaterModeEdit_AppendedWhileAlreadyWaiting()
+    {
+        Guid sourceId = Guid.NewGuid();
+        AssetSource source = new(sourceId, AssetSourceKind.Hak, Path.Combine(_tempDir, "one.hak"), 0);
+
+        var index = new MockIndexService();
+        index.Register(source, Occ(new AssetIdentity("alpha", TgaType), sourceId, 0));
+
+        var cache = new AssetHashCache();
+        var resolver = new WorkspaceResolver(new ConstantHashService(), cache);
+        var real = new WorkspaceService(index, resolver, cache);
+        await real.InitializeAsync(new[] { source });
+
+        var gated = new GatedWorkspaceService(real);
+        string projectPath = Path.Combine(_tempDir, "p3.srnccproj");
+        var store = new ProjectStore(index, resolver);
+        MainWindowViewModel vm = BuildViewModel(gated, store);
+        await vm.LoadWorkspaceStateAsync(gated.CurrentState, projectPath);
+
+        SourceItemViewModel item = vm.SourceStack.Sources.Single();
+        item.Mode = SourceMode.Reference;                 // edit A — blocks on the gate
+        Task saveTask = vm.SaveProjectCommand.ExecuteAsync(null); // begins awaiting A
+        saveTask.IsCompleted.Should().BeFalse();
+
+        item.Mode = SourceMode.Full;                      // edit B appended while Save waits on A
+
+        gated.ReleaseMode();
+        await saveTask;
+
+        WorkspaceState reloaded = await store.LoadAsync(projectPath);
+        reloaded.Sources.Single().Mode.Should().Be(SourceMode.Full,
+            "Save must drain edit B that was appended while it was already awaiting edit A");
+    }
+
+    [Test]
     public async Task RapidModeRevert_AppliesLastEdit_NotTheFirst()
     {
         Guid sourceId = Guid.NewGuid();

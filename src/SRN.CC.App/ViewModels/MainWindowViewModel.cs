@@ -483,8 +483,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSaveProject))]
     private async Task SaveProjectAsync()
     {
-        await _pendingSelectionUpdate.ConfigureAwait(true);
-        await _pendingModeUpdate.ConfigureAwait(true);
+        await DrainPendingWorkspaceMutationsAsync().ConfigureAwait(true);
         if (_workspaceState == null || _projectStore == null) return;
         if (_workspaceState.IsReadOnly)
         {
@@ -526,8 +525,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSaveProject))]
     private async Task SaveProjectAsAsync(string? targetProjectPath = null)
     {
-        await _pendingSelectionUpdate.ConfigureAwait(true);
-        await _pendingModeUpdate.ConfigureAwait(true);
+        await DrainPendingWorkspaceMutationsAsync().ConfigureAwait(true);
         if (_workspaceState == null || _projectStore == null) return;
         if (_workspaceState.IsReadOnly)
         {
@@ -849,6 +847,34 @@ public partial class MainWindowViewModel : ObservableObject
 
             if (pins.Count > 0)
             {
+                // Hashing may have taken seconds, during which the preferred source could have been
+                // hidden or removed and occurrences could have shifted. Revalidate the prepared pins
+                // against the CURRENT workspace before committing so we never persist decisions from a
+                // stale snapshot — resolution would store those as invalid pins, and a source removal
+                // that deliberately dropped pins could be silently undone.
+                AssetSource? liveSource = _workspaceState.Sources.FirstOrDefault(s => s.Id == sourceId);
+                if (liveSource is null || liveSource.Mode == SourceMode.Hidden)
+                {
+                    StatusBar.EndOperation("Prefer-source aborted.");
+                    OperationLog.AddEntry("WARN", $"Prefer-source for '{sourceLabel}' aborted: the source was removed or hidden during the operation; no pins were applied.");
+                    return;
+                }
+
+                var liveOccurrences = new HashSet<(AssetIdentity, Guid, OccurrenceLocator)>(
+                    _workspaceState.CuratedAssets
+                        .SelectMany(a => a.AllOccurrences)
+                        .Select(o => (o.Identity, o.SourceId, o.Locator)));
+                int stale = pins.RemoveAll(p => !liveOccurrences.Contains((p.Identity, p.SourceId, p.Locator)));
+                if (stale > 0)
+                {
+                    ambiguous += stale;
+                    prepared -= stale;
+                    OperationLog.AddEntry("WARN", $"Prefer-source for '{sourceLabel}': dropped {stale} prepared pin(s) whose occurrence changed during the operation.");
+                }
+            }
+
+            if (pins.Count > 0)
+            {
                 _workspaceState = await _workspaceService.PinManyAsync(pins, ct).ConfigureAwait(true);
                 committed = true;
                 RefreshTextureSource();
@@ -909,8 +935,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanBuildHak))]
     private async Task BuildHakAsync()
     {
-        await _pendingSelectionUpdate.ConfigureAwait(true);
-        await _pendingModeUpdate.ConfigureAwait(true);
+        await DrainPendingWorkspaceMutationsAsync().ConfigureAwait(true);
         if (_workspaceState == null || _buildOrchestrator == null)
         {
             OperationLog.AddEntry("WARN", "No active workspace loaded for build.");
@@ -1130,6 +1155,26 @@ public partial class MainWindowViewModel : ObservableObject
     private void OnSourceModeChanged(SourceItemViewModel item, SourceMode mode)
     {
         _pendingModeUpdate = OnSourceModeChangedAsync(item, mode);
+    }
+
+    /// <summary>
+    /// Awaits every in-flight workspace mutation — selection edits and source-mode changes — and keeps
+    /// re-checking until no newer one has been appended. A single <c>await</c> of each field is not
+    /// enough: while an operation awaits edit A, the user can append edit B, and resuming after only A
+    /// would consume a state that omits B. Looping until both fields are stable across an await closes
+    /// that gap so Save/Build never act on a superseded snapshot.
+    /// </summary>
+    private async Task DrainPendingWorkspaceMutationsAsync()
+    {
+        Task selection, mode;
+        do
+        {
+            selection = _pendingSelectionUpdate;
+            mode = _pendingModeUpdate;
+            await selection.ConfigureAwait(true);
+            await mode.ConfigureAwait(true);
+        }
+        while (selection != _pendingSelectionUpdate || mode != _pendingModeUpdate);
     }
 
     private async Task OnSourceModeChangedAsync(SourceItemViewModel item, SourceMode mode)

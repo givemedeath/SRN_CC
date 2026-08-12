@@ -198,6 +198,58 @@ public class ProjectStoreTests
     }
 
     [Test]
+    public async Task Schema1_Load_NumericStringModeField_ThrowsOnStrictPath()
+    {
+        string hakPath = Path.Combine(_tempDir, "num.hak");
+        await File.WriteAllTextAsync(hakPath, "x");
+        string projectPath = Path.Combine(_tempDir, "num.srnccproj");
+
+        // Enum.TryParse accepts undefined numeric strings such as "3"; the strict load must still
+        // reject them so an out-of-range mode never quietly makes a source unpackageable.
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            { "id": "{{Guid.NewGuid()}}", "kind": "hak", "mode": "3", "path": { "kind": "absolute", "value": "{{hakPath.Replace('\\', '/')}}" } }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        ProjectStore store = new ProjectStore(new MockIndexService(), new WorkspaceResolver(new DummyHashService(), new AssetHashCache()));
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Schema1_Load_NonStringModeField_ThrowsOnStrictPath()
+    {
+        string hakPath = Path.Combine(_tempDir, "nonstr.hak");
+        await File.WriteAllTextAsync(hakPath, "x");
+        string projectPath = Path.Combine(_tempDir, "nonstr.srnccproj");
+
+        // A present-but-non-string mode (a JSON number here) is malformed; the strict load rejects it
+        // rather than silently defaulting to Full.
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            { "id": "{{Guid.NewGuid()}}", "kind": "hak", "mode": 3, "path": { "kind": "absolute", "value": "{{hakPath.Replace('\\', '/')}}" } }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        ProjectStore store = new ProjectStore(new MockIndexService(), new WorkspaceResolver(new DummyHashService(), new AssetHashCache()));
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
     public async Task NewerSchemaVersion_OpensReadOnly()
     {
         string projectPath = Path.Combine(_tempDir, "future.srnccproj");

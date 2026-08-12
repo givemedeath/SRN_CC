@@ -12,6 +12,8 @@ namespace SRN.CC.App.ViewModels;
 public partial class ConflictCandidateViewModel : ObservableObject
 {
     private readonly Func<AssetOccurrence, Task> _onMakeWinner;
+    private readonly Func<AssetOccurrence, CancellationToken, Task<byte[]?>>? _hashLoader;
+    private bool _hashRequested;
 
     public AssetOccurrence Occurrence { get; }
     public string SourceLabel { get; }
@@ -36,20 +38,61 @@ public partial class ConflictCandidateViewModel : ObservableObject
         int priority,
         SourceMode mode,
         bool isCurrentWinner,
-        Func<AssetOccurrence, Task> onMakeWinner)
+        Func<AssetOccurrence, Task> onMakeWinner,
+        Func<AssetOccurrence, CancellationToken, Task<byte[]?>>? hashLoader = null)
     {
         Occurrence = occurrence ?? throw new ArgumentNullException(nameof(occurrence));
         _onMakeWinner = onMakeWinner ?? throw new ArgumentNullException(nameof(onMakeWinner));
+        _hashLoader = hashLoader;
         SourceLabel = sourceLabel;
         Priority = priority;
         Mode = mode;
         _isCurrentWinner = isCurrentWinner;
         OriginLocator = occurrence.Locator.ToString() ?? "-";
         SizeFormatted = ByteFormatting.Format(occurrence.Size);
-        _hashText = occurrence.Sha256 is { Length: > 0 }
-            ? Convert.ToHexString(occurrence.Sha256).ToLowerInvariant()[..Math.Min(8, occurrence.Sha256.Length * 2)]
-            : "—";
+        _hashText = occurrence.Sha256 is { Length: > 0 } ? ShortHash(occurrence.Sha256) : "—";
     }
+
+    /// <summary>
+    /// Fills in <see cref="HashText"/> the first time the card is shown. Indexed occurrences usually
+    /// carry no precomputed <c>Sha256</c>, so without this the card would forever read "—"; here we
+    /// stream the payload once (via the injected loader) and cache the short hash. Idempotent and
+    /// safe to fire-and-forget: it computes at most once, and swallows read failures back to "—".
+    /// </summary>
+    public async Task EnsureHashLoadedAsync(CancellationToken cancellationToken = default)
+    {
+        if (_hashRequested)
+        {
+            return;
+        }
+        _hashRequested = true;
+
+        // Already shown from a precomputed hash, or no way to compute one.
+        if (Occurrence.Sha256 is { Length: > 0 } || _hashLoader is null)
+        {
+            return;
+        }
+
+        HashText = "computing…";
+        try
+        {
+            byte[]? hash = await _hashLoader(Occurrence, cancellationToken).ConfigureAwait(true);
+            HashText = hash is { Length: > 0 } ? ShortHash(hash) : "—";
+        }
+        catch (OperationCanceledException)
+        {
+            // Let a fresh attempt run next time the card is shown.
+            _hashRequested = false;
+            HashText = "—";
+        }
+        catch
+        {
+            HashText = "—";
+        }
+    }
+
+    private static string ShortHash(byte[] hash) =>
+        Convert.ToHexString(hash).ToLowerInvariant()[..Math.Min(8, hash.Length * 2)];
 
     [RelayCommand]
     private Task MakeWinner() => _onMakeWinner(Occurrence);

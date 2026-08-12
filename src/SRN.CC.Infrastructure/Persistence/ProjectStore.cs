@@ -274,18 +274,23 @@ public sealed class ProjectStore : IProjectStore
                 }
 
                 // Per-source mode is an additive, optional field (default Full). Absent -> Full;
-                // present-but-unparseable throws on the strict path, tolerated as Full read-only.
+                // present-but-invalid throws on the strict path, tolerated as Full read-only. "Invalid"
+                // covers a non-string value, an unrecognized name, and — because Enum.TryParse also
+                // accepts raw numeric strings such as "3" — any value outside the defined SourceMode set.
                 SourceMode mode = SourceMode.Full;
-                string? modeStr = TryGetString(sourceObj["mode"]);
-                if (!string.IsNullOrEmpty(modeStr))
+                JsonNode? modeNode = sourceObj["mode"];
+                if (modeNode is not null)
                 {
-                    if (Enum.TryParse<SourceMode>(modeStr, ignoreCase: true, out SourceMode parsedMode))
+                    string? modeStr = TryGetString(modeNode);
+                    if (modeStr is not null
+                        && Enum.TryParse<SourceMode>(modeStr, ignoreCase: true, out SourceMode parsedMode)
+                        && Enum.IsDefined(parsedMode))
                     {
                         mode = parsedMode;
                     }
                     else if (!isReadOnly)
                     {
-                        throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source mode '{modeStr}'.");
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source mode '{modeStr ?? modeNode.ToJsonString()}'.");
                     }
                 }
 

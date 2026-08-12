@@ -24,6 +24,7 @@ public sealed class DependencyLocator : IDependencyResolver
     private readonly Func<AssetSource, AssetOccurrence, Stream, CancellationToken, Task<Stream>> _streamOpener;
     private readonly IBaseGameResourceCatalog? _baseGameCatalog;
     private readonly Dictionary<AssetIdentity, AssetOccurrence> _occurrenceCache;
+    private readonly HashSet<AssetIdentity> _curatedIdentities;
 
     /// <summary>Identities that were resolved from the base game rather than a curated source.</summary>
     public HashSet<AssetIdentity> BaseGameSatisfied { get; } = new();
@@ -45,9 +46,17 @@ public sealed class DependencyLocator : IDependencyResolver
         // unavailable or unpackageable source — are deliberately absent from the cache, so a
         // dependency on them is reported unresolved rather than silently satisfied by an arbitrary
         // occurrence (PLAN.md:86, "never fall back silently").
+        //
+        // _curatedIdentities holds *every* identity the workspace knows about, resolved or not. It is
+        // the guard that keeps the base-game fallback from papering over a curated-source error: an
+        // identity that is present but unresolved (invalid pin, unresolved duplicate, unavailable or
+        // unpackageable source) must report unresolved, not be silently satisfied by the base game.
         _occurrenceCache = new Dictionary<AssetIdentity, AssetOccurrence>();
+        _curatedIdentities = new HashSet<AssetIdentity>();
         foreach (var curatedAsset in _workspaceState.CuratedAssets)
         {
+            _curatedIdentities.Add(curatedAsset.Identity);
+
             if (curatedAsset.Status != ResolutionStatus.Resolved)
             {
                 continue;
@@ -76,10 +85,20 @@ public sealed class DependencyLocator : IDependencyResolver
             return Task.FromResult<AssetOccurrence?>(occurrence);
         }
 
-        // Base-game fallback. A base resource satisfies previews and lets traversal continue into its
-        // own dependencies, but it is never packaged (PLAN.md:134). We synthesize a marker occurrence
-        // — source id Guid.Empty, size 0 — and record the identity so the caller can exclude it from
-        // the build selection. OpenStreamAsync routes the marker back to the catalog.
+        // An identity the workspace already knows about but did not resolve is a curated-source error
+        // the operator must see and fix. Never let the base game silently satisfy it — that would
+        // conceal the error and ship a build quietly using the base asset instead of the intended
+        // override. Report unresolved so the failure surfaces (PLAN.md:86, "never fall back silently").
+        if (_curatedIdentities.Contains(id))
+        {
+            return Task.FromResult<AssetOccurrence?>(null);
+        }
+
+        // Base-game fallback, only for identities genuinely absent from the workspace. A base resource
+        // satisfies previews and lets traversal continue into its own dependencies, but it is never
+        // packaged (PLAN.md:134). We synthesize a marker occurrence — source id Guid.Empty, size 0 —
+        // and record the identity so the caller can exclude it from the build selection.
+        // OpenStreamAsync routes the marker back to the catalog.
         if (_baseGameCatalog is not null && _baseGameCatalog.Contains(id))
         {
             BaseGameSatisfied.Add(id);

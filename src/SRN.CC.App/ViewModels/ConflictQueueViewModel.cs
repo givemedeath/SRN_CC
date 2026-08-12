@@ -20,6 +20,7 @@ public partial class ConflictQueueViewModel : ObservableObject
     private readonly Func<AssetOccurrence, Task> _onMakeWinner;
     private readonly Func<ushort, string> _resourceTypeName;
     private readonly Func<Guid, Task>? _onPreferSource;
+    private readonly Func<AssetOccurrence, CancellationToken, Task<byte[]?>>? _hashLoader;
 
     [ObservableProperty]
     private ObservableCollection<ConflictItemViewModel> _conflicts = new();
@@ -42,11 +43,13 @@ public partial class ConflictQueueViewModel : ObservableObject
     public ConflictQueueViewModel(
         Func<AssetOccurrence, Task> onMakeWinner,
         Func<ushort, string> resourceTypeName,
-        Func<Guid, Task>? onPreferSource = null)
+        Func<Guid, Task>? onPreferSource = null,
+        Func<AssetOccurrence, CancellationToken, Task<byte[]?>>? hashLoader = null)
     {
         _onMakeWinner = onMakeWinner ?? throw new ArgumentNullException(nameof(onMakeWinner));
         _resourceTypeName = resourceTypeName ?? throw new ArgumentNullException(nameof(resourceTypeName));
         _onPreferSource = onPreferSource;
+        _hashLoader = hashLoader;
     }
 
     public string ProgressText => $"{ResolvedCount} of {TotalCount} resolved";
@@ -56,6 +59,20 @@ public partial class ConflictQueueViewModel : ObservableObject
     public string HeaderText => $"Conflicts ({TotalCount})";
 
     partial void OnResolvedCountChanged(int value) => OnPropertyChanged(nameof(ProgressText));
+
+    // When the operator lands on a conflict, compute the hashes for its candidate cards so they can be
+    // compared. Indexed occurrences carry no precomputed hash; each candidate loads at most once.
+    partial void OnCurrentChanged(ConflictItemViewModel? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+        foreach (ConflictCandidateViewModel candidate in value.Candidates)
+        {
+            _ = candidate.EnsureHashLoadedAsync();
+        }
+    }
 
     partial void OnTotalCountChanged(int value)
     {
@@ -127,7 +144,8 @@ public partial class ConflictQueueViewModel : ObservableObject
                 _sourcePriorityLookup(o.SourceId),
                 _sourceModeLookup(o.SourceId),
                 isCurrentWinner: winner is not null && winner.SourceId == o.SourceId && Equals(winner.Locator, o.Locator),
-                _onMakeWinner))
+                _onMakeWinner,
+                _hashLoader))
             .ToList();
 
         return new ConflictItemViewModel(asset, _resourceTypeName(asset.Identity.ResourceType), candidates);

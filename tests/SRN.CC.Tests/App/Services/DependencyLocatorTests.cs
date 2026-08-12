@@ -190,6 +190,42 @@ public class DependencyLocatorTests
         Assert.That(_locator.BaseGameSatisfied, Is.Empty);
     }
 
+    [Test]
+    public async Task ResolveAsync_CuratedButUnresolved_NeverSatisfiedByBaseGame()
+    {
+        // The identity is present in the workspace but did not resolve (e.g. an invalid pin). It also
+        // happens to exist in the base game. The base game must NOT paper over the curated error: the
+        // dependency stays unresolved so the operator sees and fixes it, rather than shipping a build
+        // that silently uses the base asset instead of the intended override.
+        var brokenIdentity = new AssetIdentity("broken_override", 2002);
+        var brokenOccurrence = new AssetOccurrence(brokenIdentity, Guid.NewGuid(), new HakEntryLocator(0), "broken_override.mdl", 512);
+        var brokenAsset = new CuratedAsset(
+            identity: brokenIdentity,
+            allOccurrences: new[] { brokenOccurrence },
+            resolvedOccurrence: null,
+            pin: null,
+            status: ResolutionStatus.InvalidPin,
+            isSelected: false);
+
+        var state = new WorkspaceState(
+            sources: Array.Empty<AssetSource>(),
+            snapshots: new Dictionary<Guid, SourceIndexSnapshot>(),
+            curatedAssets: new[] { brokenAsset },
+            selectionState: new SelectionState(),
+            pins: Array.Empty<WinnerPin>(),
+            preferences: new ProjectPreferences());
+
+        var catalog = new FakeCatalog();
+        catalog.Add(brokenIdentity); // the base game also has it
+        async Task<Stream> StreamOpener(AssetSource s, AssetOccurrence o, Stream f, CancellationToken ct) => new MemoryStream();
+        var locator = new DependencyLocator(state, StreamOpener, catalog);
+
+        var result = await locator.ResolveAsync(brokenIdentity);
+
+        Assert.That(result, Is.Null, "a curated-but-unresolved identity must not fall back to the base game");
+        Assert.That(locator.BaseGameSatisfied, Is.Empty, "the base game must not be recorded as satisfying a curated error");
+    }
+
     private sealed class FakeCatalog : IBaseGameResourceCatalog
     {
         private readonly HashSet<AssetIdentity> _ids = new();

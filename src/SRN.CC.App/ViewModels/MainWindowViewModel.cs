@@ -127,7 +127,7 @@ public partial class MainWindowViewModel : ObservableObject
             OnSelectedRowsChanged,
             OnSearchTextChanged,
             OnSelectedFilterModeChanged);
-        ConflictQueue = new ConflictQueueViewModel(OnPinRequestedAsync, ResourceTypeNameFor, BulkPreferSourceAsync);
+        ConflictQueue = new ConflictQueueViewModel(OnPinRequestedAsync, ResourceTypeNameFor, BulkPreferSourceAsync, ComputeRawHashAsync);
         ComparisonPanel = new ComparisonPanelViewModel(
             new PreviewEngine(new FallbackSourceReaderDispatcher(), new IPreviewProvider[] { }),
             OnPinRequestedAsync);
@@ -181,7 +181,7 @@ public partial class MainWindowViewModel : ObservableObject
             OnSelectedRowsChanged,
             OnSearchTextChanged,
             OnSelectedFilterModeChanged);
-        ConflictQueue = new ConflictQueueViewModel(OnPinRequestedAsync, ResourceTypeNameFor, BulkPreferSourceAsync);
+        ConflictQueue = new ConflictQueueViewModel(OnPinRequestedAsync, ResourceTypeNameFor, BulkPreferSourceAsync, ComputeRawHashAsync);
 
         ComparisonPanel = new ComparisonPanelViewModel(
             _previewEngine,

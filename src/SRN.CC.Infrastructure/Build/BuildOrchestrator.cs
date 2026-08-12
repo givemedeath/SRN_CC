@@ -79,6 +79,11 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
         List<BuildItem> buildItems = new(selectedAssets.Count);
         var sourceMap = workspace.Sources.ToDictionary(s => s.Id);
 
+        // Preflight 2a: validate every selected winner and freeze the build plan, WITHOUT opening any
+        // payload yet. Collecting the plan first lets the drift check (2b) run before we read a single
+        // occurrence — a stale locator in a drifted source would otherwise throw on open before the
+        // fingerprint check could return the actionable SourceDriftDetected result.
+        List<(CuratedAsset Asset, SRN.CC.Core.Occurrences.AssetOccurrence Occurrence, AssetSource Source)> planEntries = new(selectedAssets.Count);
         foreach (var asset in selectedAssets)
         {
             if (asset.Status != ResolutionStatus.Resolved)
@@ -105,32 +110,17 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
                 return Fail($"Source for asset '{asset.Identity}' is hidden and cannot contribute to a build. Rescan or re-resolve before building.");
             }
 
-            string? sha256Hex = occ.Sha256 != null ? Convert.ToHexString(occ.Sha256).ToLowerInvariant() : null;
-            if (string.IsNullOrEmpty(sha256Hex))
-            {
-                await using var payloadStream = await _dispatcher.OpenOccurrenceAsync(src, occ, cancellationToken).ConfigureAwait(false);
-                using var sha = SHA256.Create();
-                byte[] hashBytes = await sha.ComputeHashAsync(payloadStream, cancellationToken).ConfigureAwait(false);
-                sha256Hex = Convert.ToHexString(hashBytes).ToLowerInvariant();
-            }
-
-            buildItems.Add(new BuildItem(
-                Identity: asset.Identity,
-                SourceId: occ.SourceId,
-                Locator: occ.Locator,
-                ExpectedSizeBytes: occ.Size,
-                ExpectedSha256Hex: sha256Hex,
-                IsPinned: asset.Pin != null
-            ));
+            planEntries.Add((asset, occ, src));
         }
 
         // Preflight 2b: source drift. Recompute the fingerprint of every source that actually
         // contributes a payload and compare it to the fingerprint recorded at its last scan. A
         // mismatch means the source changed on disk since it was indexed, so the frozen locators,
-        // sizes, and hashes can no longer be trusted (PLAN.md:143). Scoped to contributing sources:
-        // drift in a source that ships nothing cannot corrupt the output, and folder fingerprints
-        // require a directory walk.
-        foreach (Guid contributingSourceId in buildItems.Select(i => i.SourceId).Distinct())
+        // sizes, and hashes can no longer be trusted (PLAN.md:143). This runs BEFORE any payload is
+        // opened (2c) so a drifted source is reported as SourceDriftDetected rather than surfacing as
+        // an opaque read failure on a stale locator. Scoped to contributing sources: drift in a source
+        // that ships nothing cannot corrupt the output, and folder fingerprints require a directory walk.
+        foreach (Guid contributingSourceId in planEntries.Select(p => p.Source.Id).Distinct())
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!sourceMap.TryGetValue(contributingSourceId, out var contributingSource))
@@ -166,6 +156,31 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
                 LogDrift(contributingSource.FullPath, exception: null);
                 return Fail($"Source drift detected ({DiagnosticCode.SourceDriftDetected}): '{contributingSource.FullPath}' changed since its last scan. Rescan sources and retry the build.");
             }
+        }
+
+        // Preflight 2c: with fingerprints confirmed unchanged, read each occurrence to hash any payload
+        // that has no precomputed SHA-256 and materialize the build items.
+        foreach (var (asset, occ, src) in planEntries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string? sha256Hex = occ.Sha256 != null ? Convert.ToHexString(occ.Sha256).ToLowerInvariant() : null;
+            if (string.IsNullOrEmpty(sha256Hex))
+            {
+                await using var payloadStream = await _dispatcher.OpenOccurrenceAsync(src, occ, cancellationToken).ConfigureAwait(false);
+                using var sha = SHA256.Create();
+                byte[] hashBytes = await sha.ComputeHashAsync(payloadStream, cancellationToken).ConfigureAwait(false);
+                sha256Hex = Convert.ToHexString(hashBytes).ToLowerInvariant();
+            }
+
+            buildItems.Add(new BuildItem(
+                Identity: asset.Identity,
+                SourceId: occ.SourceId,
+                Locator: occ.Locator,
+                ExpectedSizeBytes: occ.Size,
+                ExpectedSha256Hex: sha256Hex,
+                IsPinned: asset.Pin != null
+            ));
         }
 
         // Preflight 3: Total estimated payload size < 2 GiB limit

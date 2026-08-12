@@ -384,7 +384,45 @@ public class BuildOrchestratorTests
         Assert.That(result.IsSuccess, Is.True, result.ErrorMessage);
     }
 
-    private static List<CuratedAsset> FolderAssets(AssetSource source, IReadOnlyList<RealHakFixtureFactory.FixtureEntry> corpus)
+    [Test]
+    public async Task Preflight_SourceDrift_StaleLocatorWithoutPrecomputedHash_ReportsDriftNotReadFailure()
+    {
+        string folder = Path.Combine(_tempDir, "stale-locator");
+        var corpus = RealHakFixtureFactory.DefaultCorpus();
+        RealHakFixtureFactory.WriteFolderSource(folder, corpus);
+
+        var registry = new ResourceTypeRegistry();
+        var dispatcher = new SourceReaderDispatcher(typeRegistry: registry);
+        var source = AssetSource.CreateFolder(folder) with
+        {
+            Fingerprint = await dispatcher.GetFingerprintAsync(AssetSource.CreateFolder(folder))
+        };
+
+        // Occurrences deliberately carry NO precomputed SHA-256, so the build must open them to hash.
+        var workspace = BuildWorkspace(new[] { source }, FolderAssets(source, corpus, precomputeHash: false));
+
+        // Drift the source so every contributing locator is now stale: delete the selected files. The
+        // folder fingerprint changes too. Under the old ordering the stale-locator open threw an opaque
+        // read error before the drift check ran; the drift check must now run first and return the
+        // actionable SourceDriftDetected result instead.
+        foreach (var entry in corpus)
+        {
+            File.Delete(Path.Combine(folder, RealHakFixtureFactory.FileNameFor(entry)));
+        }
+
+        var packer = new ThrowingPacker();
+        var result = await CreateOrchestrator(packer).ExecuteBuildAsync(workspace, Path.Combine(_tempDir, "dest-stale", "out.hak"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IsSuccess, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain(nameof(DiagnosticCode.SourceDriftDetected)));
+            Assert.That(result.ErrorMessage, Does.Contain(folder));
+            Assert.That(packer.WasCalled, Is.False, "drift must be caught before any packing work starts");
+        });
+    }
+
+    private static List<CuratedAsset> FolderAssets(AssetSource source, IReadOnlyList<RealHakFixtureFactory.FixtureEntry> corpus, bool precomputeHash = true)
     {
         List<CuratedAsset> assets = new();
         foreach (var entry in corpus)
@@ -399,7 +437,7 @@ public class BuildOrchestratorTests
                 entry.Payload.Length,
                 ValidationState.Valid,
                 null,
-                SHA256.HashData(entry.Payload));
+                precomputeHash ? SHA256.HashData(entry.Payload) : null);
             assets.Add(new CuratedAsset(identity, new[] { occurrence }, occurrence, null, ResolutionStatus.Resolved, true));
         }
         return assets;

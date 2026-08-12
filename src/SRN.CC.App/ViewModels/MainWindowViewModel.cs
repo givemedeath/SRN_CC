@@ -706,6 +706,14 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         byte[]? raw = await ComputeRawHashAsync(occurrence, CancellationToken.None).ConfigureAwait(true);
+        if (raw is null)
+        {
+            // The source is unavailable or the payload could not be read. Pinning an all-zero hash here
+            // would persist a pin the resolver immediately marks invalid, leaving the conflict
+            // unresolved while the log falsely claims success. Abort and report the read failure.
+            OperationLog.AddEntry("WARN", $"Could not pin {occurrence.Identity.Resref}.{occurrence.Identity.ResourceType}: its payload could not be read from source {occurrence.SourceId}.");
+            return;
+        }
         byte[] pinHash = NormalizeHash(raw);
 
         var pin = new WinnerPin(occurrence.Identity, occurrence.SourceId, occurrence.Locator, pinHash);

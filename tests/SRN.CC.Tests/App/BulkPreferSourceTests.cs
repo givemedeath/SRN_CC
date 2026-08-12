@@ -70,10 +70,43 @@ public class BulkPreferSourceTests
         alphaAsset.Pin.Should().NotBeNull();
     }
 
-    private static MainWindowViewModel BuildViewModel(IWorkspaceService workspace, IAssetIndexService index, WorkspaceResolver resolver)
+    [Test]
+    public async Task MakeWinner_WhenPayloadUnreadable_DoesNotPin_AndLogsWarning()
+    {
+        Guid s1 = Guid.NewGuid();
+        Guid s2 = Guid.NewGuid();
+        AssetSource src1 = new(s1, AssetSourceKind.Hak, "c:/one.hak", 0);
+        AssetSource src2 = new(s2, AssetSourceKind.Hak, "c:/two.hak", 1);
+
+        AssetIdentity alpha = new("alpha", TgaType);
+
+        // alpha collides across s1/s2 so it enters the conflict queue.
+        var index = new MockIndexService();
+        index.Register(src1, Occ(alpha, s1, 0));
+        index.Register(src2, Occ(alpha, s2, 0));
+
+        var cache = new AssetHashCache();
+        var resolver = new WorkspaceResolver(new ConstantHashService(), cache);
+        var workspace = new WorkspaceService(index, resolver, cache);
+        await workspace.InitializeAsync(new[] { src1, src2 });
+
+        // The dispatcher fails to open any payload, so hashing the chosen occurrence returns null.
+        MainWindowViewModel vm = BuildViewModel(workspace, index, resolver, new ThrowingDispatcher());
+        await vm.LoadWorkspaceStateAsync(workspace.CurrentState);
+
+        ConflictCandidateViewModel candidate = vm.ConflictQueue.Current!.Candidates.First(c => c.Occurrence.SourceId == s2);
+        await candidate.MakeWinnerCommand.ExecuteAsync(null);
+
+        CuratedAsset alphaAsset = workspace.CurrentState.CuratedAssets.Single(a => a.Identity.Equals(alpha));
+        alphaAsset.Pin.Should().BeNull("an unreadable payload must not be persisted as an all-zero pin");
+        vm.OperationLog.Entries.Should().Contain(e => e.Message.Contains("Could not pin"),
+            "the read failure is reported instead of a false success");
+    }
+
+    private static MainWindowViewModel BuildViewModel(IWorkspaceService workspace, IAssetIndexService index, WorkspaceResolver resolver, ISourceReaderDispatcher? dispatcher = null)
     {
         var registry = new ResourceTypeRegistry();
-        var dispatcher = new FakeDispatcher();
+        dispatcher ??= new FakeDispatcher();
         return new MainWindowViewModel(
             workspace,
             new ProjectStore(index, resolver),
@@ -120,6 +153,12 @@ public class BulkPreferSourceTests
     {
         public Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default)
             => Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes($"{source.Id}:{occurrence.Locator}")));
+    }
+
+    private sealed class ThrowingDispatcher : ISourceReaderDispatcher
+    {
+        public Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default)
+            => throw new IOException("payload unreadable");
     }
 
     private sealed class UnusedBuildOrchestrator : IBuildOrchestrator

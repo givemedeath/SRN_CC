@@ -108,6 +108,32 @@ public partial class MainWindow : Window
                 var dialog = new SettingsDialog { DataContext = settingsViewModel };
                 await dialog.ShowDialog(this);
             };
+
+            vm.ShowConfirmDependenciesDialogAsync = async dialogViewModel =>
+            {
+                var dialog = new ConfirmDependenciesDialog { DataContext = dialogViewModel };
+
+                // The view model completes its own task on Confirm/Cancel and flips IsDialogOpen
+                // false; close the window in response so the modal await below returns.
+                void OnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+                {
+                    if (e.PropertyName == nameof(ConfirmDependenciesDialogViewModel.IsDialogOpen)
+                        && !dialogViewModel.IsDialogOpen)
+                    {
+                        dialog.Close();
+                    }
+                }
+
+                dialogViewModel.PropertyChanged += OnPropertyChanged;
+                try
+                {
+                    await dialog.ShowDialog(this);
+                }
+                finally
+                {
+                    dialogViewModel.PropertyChanged -= OnPropertyChanged;
+                }
+            };
         }
     }
 }

@@ -1,26 +1,41 @@
 using SRN.CC.Core.Identity;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Resolution;
+using SRN.CC.Core.Services;
 using SRN.CC.Core.Sources;
 using SRN.CC.Core.Workspace;
 
 namespace SRN.CC.App.Services;
 
 /// <summary>
-/// Resolves asset dependencies using workspace-first then catalog-fallback strategy.
+/// Resolves asset dependencies workspace-first, then falls back to the base-game KEY/BIF catalog.
+/// Base-game hits satisfy previews and transitive traversal but are never packaged: they are tracked
+/// in <see cref="BaseGameSatisfied"/> so the caller can keep them out of the build selection.
 /// </summary>
 public sealed class DependencyLocator : IDependencyResolver
 {
+    /// <summary>
+    /// Sentinel source id for a synthesized base-game occurrence. Workspace sources always carry a
+    /// real <see cref="Guid.NewGuid"/>, so <see cref="Guid.Empty"/> unambiguously marks a base hit.
+    /// </summary>
+    public static readonly Guid BaseGameSourceId = Guid.Empty;
+
     private readonly WorkspaceState _workspaceState;
     private readonly Func<AssetSource, AssetOccurrence, Stream, CancellationToken, Task<Stream>> _streamOpener;
+    private readonly IBaseGameResourceCatalog? _baseGameCatalog;
     private readonly Dictionary<AssetIdentity, AssetOccurrence> _occurrenceCache;
+
+    /// <summary>Identities that were resolved from the base game rather than a curated source.</summary>
+    public HashSet<AssetIdentity> BaseGameSatisfied { get; } = new();
 
     public DependencyLocator(
         WorkspaceState workspaceState,
-        Func<AssetSource, AssetOccurrence, Stream, CancellationToken, Task<Stream>> streamOpener)
+        Func<AssetSource, AssetOccurrence, Stream, CancellationToken, Task<Stream>> streamOpener,
+        IBaseGameResourceCatalog? baseGameCatalog = null)
     {
         _workspaceState = workspaceState ?? throw new ArgumentNullException(nameof(workspaceState));
         _streamOpener = streamOpener ?? throw new ArgumentNullException(nameof(streamOpener));
+        _baseGameCatalog = baseGameCatalog;
 
         // Cache the resolution winner for each curated identity. This must be ResolvedOccurrence,
         // not a first-wins scan of AllOccurrences: a valid pin overrides source priority
@@ -55,15 +70,24 @@ public sealed class DependencyLocator : IDependencyResolver
         ArgumentNullException.ThrowIfNull(id);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // First try workspace occurrences
+        // First try workspace occurrences.
         if (_occurrenceCache.TryGetValue(id, out var occurrence))
         {
             return Task.FromResult<AssetOccurrence?>(occurrence);
         }
 
-        // Workspace-first strategy: if not in workspace, it's unresolved
-        // In a full implementation, this would check the catalog here
-        // For now, just return null (unresolved)
+        // Base-game fallback. A base resource satisfies previews and lets traversal continue into its
+        // own dependencies, but it is never packaged (PLAN.md:134). We synthesize a marker occurrence
+        // — source id Guid.Empty, size 0 — and record the identity so the caller can exclude it from
+        // the build selection. OpenStreamAsync routes the marker back to the catalog.
+        if (_baseGameCatalog is not null && _baseGameCatalog.Contains(id))
+        {
+            BaseGameSatisfied.Add(id);
+            AssetOccurrence baseOccurrence = new(id, BaseGameSourceId, new HakEntryLocator(0), id.Resref, 0);
+            return Task.FromResult<AssetOccurrence?>(baseOccurrence);
+        }
+
+        // Not in the workspace and not in the base game: unresolved.
         return Task.FromResult<AssetOccurrence?>(null);
     }
 
@@ -77,6 +101,13 @@ public sealed class DependencyLocator : IDependencyResolver
     {
         ArgumentNullException.ThrowIfNull(occurrence);
         cancellationToken.ThrowIfCancellationRequested();
+
+        // A synthesized base-game occurrence streams from the catalog, so traversal can read its
+        // payload to discover nested dependencies.
+        if (occurrence.SourceId == BaseGameSourceId && _baseGameCatalog is not null)
+        {
+            return await _baseGameCatalog.OpenAsync(occurrence.Identity, cancellationToken).ConfigureAwait(false);
+        }
 
         // Find the source for this occurrence
         var source = _workspaceState.Sources.FirstOrDefault(s => s.Id == occurrence.SourceId);

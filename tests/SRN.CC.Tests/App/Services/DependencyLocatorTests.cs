@@ -1,3 +1,4 @@
+using System.Text;
 using NUnit.Framework;
 using SRN.CC.App.Services;
 using SRN.CC.Core.Identity;
@@ -5,6 +6,7 @@ using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Project;
 using SRN.CC.Core.Resolution;
 using SRN.CC.Core.Selection;
+using SRN.CC.Core.Services;
 using SRN.CC.Core.Snapshots;
 using SRN.CC.Core.Sources;
 using SRN.CC.Core.Workspace;
@@ -141,5 +143,59 @@ public class DependencyLocatorTests
 
         // Assert
         Assert.That(stream, Is.SameAs(fallback));
+    }
+
+    [Test]
+    public async Task ResolveAsync_WorkspaceTakesPrecedenceOverBaseGame()
+    {
+        var catalog = new FakeCatalog();
+        catalog.Add(new AssetIdentity("model_01", 2002)); // also in the base game
+        async Task<Stream> StreamOpener(AssetSource s, AssetOccurrence o, Stream f, CancellationToken ct) => new MemoryStream();
+        var locator = new DependencyLocator(_workspaceState, StreamOpener, catalog);
+
+        var result = await locator.ResolveAsync(new AssetIdentity("model_01", 2002));
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.SourceId, Is.Not.EqualTo(DependencyLocator.BaseGameSourceId),
+            "a curated occurrence wins over the base game");
+        Assert.That(locator.BaseGameSatisfied, Is.Empty);
+    }
+
+    [Test]
+    public async Task ResolveAsync_FallsBackToBaseGame_AndRecordsIt()
+    {
+        var baseId = new AssetIdentity("base_tex", 2000);
+        var catalog = new FakeCatalog();
+        catalog.Add(baseId);
+        async Task<Stream> StreamOpener(AssetSource s, AssetOccurrence o, Stream f, CancellationToken ct) => new MemoryStream();
+        var locator = new DependencyLocator(_workspaceState, StreamOpener, catalog);
+
+        var result = await locator.ResolveAsync(baseId);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.SourceId, Is.EqualTo(DependencyLocator.BaseGameSourceId));
+        Assert.That(locator.BaseGameSatisfied, Does.Contain(baseId));
+
+        // The synthesized occurrence streams from the catalog so traversal can read it.
+        using var stream = await locator.OpenStreamAsync(result, Stream.Null);
+        using var reader = new StreamReader(stream);
+        Assert.That(await reader.ReadToEndAsync(), Is.EqualTo("base:base_tex"));
+    }
+
+    [Test]
+    public async Task ResolveAsync_NoCatalog_UnresolvedStaysNull()
+    {
+        var result = await _locator.ResolveAsync(new AssetIdentity("not_here", 2000));
+        Assert.That(result, Is.Null);
+        Assert.That(_locator.BaseGameSatisfied, Is.Empty);
+    }
+
+    private sealed class FakeCatalog : IBaseGameResourceCatalog
+    {
+        private readonly HashSet<AssetIdentity> _ids = new();
+        public void Add(AssetIdentity id) => _ids.Add(id);
+        public bool Contains(AssetIdentity identity) => _ids.Contains(identity);
+        public Task<Stream> OpenAsync(AssetIdentity identity, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes($"base:{identity.Resref}")));
     }
 }

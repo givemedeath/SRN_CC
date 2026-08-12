@@ -44,13 +44,21 @@ public sealed class ClosureSummary
     /// </summary>
     public bool IsTruncated => LimitHit != TraversalLimit.None;
 
+    /// <summary>
+    /// Dependencies satisfied by the base game (KEY/BIF) rather than a curated source. These are
+    /// available for preview and traversal but are never packaged, so they are kept out of
+    /// <see cref="Resolved"/> and never added to the build selection.
+    /// </summary>
+    public IReadOnlySet<AssetIdentity> SatisfiedByBaseGame { get; }
+
     public ClosureSummary(
         IReadOnlySet<AssetIdentity> resolved,
         IReadOnlyList<UnresolvedDependencyGroup> unresolvedGroups,
         long totalBytes,
         int maxDepth,
         int duplicatesSuppressed,
-        TraversalLimit limitHit = TraversalLimit.None)
+        TraversalLimit limitHit = TraversalLimit.None,
+        IReadOnlySet<AssetIdentity>? satisfiedByBaseGame = null)
     {
         Resolved = resolved ?? throw new ArgumentNullException(nameof(resolved));
         UnresolvedGroups = unresolvedGroups ?? throw new ArgumentNullException(nameof(unresolvedGroups));
@@ -58,6 +66,7 @@ public sealed class ClosureSummary
         MaxDepth = maxDepth;
         DuplicatesSuppressed = duplicatesSuppressed;
         LimitHit = limitHit;
+        SatisfiedByBaseGame = satisfiedByBaseGame ?? new HashSet<AssetIdentity>();
 
         if (totalBytes < 0)
         {

@@ -414,6 +414,12 @@ public partial class MainWindowViewModel : ObservableObject
     /// </summary>
     public Func<SettingsDialogViewModel, Task>? ShowSettingsDialogAsync { get; set; }
 
+    /// <summary>
+    /// Host-provided presenter that shows the dependency-closure confirmation dialog modally and
+    /// returns when it closes. Null in headless contexts, where the closure is treated as canceled.
+    /// </summary>
+    public Func<ConfirmDependenciesDialogViewModel, Task>? ShowConfirmDependenciesDialogAsync { get; set; }
+
     [RelayCommand]
     private async Task NewProjectAsync()
     {
@@ -1368,8 +1374,9 @@ public partial class MainWindowViewModel : ObservableObject
                 return fallback;
             }
 
-            // Create resolver and command
-            var resolver = new DependencyLocator(_workspaceState, StreamOpener);
+            // Create resolver and command. The base-game catalog lets a dependency be satisfied by
+            // KEY/BIF resources for preview/traversal without ever packaging them.
+            var resolver = new DependencyLocator(_workspaceState, StreamOpener, _baseGameCatalog);
             var analyzer = new DependencyAnalyzer(_registry);
             var command = new Commands.AddAvailableDependenciesCommand(analyzer, _registry, resolver);
 
@@ -1379,14 +1386,41 @@ public partial class MainWindowViewModel : ObservableObject
                 .Cast<AssetOccurrence>()
                 .ToList();
 
-            var closure = await command.ExecuteAsync(occurrences, CancellationToken.None)
+            var rawClosure = await command.ExecuteAsync(occurrences, CancellationToken.None)
                 .ConfigureAwait(true);
 
-            OperationLog.AddEntry("INFO", $"Dependency analysis complete: {closure.Resolved.Count} resolved, {closure.UnresolvedGroups.Sum(g => g.Count)} unresolved.");
+            // Split base-game hits out of the packageable set: they satisfy previews but are never
+            // added to the build selection (PLAN.md:134).
+            var baseSatisfied = resolver.BaseGameSatisfied;
+            IReadOnlySet<AssetIdentity> workspaceResolved =
+                rawClosure.Resolved.Where(id => !baseSatisfied.Contains(id)).ToHashSet();
+            var closure = new ClosureSummary(
+                workspaceResolved,
+                rawClosure.UnresolvedGroups,
+                rawClosure.TotalBytes,
+                rawClosure.MaxDepth,
+                rawClosure.DuplicatesSuppressed,
+                rawClosure.LimitHit,
+                satisfiedByBaseGame: baseSatisfied);
 
-            // Show confirmation dialog and wait for user response
+            OperationLog.AddEntry("INFO",
+                $"Dependency analysis complete: {closure.Resolved.Count} resolved, {closure.SatisfiedByBaseGame.Count} satisfied by base game (not packaged), {closure.UnresolvedGroups.Sum(g => g.Count)} unresolved.");
+
+            // Show the confirmation dialog through the host presenter and wait for the response.
             var dialogVm = new ConfirmDependenciesDialogViewModel();
-            var confirmed = await dialogVm.ShowDialogAsync(closure).ConfigureAwait(true);
+            bool confirmed;
+            if (ShowConfirmDependenciesDialogAsync is not null)
+            {
+                var resultTask = dialogVm.ShowDialogAsync(closure);
+                await ShowConfirmDependenciesDialogAsync(dialogVm).ConfigureAwait(true);
+                // If the window closed without a button (e.g. the X), treat it as a cancel.
+                confirmed = resultTask.IsCompleted && await resultTask.ConfigureAwait(true);
+            }
+            else
+            {
+                OperationLog.AddEntry("WARN", "No dialog host available; treating dependency closure as canceled.");
+                confirmed = false;
+            }
 
             if (confirmed)
             {
@@ -1406,6 +1440,7 @@ public partial class MainWindowViewModel : ObservableObject
 
                         var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
                         AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+                        ConflictQueue.Load(_workspaceState);
                     }
                     finally
                     {

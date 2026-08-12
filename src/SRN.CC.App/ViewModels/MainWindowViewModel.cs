@@ -55,6 +55,7 @@ public partial class MainWindowViewModel : ObservableObject
     private WorkspaceState? _workspaceState;
     private string? _currentProjectPath;
     private Task _pendingSelectionUpdate = Task.CompletedTask;
+    private Task _pendingModeUpdate = Task.CompletedTask;
     private ApplicationSettings _settings = new();
 
     [ObservableProperty]
@@ -364,7 +365,7 @@ public partial class MainWindowViewModel : ObservableObject
             : $"SRN.CC Asset Curator — {Path.GetFileName(projectPath)}";
 
         bool canEditSources = !state.IsReadOnly;
-        var sourceVMs = state.Sources.Select(s => new SourceItemViewModel(s, canEditSources, OnSourceModeChangedAsync));
+        var sourceVMs = state.Sources.Select(s => new SourceItemViewModel(s, canEditSources, OnSourceModeChanged));
         SourceStack.UpdateSources(sourceVMs);
 
         var sourceLabels = state.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
@@ -399,6 +400,7 @@ public partial class MainWindowViewModel : ObservableObject
             .Where(item => item.ResourceType.Contains(resourceType, StringComparison.OrdinalIgnoreCase)).ToArray();
 
     private readonly SemaphoreSlim _selectionLock = new(1, 1);
+    private readonly SemaphoreSlim _modeUpdateLock = new(1, 1);
 
     public Func<Task<string?>>? OpenFilePickerAsync { get; set; }
     public Func<Task<string?>>? SaveProjectFilePickerAsync { get; set; }
@@ -482,6 +484,7 @@ public partial class MainWindowViewModel : ObservableObject
     private async Task SaveProjectAsync()
     {
         await _pendingSelectionUpdate.ConfigureAwait(true);
+        await _pendingModeUpdate.ConfigureAwait(true);
         if (_workspaceState == null || _projectStore == null) return;
         if (_workspaceState.IsReadOnly)
         {
@@ -524,6 +527,7 @@ public partial class MainWindowViewModel : ObservableObject
     private async Task SaveProjectAsAsync(string? targetProjectPath = null)
     {
         await _pendingSelectionUpdate.ConfigureAwait(true);
+        await _pendingModeUpdate.ConfigureAwait(true);
         if (_workspaceState == null || _projectStore == null) return;
         if (_workspaceState.IsReadOnly)
         {
@@ -906,6 +910,7 @@ public partial class MainWindowViewModel : ObservableObject
     private async Task BuildHakAsync()
     {
         await _pendingSelectionUpdate.ConfigureAwait(true);
+        await _pendingModeUpdate.ConfigureAwait(true);
         if (_workspaceState == null || _buildOrchestrator == null)
         {
             OperationLog.AddEntry("WARN", "No active workspace loaded for build.");
@@ -1117,6 +1122,16 @@ public partial class MainWindowViewModel : ObservableObject
     /// stack's per-item mode picker; the workspace service serializes the change and re-resolves.
     /// Mode-induced pin invalidations surface as WARN lines via <see cref="ReportChangedInputs"/>.
     /// </summary>
+    /// <summary>
+    /// Synchronous entry point wired to the source-stack mode picker. It records the resulting async
+    /// work in <see cref="_pendingModeUpdate"/> so operations that consume workspace state (Save,
+    /// Build) can await it and never act on a pre-change snapshot.
+    /// </summary>
+    private void OnSourceModeChanged(SourceItemViewModel item, SourceMode mode)
+    {
+        _pendingModeUpdate = OnSourceModeChangedAsync(item, mode);
+    }
+
     private async Task OnSourceModeChangedAsync(SourceItemViewModel item, SourceMode mode)
     {
         if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly)
@@ -1124,6 +1139,11 @@ public partial class MainWindowViewModel : ObservableObject
             return;
         }
 
+        // Serialize mode changes so rapid edits apply in submission order and the last one wins,
+        // rather than racing and leaving the workspace in an earlier, stale mode. The lock is distinct
+        // from _selectionLock, and LoadWorkspaceStateAsync (called below) only awaits selection work,
+        // so there is no cross-lock or self-await deadlock.
+        await _modeUpdateLock.WaitAsync().ConfigureAwait(true);
         try
         {
             var (state, report) = await _workspaceService.SetSourceModeAsync(item.Source.Id, mode).ConfigureAwait(true);
@@ -1133,6 +1153,10 @@ public partial class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             OperationLog.AddEntry("ERROR", $"Failed to change source mode: {ex.Message}");
+        }
+        finally
+        {
+            _modeUpdateLock.Release();
         }
     }
 

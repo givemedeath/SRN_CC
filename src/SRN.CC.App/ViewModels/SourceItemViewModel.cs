@@ -5,7 +5,7 @@ namespace SRN.CC.App.ViewModels;
 
 public partial class SourceItemViewModel : ObservableObject
 {
-    private readonly Func<SourceItemViewModel, SourceMode, Task>? _onModeChanged;
+    private readonly Action<SourceItemViewModel, SourceMode>? _onModeChanged;
 
     public AssetSource Source { get; }
 
@@ -34,7 +34,7 @@ public partial class SourceItemViewModel : ObservableObject
     public SourceItemViewModel(
         AssetSource source,
         bool canEditMode = true,
-        Func<SourceItemViewModel, SourceMode, Task>? onModeChanged = null)
+        Action<SourceItemViewModel, SourceMode>? onModeChanged = null)
     {
         Source = source;
         CanEditMode = canEditMode;
@@ -56,11 +56,12 @@ public partial class SourceItemViewModel : ObservableObject
 
     partial void OnModeChanged(SourceMode value)
     {
-        // Fires only on user edits (the ctor sets the backing field directly). The handler
-        // reloads the workspace, which rebuilds this item VM, so there is no feedback loop.
-        if (_onModeChanged is not null && value != Source.Mode)
-        {
-            _ = _onModeChanged(this, value);
-        }
+        // Fires only on user edits (the ctor sets the backing field directly), so every notification
+        // is forwarded. We deliberately do NOT compare against Source.Mode: that value is the last
+        // *applied* mode and lags behind rapid edits, so a quick change-and-revert (Full → Reference →
+        // Full) would drop the revert and leave the workspace stuck in Reference. The handler tracks
+        // and serializes the resulting work, and reloads the workspace (rebuilding this VM), so
+        // forwarding unconditionally is safe.
+        _onModeChanged?.Invoke(this, value);
     }
 }

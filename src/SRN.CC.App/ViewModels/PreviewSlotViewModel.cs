@@ -13,7 +13,7 @@ namespace SRN.CC.App.ViewModels;
 public partial class PreviewSlotViewModel : ObservableObject
 {
     private readonly PreviewEngine _previewEngine;
-    private readonly Func<AssetOccurrence, Task> _onPinRequested;
+    private readonly Func<AssetOccurrence, Task<bool>> _onPinRequested;
     private CancellationTokenSource? _currentCts;
     private bool _canPin = true;
 
@@ -69,7 +69,7 @@ public partial class PreviewSlotViewModel : ObservableObject
     public PreviewSlotViewModel(
         int slotIndex,
         PreviewEngine previewEngine,
-        Func<AssetOccurrence, Task> onPinRequested)
+        Func<AssetOccurrence, Task<bool>> onPinRequested)
     {
         SlotIndex = slotIndex;
         _previewEngine = previewEngine ?? throw new ArgumentNullException(nameof(previewEngine));
@@ -217,8 +217,9 @@ public partial class PreviewSlotViewModel : ObservableObject
     {
         if (AssignedOccurrence != null)
         {
-            await _onPinRequested(AssignedOccurrence).ConfigureAwait(false);
-            IsPinned = true;
+            // Only reflect a pin the callback actually persisted. A refused (read-only) or aborted
+            // (unreadable payload) request returns false and must leave the slot unpinned.
+            IsPinned = await _onPinRequested(AssignedOccurrence).ConfigureAwait(false);
         }
     }
 

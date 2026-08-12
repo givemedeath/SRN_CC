@@ -164,7 +164,14 @@ public class MainWindowViewModelTextureSourceWiringTests
             Guid sourceId, string newPath, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<(WorkspaceState State, ChangedInputReport Report)> SetSourceModeAsync(
+            Guid sourceId, SourceMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<WorkspaceState> PinAsync(WinnerPin pin, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<WorkspaceState> PinManyAsync(IReadOnlyList<WinnerPin> pins, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<WorkspaceState> UnpinAsync(AssetIdentity identity, CancellationToken cancellationToken = default)

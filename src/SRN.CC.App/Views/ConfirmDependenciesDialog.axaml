@@ -40,6 +40,17 @@
                     </Border>
                 </Grid>
 
+                <!-- Base-game dependencies are available for preview but are never packaged. -->
+                <Border Padding="12" Background="#1E2A1E" BorderBrush="#2E5E2E" BorderThickness="1" CornerRadius="4"
+                        IsVisible="{Binding Summary.SatisfiedByBaseGame.Count}">
+                    <TextBlock Foreground="#9BD79B" TextWrapping="Wrap">
+                        <TextBlock.Text>
+                            <Binding Path="Summary.SatisfiedByBaseGame.Count"
+                                     StringFormat="{}{0} dependencies are satisfied by the base game (KEY/BIF) and will not be packaged."/>
+                        </TextBlock.Text>
+                    </TextBlock>
+                </Border>
+
                 <!-- Truncation banner: a bounded closure is incomplete and must not read as complete -->
                 <Border Padding="12" Background="#3A2A00" BorderBrush="#8A6D00" BorderThickness="1" CornerRadius="4"
                         IsVisible="{Binding Summary.IsTruncated}">

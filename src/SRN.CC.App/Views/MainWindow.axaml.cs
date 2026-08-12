@@ -103,10 +103,50 @@ public partial class MainWindow : Window
                 return folders.Count > 0 ? folders[0].Path.LocalPath : null;
             };
 
+            vm.SingleHakFilePickerAsync = async () =>
+            {
+                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Relocate HAK Source",
+                    AllowMultiple = false,
+                    FileTypeFilter = new[]
+                    {
+                        new FilePickerFileType("HAK Files (*.hak)") { Patterns = new[] { "*.hak" } }
+                    }
+                });
+                return files.Count > 0 ? files[0].Path.LocalPath : null;
+            };
+
             vm.ShowSettingsDialogAsync = async settingsViewModel =>
             {
                 var dialog = new SettingsDialog { DataContext = settingsViewModel };
                 await dialog.ShowDialog(this);
+            };
+
+            vm.ShowConfirmDependenciesDialogAsync = async dialogViewModel =>
+            {
+                var dialog = new ConfirmDependenciesDialog { DataContext = dialogViewModel };
+
+                // The view model completes its own task on Confirm/Cancel and flips IsDialogOpen
+                // false; close the window in response so the modal await below returns.
+                void OnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+                {
+                    if (e.PropertyName == nameof(ConfirmDependenciesDialogViewModel.IsDialogOpen)
+                        && !dialogViewModel.IsDialogOpen)
+                    {
+                        dialog.Close();
+                    }
+                }
+
+                dialogViewModel.PropertyChanged += OnPropertyChanged;
+                try
+                {
+                    await dialog.ShowDialog(this);
+                }
+                finally
+                {
+                    dialogViewModel.PropertyChanged -= OnPropertyChanged;
+                }
             };
         }
     }

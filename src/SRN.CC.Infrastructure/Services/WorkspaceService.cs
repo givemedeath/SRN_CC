@@ -114,7 +114,7 @@ public sealed class WorkspaceService : IWorkspaceService
                 Guid id = sourceIdsInOrder[i];
                 if (currentSources.TryGetValue(id, out AssetSource? existing))
                 {
-                    reordered.Add(new AssetSource(existing.Id, existing.Kind, existing.FullPath, i, existing.IsAvailable, existing.Fingerprint));
+                    reordered.Add(existing with { PriorityOrdinal = i });
                     currentSources.Remove(id);
                 }
             }
@@ -123,7 +123,7 @@ public sealed class WorkspaceService : IWorkspaceService
             int nextOrdinal = reordered.Count;
             foreach (AssetSource remaining in currentSources.Values)
             {
-                reordered.Add(new AssetSource(remaining.Id, remaining.Kind, remaining.FullPath, nextOrdinal++, remaining.IsAvailable, remaining.Fingerprint));
+                reordered.Add(remaining with { PriorityOrdinal = nextOrdinal++ });
             }
 
             WorkspaceState newState = await _resolver.ResolveAsync(
@@ -218,7 +218,7 @@ public sealed class WorkspaceService : IWorkspaceService
             }
 
             string fullNewPath = Path.GetFullPath(newPath);
-            AssetSource candidate = new AssetSource(targetSource.Id, targetSource.Kind, fullNewPath, targetSource.PriorityOrdinal, isAvailable: true);
+            AssetSource candidate = targetSource with { FullPath = fullNewPath, IsAvailable = true, Fingerprint = null };
 
             // Attempt scan on new candidate path
             _hashCache.InvalidateSource(sourceId);
@@ -254,6 +254,49 @@ public sealed class WorkspaceService : IWorkspaceService
         }
     }
 
+    public async Task<(WorkspaceState State, ChangedInputReport Report)> SetSourceModeAsync(
+        Guid sourceId,
+        SourceMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            EnsureWritable();
+            WorkspaceState previous = _currentState;
+            AssetSource? target = previous.Sources.FirstOrDefault(s => s.Id == sourceId);
+            if (target is null)
+            {
+                throw new ArgumentException($"Source with ID {sourceId} was not found in workspace.", nameof(sourceId));
+            }
+
+            // Mode is a resolve-time filter over the existing snapshots, so no re-index is needed;
+            // toggling a source back to Full is instant. Pins into a source going Hidden are
+            // intentionally kept (not removed) so they surface as invalid pins — contrast
+            // RemoveSourceAsync in the app layer, which drops pins to a removed source.
+            List<AssetSource> updatedSources = previous.Sources
+                .Select(s => s.Id == sourceId ? s with { Mode = mode } : s)
+                .ToList();
+
+            WorkspaceState newState = await _resolver.ResolveAsync(
+                updatedSources,
+                previous.Snapshots,
+                previous.Pins,
+                previous.SelectionState,
+                previous.Preferences,
+                previous.IsReadOnly,
+                cancellationToken).ConfigureAwait(false);
+
+            ChangedInputReport report = CompareStates(previous, newState);
+            _currentState = newState;
+            return (newState, report);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
     public async Task<WorkspaceState> PinAsync(WinnerPin pin, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pin);
@@ -265,6 +308,43 @@ public sealed class WorkspaceService : IWorkspaceService
             WorkspaceState previous = _currentState;
             List<WinnerPin> updatedPins = previous.Pins.Where(p => !p.Identity.Equals(pin.Identity)).ToList();
             updatedPins.Add(pin);
+
+            WorkspaceState newState = await _resolver.ResolveAsync(
+                previous.Sources,
+                previous.Snapshots,
+                updatedPins,
+                previous.SelectionState,
+                previous.Preferences,
+                previous.IsReadOnly,
+                cancellationToken).ConfigureAwait(false);
+
+            _currentState = newState;
+            return newState;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<WorkspaceState> PinManyAsync(IReadOnlyList<WinnerPin> pins, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pins);
+        if (pins.Count == 0)
+        {
+            return _currentState;
+        }
+
+        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            EnsureWritable();
+            WorkspaceState previous = _currentState;
+
+            // Each incoming pin replaces any existing pin on the same identity; then resolve once.
+            HashSet<AssetIdentity> incoming = pins.Select(p => p.Identity).ToHashSet();
+            List<WinnerPin> updatedPins = previous.Pins.Where(p => !incoming.Contains(p.Identity)).ToList();
+            updatedPins.AddRange(pins);
 
             WorkspaceState newState = await _resolver.ResolveAsync(
                 previous.Sources,
@@ -372,10 +452,10 @@ public sealed class WorkspaceService : IWorkspaceService
             SourceIndexSnapshot snapshot = await _indexService.IndexAsync(source, progress: null, cancellationToken).ConfigureAwait(false);
             if (!snapshot.Source.IsAvailable)
             {
-                AssetSource unavailable = new AssetSource(source.Id, source.Kind, source.FullPath, source.PriorityOrdinal, isAvailable: false, source.Fingerprint);
+                AssetSource unavailable = source with { IsAvailable = false };
                 return (unavailable, null);
             }
-            AssetSource updatedSource = new AssetSource(source.Id, source.Kind, source.FullPath, source.PriorityOrdinal, isAvailable: true, snapshot.Fingerprint);
+            AssetSource updatedSource = source with { IsAvailable = true, Fingerprint = snapshot.Fingerprint };
             return (updatedSource, snapshot);
         }
         catch (OperationCanceledException)
@@ -384,7 +464,7 @@ public sealed class WorkspaceService : IWorkspaceService
         }
         catch
         {
-            AssetSource unavailable = new AssetSource(source.Id, source.Kind, source.FullPath, source.PriorityOrdinal, isAvailable: false, source.Fingerprint);
+            AssetSource unavailable = source with { IsAvailable = false };
             return (unavailable, null);
         }
     }
@@ -399,6 +479,7 @@ public sealed class WorkspaceService : IWorkspaceService
 
         Dictionary<Guid, AssetSource> beforeSourceMap = before.Sources.ToDictionary(s => s.Id);
         List<Guid> availabilityTransitions = new();
+        List<Guid> modeChanges = new();
         List<Guid> fingerprintChanges = new();
 
         foreach (AssetSource afterSource in after.Sources)
@@ -408,6 +489,10 @@ public sealed class WorkspaceService : IWorkspaceService
                 if (beforeSource.IsAvailable != afterSource.IsAvailable)
                 {
                     availabilityTransitions.Add(afterSource.Id);
+                }
+                if (beforeSource.Mode != afterSource.Mode)
+                {
+                    modeChanges.Add(afterSource.Id);
                 }
                 if (!Equals(beforeSource.Fingerprint, afterSource.Fingerprint))
                 {
@@ -464,6 +549,7 @@ public sealed class WorkspaceService : IWorkspaceService
             addedSources: addedSources,
             removedSources: removedSources,
             availabilityTransitions: availabilityTransitions,
+            modeChanges: modeChanges,
             fingerprintChanges: fingerprintChanges,
             addedIdentities: addedIdentities,
             removedIdentities: removedIdentities,

@@ -11,13 +11,14 @@
         <Border Grid.Row="0" Background="#252526" Padding="8">
             <StackPanel Spacing="6">
                 <TextBlock Text="Source Priority Stack" FontWeight="Bold" Foreground="#DDDDDD"/>
-                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto">
                     <Button Grid.Column="0" Command="{Binding RescanSourcesCommand}" ToolTip.Tip="Rescan All Sources">↺</Button>
                     <Button Grid.Column="1" Command="{Binding MoveUpCommand}" Margin="4,0,0,0" ToolTip.Tip="Move Source Up">▲</Button>
                     <Button Grid.Column="2" Command="{Binding MoveDownCommand}" Margin="4,0,0,0" ToolTip.Tip="Move Source Down">▼</Button>
-                    <Button Grid.Column="3" Command="{Binding RemoveSourceCommand}" Margin="4,0,0,0" ToolTip.Tip="Remove Selected Source">✕</Button>
-                    <Button Grid.Column="5" Command="{Binding AddHakSourceCommand}" Margin="4,0,0,0" ToolTip.Tip="Add HAK Source">+ HAK</Button>
-                    <Button Grid.Column="6" Command="{Binding AddFolderSourceCommand}" Margin="4,0,0,0" ToolTip.Tip="Add Folder Source">+ Folder</Button>
+                    <Button Grid.Column="3" Command="{Binding RelocateSourceCommand}" Margin="4,0,0,0" ToolTip.Tip="Relocate Selected Source (moved HAK or folder)">⇄</Button>
+                    <Button Grid.Column="4" Command="{Binding RemoveSourceCommand}" Margin="4,0,0,0" ToolTip.Tip="Remove Selected Source">✕</Button>
+                    <Button Grid.Column="6" Command="{Binding AddHakSourceCommand}" Margin="4,0,0,0" ToolTip.Tip="Add HAK Source">+ HAK</Button>
+                    <Button Grid.Column="7" Command="{Binding AddFolderSourceCommand}" Margin="4,0,0,0" ToolTip.Tip="Add Folder Source">+ Folder</Button>
                 </Grid>
             </StackPanel>
         </Border>
@@ -26,14 +27,31 @@
         <ListBox Grid.Row="1" ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" Background="#1E1E1E">
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:SourceItemViewModel">
-                    <Border Padding="6" Margin="2" Background="#2D2D30" CornerRadius="4">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                            <TextBlock Grid.Column="0" Text="{Binding PriorityOrdinal, StringFormat='[{0}]'}" FontWeight="Bold" Foreground="#007ACC" Margin="0,0,8,0"/>
-                            <StackPanel Grid.Column="1">
+                    <!-- Unavailable sources dim to 55% so a missing file/folder reads at a glance. -->
+                    <Border Padding="6" Margin="2" Background="#2D2D30" CornerRadius="4"
+                            Opacity="{Binding RowOpacity}">
+                        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding PriorityOrdinal, StringFormat='[{0}]'}" FontWeight="Bold" Foreground="#007ACC" Margin="0,0,8,0"/>
+                            <StackPanel Grid.Row="0" Grid.Column="1">
                                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="#FFFFFF"/>
                                 <TextBlock Text="{Binding PathDisplay}" FontSize="11" Foreground="#AAAAAA" TextTrimming="CharacterEllipsis"/>
                             </StackPanel>
-                            <TextBlock Grid.Column="2" Text="{Binding KindDisplay}" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding KindDisplay}" FontSize="10" Foreground="#888888" HorizontalAlignment="Right"/>
+                                <TextBlock Text="missing" FontSize="10" Foreground="#D16969" HorizontalAlignment="Right"
+                                           IsVisible="{Binding !IsAvailable}"/>
+                            </StackPanel>
+
+                            <!-- Per-source mode: Full (competes + selectable), Reference (pin-only, never
+                                 auto-wins/selects), Hidden (excluded from the list and resolution). -->
+                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+                                <TextBlock Text="Mode:" FontSize="11" Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                <ComboBox ItemsSource="{Binding Modes}"
+                                          SelectedItem="{Binding Mode, Mode=TwoWay}"
+                                          IsEnabled="{Binding CanEditMode}"
+                                          FontSize="11" MinHeight="24" Padding="6,1"
+                                          ToolTip.Tip="Full: competes in resolution and is selectable. Reference: visible and pinnable but never auto-wins or auto-selects. Hidden: excluded from the asset list and resolution."/>
+                            </StackPanel>
                         </Grid>
                     </Border>
                 </DataTemplate>

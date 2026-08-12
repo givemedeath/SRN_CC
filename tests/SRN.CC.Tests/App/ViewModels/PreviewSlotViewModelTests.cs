@@ -131,6 +131,36 @@ public class PreviewSlotViewModelTests
         only.Disposed.Should().BeFalse();
     }
 
+    [Test]
+    public async Task PinThisOccurrence_CallbackReturnsFalse_LeavesSlotUnpinned()
+    {
+        var engine = new PreviewEngine(new FakeDispatcher(), new IPreviewProvider[] { new FakeProvider() });
+        bool called = false;
+        var slot = new PreviewSlotViewModel(0, engine, _ => { called = true; return Task.FromResult(false); });
+
+        await slot.AssignOccurrenceAsync(null, CreateOccurrence(), CreateSource());
+        slot.SetPinEnabled(true);
+
+        await slot.PinThisOccurrenceCommand.ExecuteAsync(null);
+
+        called.Should().BeTrue("the pin callback is still invoked");
+        slot.IsPinned.Should().BeFalse("a refused/aborted pin must not be displayed as pinned");
+    }
+
+    [Test]
+    public async Task PinThisOccurrence_CallbackReturnsTrue_MarksSlotPinned()
+    {
+        var engine = new PreviewEngine(new FakeDispatcher(), new IPreviewProvider[] { new FakeProvider() });
+        var slot = new PreviewSlotViewModel(0, engine, _ => Task.FromResult(true));
+
+        await slot.AssignOccurrenceAsync(null, CreateOccurrence(), CreateSource());
+        slot.SetPinEnabled(true);
+
+        await slot.PinThisOccurrenceCommand.ExecuteAsync(null);
+
+        slot.IsPinned.Should().BeTrue("a persisted pin is reflected in the slot");
+    }
+
     // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------
@@ -138,7 +168,7 @@ public class PreviewSlotViewModelTests
     private static PreviewSlotViewModel CreateSlot(IPreviewProvider provider)
     {
         var engine = new PreviewEngine(new FakeDispatcher(), new[] { provider });
-        return new PreviewSlotViewModel(0, engine, _ => Task.CompletedTask);
+        return new PreviewSlotViewModel(0, engine, _ => Task.FromResult(true));
     }
 
     private static AssetOccurrence CreateOccurrence() => new(

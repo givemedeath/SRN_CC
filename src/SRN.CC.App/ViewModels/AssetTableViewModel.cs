@@ -14,8 +14,18 @@ public enum ConflictFilterMode
     Conflicting,
     Pinned,
     InvalidPin,
+    ReferenceOnly,
     Selected,
     Unselected
+}
+
+public enum AssetSortColumn
+{
+    None,
+    Resref,
+    Type,
+    WinnerSource,
+    Size
 }
 
 public partial class AssetTableViewModel : ObservableObject
@@ -45,6 +55,14 @@ public partial class AssetTableViewModel : ObservableObject
 
     [ObservableProperty]
     private ConflictFilterMode _selectedFilterMode = ConflictFilterMode.All;
+
+    [ObservableProperty]
+    private AssetSortColumn _sortColumn = AssetSortColumn.None;
+
+    [ObservableProperty]
+    private bool _sortDescending;
+
+    public Array SortColumns => Enum.GetValues(typeof(AssetSortColumn));
 
     [ObservableProperty]
     private int _totalAssetCount;
@@ -97,8 +115,21 @@ public partial class AssetTableViewModel : ObservableObject
     {
         _allRows = assets.Select(a =>
         {
-            string label = a.ResolvedOccurrence != null && sourceLabels.TryGetValue(a.ResolvedOccurrence.SourceId, out var l)
-                ? l : "Unknown";
+            string label;
+            if (a.ResolvedOccurrence != null && sourceLabels.TryGetValue(a.ResolvedOccurrence.SourceId, out var l))
+            {
+                label = l;
+            }
+            else if (a.Status == ResolutionStatus.ReferenceOnly)
+            {
+                // No automatic winner: the identity lives only in Reference sources. The operator
+                // must pin an occurrence to include it in a build.
+                label = "— reference only";
+            }
+            else
+            {
+                label = "Unknown";
+            }
             string typeName = _registry.TryGetExtension(a.Identity.ResourceType, out var name) ? name.ToUpperInvariant() : "UNKNOWN";
             return new AssetRowViewModel(a, typeName, label, OnRowIsSelectedChanged);
         }).ToList();
@@ -190,6 +221,14 @@ public partial class AssetTableViewModel : ObservableObject
         _onSelectedFilterModeChanged?.Invoke(value);
     }
 
+    partial void OnSortColumnChanged(AssetSortColumn value) => ApplyFilters();
+
+    partial void OnSortDescendingChanged(bool value) => ApplyFilters();
+
+    /// <summary>Flips the sort direction (a no-op display change when no sort column is chosen).</summary>
+    [RelayCommand]
+    private void ToggleSortDirection() => SortDescending = !SortDescending;
+
     public void ApplyFilters()
     {
         IEnumerable<AssetRowViewModel> query = _allRows;
@@ -214,14 +253,47 @@ public partial class AssetTableViewModel : ObservableObject
             ConflictFilterMode.Conflicting => query.Where(r => r.CuratedAsset.HasDifferingPayloads),
             ConflictFilterMode.Pinned => query.Where(r => r.IsPinned),
             ConflictFilterMode.InvalidPin => query.Where(r => r.CuratedAsset.HasInvalidPin),
+            ConflictFilterMode.ReferenceOnly => query.Where(r => r.CuratedAsset.Status == ResolutionStatus.ReferenceOnly),
             ConflictFilterMode.Selected => query.Where(r => r.IsSelected),
             ConflictFilterMode.Unselected => query.Where(r => !r.IsSelected),
             _ => query
         };
 
+        query = ApplySort(query);
+
         var list = query.ToList();
         FilteredRows = new ObservableCollection<AssetRowViewModel>(list);
         SelectedAssetCount = _allRows.Count(r => r.IsSelected);
+    }
+
+    /// <summary>
+    /// Applies the chosen sort as the final step, with a resref tie-break for a stable order. Sorting
+    /// only runs when a column is selected, so the default (unsorted) path pays no ordering cost.
+    /// </summary>
+    private IEnumerable<AssetRowViewModel> ApplySort(IEnumerable<AssetRowViewModel> query)
+    {
+        IOrderedEnumerable<AssetRowViewModel> ordered = SortColumn switch
+        {
+            AssetSortColumn.Resref => OrderText(query, r => r.Resref),
+            AssetSortColumn.Type => OrderText(query, r => r.ResourceTypeName),
+            AssetSortColumn.WinnerSource => OrderText(query, r => r.WinnerSourceLabel),
+            AssetSortColumn.Size => SortDescending
+                ? query.OrderByDescending(r => r.SizeBytes)
+                : query.OrderBy(r => r.SizeBytes),
+            _ => null!
+        };
+
+        if (ordered is null)
+        {
+            return query;
+        }
+
+        return ordered.ThenBy(r => r.Resref, StringComparer.OrdinalIgnoreCase);
+
+        IOrderedEnumerable<AssetRowViewModel> OrderText(IEnumerable<AssetRowViewModel> source, Func<AssetRowViewModel, string> key) =>
+            SortDescending
+                ? source.OrderByDescending(key, StringComparer.OrdinalIgnoreCase)
+                : source.OrderBy(key, StringComparer.OrdinalIgnoreCase);
     }
 
     [RelayCommand]

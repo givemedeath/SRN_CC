@@ -91,10 +91,22 @@ public enum ComparisonMode
 public partial class ComparisonPanelViewModel : ObservableObject
 {
     private readonly PreviewEngine _previewEngine;
-    private readonly Func<AssetOccurrence, Task> _onPinRequested;
+    private readonly Func<AssetOccurrence, Task<bool>> _onPinRequested;
     private IReadOnlyList<CuratedAsset> _selectedAssets = Array.Empty<CuratedAsset>();
     private IReadOnlyDictionary<Guid, AssetSource> _sourceMap = new Dictionary<Guid, AssetSource>();
     private int _selectionUpdateGeneration;
+
+    /// <summary>
+    /// The items eligible to occupy a slot in the current mode: every occurrence of the target
+    /// identity (occurrence mode) or every selected asset's winner (resolved mode). Slots show the
+    /// first three by default; <see cref="ReplaceSlotAsync"/> cycles a slot through the rest.
+    /// </summary>
+    private List<SlotCandidate> _candidates = new();
+
+    /// <summary>The candidate index shown in each of the three slots (-1 = empty).</summary>
+    private readonly int[] _slotCandidateIndex = { 0, 1, 2 };
+
+    private readonly record struct SlotCandidate(CuratedAsset? Asset, AssetOccurrence? Occurrence, AssetSource? Source);
 
     /// <summary>
     /// Tracks the most recently observed <see cref="PreviewSlotViewModel.Content"/> instance per slot,
@@ -124,7 +136,7 @@ public partial class ComparisonPanelViewModel : ObservableObject
 
     public ComparisonPanelViewModel(
         PreviewEngine previewEngine,
-        Func<AssetOccurrence, Task> onPinRequested)
+        Func<AssetOccurrence, Task<bool>> onPinRequested)
     {
         _previewEngine = previewEngine ?? throw new ArgumentNullException(nameof(previewEngine));
         _onPinRequested = onPinRequested ?? throw new ArgumentNullException(nameof(onPinRequested));
@@ -183,63 +195,139 @@ public partial class ComparisonPanelViewModel : ObservableObject
             return;
         }
 
-        if (Mode == ComparisonMode.OccurrenceMode)
-        {
-            var targetAsset = effectiveAssets.FirstOrDefault();
-            if (targetAsset == null)
-            {
-                await ClearAllSlotsAsync(generation).ConfigureAwait(true);
-                return;
-            }
+        // Rebuild the candidate list and reset each slot to its default candidate. This is what makes
+        // a selection change (and a mode switch) clear any manual Replace-Slot assignments, per
+        // PLAN.md:117.
+        _candidates = BuildCandidates(Mode, effectiveAssets, effectiveSourceMap);
+        _slotCandidateIndex[0] = 0;
+        _slotCandidateIndex[1] = 1;
+        _slotCandidateIndex[2] = 2;
 
-            var occurrences = targetAsset.AllOccurrences;
-            for (int i = 0; i < 3; i++)
+        for (int i = 0; i < 3; i++)
+        {
+            if (generation != _selectionUpdateGeneration) return;
+            await AssignSlotCandidateAsync(i, generation).ConfigureAwait(true);
+        }
+
+        ReplaceSlotCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(HasOverflowCandidates));
+    }
+
+    private static List<SlotCandidate> BuildCandidates(
+        ComparisonMode mode,
+        IReadOnlyList<CuratedAsset> assets,
+        IReadOnlyDictionary<Guid, AssetSource> sourceMap)
+    {
+        List<SlotCandidate> candidates = new();
+
+        if (mode == ComparisonMode.OccurrenceMode)
+        {
+            var target = assets.FirstOrDefault();
+            if (target == null)
             {
-                if (generation != _selectionUpdateGeneration) return;
-                if (i < occurrences.Count)
-                {
-                    var occ = occurrences[i];
-                    effectiveSourceMap.TryGetValue(occ.SourceId, out var src);
-                    await Slots[i].AssignOccurrenceAsync(targetAsset, occ, src).ConfigureAwait(true);
-                }
-                else
-                {
-                    await Slots[i].AssignOccurrenceAsync(null, null, null).ConfigureAwait(true);
-                }
+                return candidates;
+            }
+            foreach (var occ in target.AllOccurrences)
+            {
+                sourceMap.TryGetValue(occ.SourceId, out var src);
+                candidates.Add(new SlotCandidate(target, occ, src));
             }
         }
         else // ResolvedMode
         {
-            for (int i = 0; i < 3; i++)
+            foreach (var asset in assets)
             {
-                if (generation != _selectionUpdateGeneration) return;
-                if (i < effectiveAssets.Length)
+                var winner = asset.ResolvedOccurrence;
+                if (winner != null && sourceMap.TryGetValue(winner.SourceId, out var src))
                 {
-                    var asset = effectiveAssets[i];
-                    var winner = asset.ResolvedOccurrence;
-                    if (winner != null && effectiveSourceMap.TryGetValue(winner.SourceId, out var src))
-                    {
-                        await Slots[i].AssignOccurrenceAsync(asset, winner, src).ConfigureAwait(true);
-                    }
-                    else
-                    {
-                        await Slots[i].AssignOccurrenceAsync(asset, null, null).ConfigureAwait(true);
-                    }
+                    candidates.Add(new SlotCandidate(asset, winner, src));
                 }
                 else
                 {
-                    await Slots[i].AssignOccurrenceAsync(null, null, null).ConfigureAwait(true);
+                    candidates.Add(new SlotCandidate(asset, null, null));
                 }
             }
         }
+
+        return candidates;
     }
+
+    private async Task AssignSlotCandidateAsync(int slotIndex, int generation)
+    {
+        if (generation != _selectionUpdateGeneration) return;
+
+        int idx = _slotCandidateIndex[slotIndex];
+        if (idx >= 0 && idx < _candidates.Count)
+        {
+            var c = _candidates[idx];
+            await Slots[slotIndex].AssignOccurrenceAsync(c.Asset, c.Occurrence, c.Source).ConfigureAwait(true);
+        }
+        else
+        {
+            await Slots[slotIndex].AssignOccurrenceAsync(null, null, null).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Explicitly cycles a slot to the next selected candidate not already shown in another slot
+    /// (PLAN.md:116). Available only when there are more candidates than the three visible slots. The
+    /// assignment lasts until the next selection change or mode switch, which resets every slot.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanReplaceSlot))]
+    private async Task ReplaceSlotAsync(int slotIndex)
+    {
+        if (slotIndex < 0 || slotIndex > 2)
+        {
+            return;
+        }
+
+        int count = _candidates.Count;
+        if (count <= 3)
+        {
+            return;
+        }
+
+        HashSet<int> shownElsewhere = new();
+        for (int s = 0; s < 3; s++)
+        {
+            if (s != slotIndex && _slotCandidateIndex[s] >= 0)
+            {
+                shownElsewhere.Add(_slotCandidateIndex[s]);
+            }
+        }
+
+        int current = _slotCandidateIndex[slotIndex] < 0 ? 0 : _slotCandidateIndex[slotIndex];
+        for (int step = 1; step <= count; step++)
+        {
+            int cand = (current + step) % count;
+            if (!shownElsewhere.Contains(cand))
+            {
+                _slotCandidateIndex[slotIndex] = cand;
+                break;
+            }
+        }
+
+        // Not a selection change: reuse the current generation so slot-guard checks still pass.
+        await AssignSlotCandidateAsync(slotIndex, _selectionUpdateGeneration).ConfigureAwait(true);
+    }
+
+    private bool CanReplaceSlot(int slotIndex) => _candidates.Count > 3;
+
+    /// <summary>Whether more candidates exist than the three visible slots (bindable for the UI).</summary>
+    public bool HasOverflowCandidates => _candidates.Count > 3;
 
     public async Task ClearSelectionAsync()
     {
         int generation = Interlocked.Increment(ref _selectionUpdateGeneration);
         _selectedAssets = Array.Empty<CuratedAsset>();
         _sourceMap = new Dictionary<Guid, AssetSource>();
+        _candidates = new();
+        _slotCandidateIndex[0] = 0;
+        _slotCandidateIndex[1] = 1;
+        _slotCandidateIndex[2] = 2;
         await ClearAllSlotsAsync(generation).ConfigureAwait(true);
+        ReplaceSlotCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(HasOverflowCandidates));
     }
 
     private async Task ClearAllSlotsAsync(int generation)

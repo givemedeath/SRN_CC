@@ -1,0 +1,83 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SRN.CC.App.ViewModels"
+             x:Class="SRN.CC.App.Views.ConflictQueueView"
+             x:DataType="vm:ConflictQueueViewModel">
+    <Grid RowDefinitions="Auto,*" Background="#1E1E1E">
+        <!-- Queue header: progress, navigation, and the current identity. -->
+        <Border Grid.Row="0" Background="#252526" Padding="8" BorderBrush="#333333" BorderThickness="0,0,0,1">
+            <StackPanel Spacing="6">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                    <TextBlock Grid.Column="0" Text="{Binding ProgressText}" FontWeight="Bold" Foreground="#DDDDDD" VerticalAlignment="Center"/>
+                    <!-- Bulk "prefer source": pin all conflict winners from one source in a single pass. -->
+                    <DropDownButton Grid.Column="1" Content="Prefer source…" Margin="4,0,0,0"
+                                    ToolTip.Tip="Pin the winner from a chosen source for every conflict that has an occurrence in it">
+                        <DropDownButton.Flyout>
+                            <MenuFlyout ItemsSource="{Binding PreferSources}">
+                                <MenuFlyout.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PreferSourceOptionViewModel">
+                                        <MenuItem Header="{Binding Label}" Command="{Binding PreferCommand}"/>
+                                    </DataTemplate>
+                                </MenuFlyout.ItemTemplate>
+                            </MenuFlyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+                    <Button Grid.Column="2" Command="{Binding PreviousCommand}" Margin="4,0,0,0" ToolTip.Tip="Previous conflict">◀ Prev</Button>
+                    <Button Grid.Column="3" Command="{Binding NextCommand}" Margin="4,0,0,0" ToolTip.Tip="Next conflict">Next ▶</Button>
+                </Grid>
+
+                <StackPanel IsVisible="{Binding Current, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{Binding Current.Resref}" FontWeight="SemiBold" Foreground="#FFFFFF" FontSize="14"/>
+                        <TextBlock Text="{Binding Current.ResourceTypeName}" Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Current.DiagnosticBadges}" Foreground="#D7BA7D" FontSize="11"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Candidate cards for the current conflict; a friendly message when the queue is empty. -->
+        <Grid Grid.Row="1">
+            <TextBlock Text="No conflicts to resolve."
+                       Foreground="#888888" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       IsVisible="{Binding !HasConflicts}"/>
+
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                          IsVisible="{Binding HasConflicts}">
+                <ItemsControl ItemsSource="{Binding Current.Candidates}" Margin="8">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="8"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ConflictCandidateViewModel">
+                            <Border Width="220" Padding="10" Background="#2D2D30" CornerRadius="6"
+                                    BorderBrush="{Binding IsCurrentWinner, Converter={x:Static vm:ConflictQueueConverters.WinnerBorder}}"
+                                    BorderThickness="2">
+                                <StackPanel Spacing="4">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <TextBlock Grid.Column="0" Text="{Binding Priority, StringFormat='[{0}]'}" FontWeight="Bold" Foreground="#007ACC" Margin="0,0,6,0"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding SourceLabel}" FontWeight="SemiBold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis"/>
+                                        <Border Grid.Column="2" Background="#4B3A2A" CornerRadius="3" Padding="4,1"
+                                                IsVisible="{Binding ModeBadge, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                            <TextBlock Text="{Binding ModeBadge}" FontSize="10" Foreground="#D7BA7D"/>
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock Text="{Binding OriginLocator}" FontSize="11" Foreground="#AAAAAA"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding SizeFormatted}" FontSize="11" Foreground="#CCCCCC"/>
+                                        <TextBlock Text="{Binding HashText}" FontSize="11" FontFamily="Consolas" Foreground="#888888"/>
+                                    </StackPanel>
+                                    <TextBlock Text="Current winner" FontSize="10" Foreground="#4EC9B0" IsVisible="{Binding IsCurrentWinner}"/>
+                                    <Button Command="{Binding MakeWinnerCommand}" HorizontalAlignment="Stretch" Margin="0,4,0,0"
+                                            IsEnabled="{Binding !IsCurrentWinner}">Make winner</Button>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -219,6 +219,63 @@ public class ComparisonPanelSlotLifecycleTests
     }
 
     // =====================================================================================
+    // Explicit Replace Slot (PLAN.md:116)
+    // =====================================================================================
+
+    [Test]
+    public async Task ReplaceSlot_WithNoOverflow_IsDisabled()
+    {
+        Fixture fixture = new();
+        CuratedAsset asset = fixture.CreateAsset("armor01", occurrenceCount: 3);
+
+        await fixture.Panel.UpdateSelectionAsync([asset], fixture.SourceMap);
+
+        fixture.Panel.HasOverflowCandidates.Should().BeFalse();
+        fixture.Panel.ReplaceSlotCommand.CanExecute(2).Should().BeFalse("every candidate is already shown");
+    }
+
+    [Test]
+    public async Task ReplaceSlot_CyclesTheSlotThroughOverflowCandidatesNotShownElsewhere()
+    {
+        Fixture fixture = new();
+        CuratedAsset asset = fixture.CreateAsset("armor01", occurrenceCount: 5);
+
+        await fixture.Panel.UpdateSelectionAsync([asset], fixture.SourceMap);
+        fixture.Panel.HasOverflowCandidates.Should().BeTrue();
+        fixture.Panel.Slots[2].AssignedOccurrence.Should().BeSameAs(asset.AllOccurrences[2]);
+
+        await fixture.Panel.ReplaceSlotCommand.ExecuteAsync(2);
+        fixture.Panel.Slots[2].AssignedOccurrence.Should().BeSameAs(asset.AllOccurrences[3],
+            "the slot advances to the first candidate not shown in another slot");
+
+        await fixture.Panel.ReplaceSlotCommand.ExecuteAsync(2);
+        fixture.Panel.Slots[2].AssignedOccurrence.Should().BeSameAs(asset.AllOccurrences[4]);
+
+        // Slots 0 and 1 are untouched by replacing slot 2.
+        fixture.Panel.Slots[0].AssignedOccurrence.Should().BeSameAs(asset.AllOccurrences[0]);
+        fixture.Panel.Slots[1].AssignedOccurrence.Should().BeSameAs(asset.AllOccurrences[1]);
+    }
+
+    [Test]
+    public async Task ReplaceSlot_IsClearedByANewSelection()
+    {
+        Fixture fixture = new();
+        CuratedAsset big = fixture.CreateAsset("armor01", occurrenceCount: 5);
+        CuratedAsset small = fixture.CreateAsset("weapon02", occurrenceCount: 2);
+
+        await fixture.Panel.UpdateSelectionAsync([big], fixture.SourceMap);
+        await fixture.Panel.ReplaceSlotCommand.ExecuteAsync(2);
+        fixture.Panel.Slots[2].AssignedOccurrence.Should().BeSameAs(big.AllOccurrences[3]);
+
+        await fixture.Panel.UpdateSelectionAsync([small], fixture.SourceMap);
+
+        fixture.Panel.HasOverflowCandidates.Should().BeFalse();
+        fixture.Panel.Slots[0].AssignedOccurrence.Should().BeSameAs(small.AllOccurrences[0]);
+        fixture.Panel.Slots[1].AssignedOccurrence.Should().BeSameAs(small.AllOccurrences[1]);
+        fixture.Panel.Slots[2].IsActive.Should().BeFalse("the manual replacement did not survive the new selection");
+    }
+
+    // =====================================================================================
     // Mode switching
     // =====================================================================================
 
@@ -415,7 +472,7 @@ public class ComparisonPanelSlotLifecycleTests
         public Fixture()
         {
             PreviewEngine engine = new(new EmptyDispatcher(), Array.Empty<IPreviewProvider>());
-            Panel = new ComparisonPanelViewModel(engine, static _ => Task.CompletedTask);
+            Panel = new ComparisonPanelViewModel(engine, static _ => Task.FromResult(true));
         }
 
         public ComparisonPanelViewModel Panel { get; }

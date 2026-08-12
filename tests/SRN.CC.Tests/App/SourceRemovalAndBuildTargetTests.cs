@@ -338,7 +338,14 @@ public class SourceRemovalAndBuildTargetTests
             Guid sourceId, string newPath, CancellationToken cancellationToken = default)
             => Task.FromResult((_state, new ChangedInputReport()));
 
+        public Task<(WorkspaceState State, ChangedInputReport Report)> SetSourceModeAsync(
+            Guid sourceId, SourceMode mode, CancellationToken cancellationToken = default)
+            => Task.FromResult((_state, new ChangedInputReport()));
+
         public Task<WorkspaceState> PinAsync(WinnerPin pin, CancellationToken cancellationToken = default)
+            => Task.FromResult(_state);
+
+        public Task<WorkspaceState> PinManyAsync(IReadOnlyList<WinnerPin> pins, CancellationToken cancellationToken = default)
             => Task.FromResult(_state);
 
         public Task<WorkspaceState> UnpinAsync(AssetIdentity identity, CancellationToken cancellationToken = default)

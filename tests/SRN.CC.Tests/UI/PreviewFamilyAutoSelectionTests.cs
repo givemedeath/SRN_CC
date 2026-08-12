@@ -189,7 +189,7 @@ public class PreviewFamilyAutoSelectionTests
                 });
 
             _source = AssetSource.CreateHak(Path.GetFullPath("family_autoselect.hak"), 0);
-            Slot = new PreviewSlotViewModel(0, engine, static _ => Task.CompletedTask);
+            Slot = new PreviewSlotViewModel(0, engine, static _ => Task.FromResult(true));
         }
 
         public PreviewSlotViewModel Slot { get; }

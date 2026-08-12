@@ -22,6 +22,9 @@
                 <Rectangle Width="1" Height="20" Fill="#555555" Margin="4,0"/>
                 <Button x:Name="RescanButton" Content="Rescan" Command="{Binding RescanCommand}"/>
                 <Rectangle Width="1" Height="20" Fill="#555555" Margin="4,0"/>
+                <Button x:Name="AddDependenciesButton" Content="Add Dependencies" Command="{Binding AddAvailableDependenciesCommand}"
+                        ToolTip.Tip="Compute the dependency closure of the selected assets and add resolved ones to the build selection"/>
+                <Rectangle Width="1" Height="20" Fill="#555555" Margin="4,0"/>
                 <Button x:Name="BuildHakButton" Content="Build HAK" Command="{Binding BuildHakCommand}" Background="#007ACC" Foreground="#FFFFFF" FontWeight="Bold"/>
                 <Rectangle Width="1" Height="20" Fill="#555555" Margin="4,0"/>
                 <Button x:Name="SettingsButton" Content="Settings..." Command="{Binding OpenSettingsCommand}"/>
@@ -35,8 +38,15 @@
 
             <GridSplitter Grid.Column="1" Width="4" Background="#333333"/>
 
-            <!-- Center: Asset Grid Table -->
-            <views:AssetTableView Grid.Column="2" DataContext="{Binding AssetTable}"/>
+            <!-- Center: Assets table and the conflict-resolution queue as tabs. -->
+            <TabControl Grid.Column="2">
+                <TabItem Header="Assets">
+                    <views:AssetTableView DataContext="{Binding AssetTable}"/>
+                </TabItem>
+                <TabItem Header="{Binding ConflictQueue.HeaderText}">
+                    <views:ConflictQueueView DataContext="{Binding ConflictQueue}"/>
+                </TabItem>
+            </TabControl>
 
             <GridSplitter Grid.Column="3" Width="4" Background="#333333"/>
 

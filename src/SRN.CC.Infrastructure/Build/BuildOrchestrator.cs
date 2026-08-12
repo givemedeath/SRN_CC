@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using SRN.CC.Core.Build;
+using SRN.CC.Core.Diagnostics;
+using SRN.CC.Core.Fingerprints;
 using SRN.CC.Core.Logging;
 using SRN.CC.Core.Resolution;
 using SRN.CC.Core.Services;
@@ -77,6 +79,11 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
         List<BuildItem> buildItems = new(selectedAssets.Count);
         var sourceMap = workspace.Sources.ToDictionary(s => s.Id);
 
+        // Preflight 2a: validate every selected winner and freeze the build plan, WITHOUT opening any
+        // payload yet. Collecting the plan first lets the drift check (2b) run before we read a single
+        // occurrence — a stale locator in a drifted source would otherwise throw on open before the
+        // fingerprint check could return the actionable SourceDriftDetected result.
+        List<(CuratedAsset Asset, SRN.CC.Core.Occurrences.AssetOccurrence Occurrence, AssetSource Source)> planEntries = new(selectedAssets.Count);
         foreach (var asset in selectedAssets)
         {
             if (asset.Status != ResolutionStatus.Resolved)
@@ -94,6 +101,68 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
             {
                 return Fail($"Source for asset '{asset.Identity}' is unavailable.");
             }
+
+            // Defensive guard: the resolver never produces a winner from a Hidden source, so a
+            // Hidden winning source here means the plan was built from stale state. Fail rather
+            // than silently packaging content the user has switched off.
+            if (src.Mode == SourceMode.Hidden)
+            {
+                return Fail($"Source for asset '{asset.Identity}' is hidden and cannot contribute to a build. Rescan or re-resolve before building.");
+            }
+
+            planEntries.Add((asset, occ, src));
+        }
+
+        // Preflight 2b: source drift. Recompute the fingerprint of every source that actually
+        // contributes a payload and compare it to the fingerprint recorded at its last scan. A
+        // mismatch means the source changed on disk since it was indexed, so the frozen locators,
+        // sizes, and hashes can no longer be trusted (PLAN.md:143). This runs BEFORE any payload is
+        // opened (2c) so a drifted source is reported as SourceDriftDetected rather than surfacing as
+        // an opaque read failure on a stale locator. Scoped to contributing sources: drift in a source
+        // that ships nothing cannot corrupt the output, and folder fingerprints require a directory walk.
+        foreach (Guid contributingSourceId in planEntries.Select(p => p.Source.Id).Distinct())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!sourceMap.TryGetValue(contributingSourceId, out var contributingSource))
+            {
+                continue;
+            }
+
+            // No recorded baseline means there is nothing to compare against; skip rather than block.
+            // A real workspace always records a fingerprint during indexing, so drift is still caught
+            // in production — this only spares hand-built workspaces that never carried one.
+            if (contributingSource.Fingerprint is null)
+            {
+                continue;
+            }
+
+            SourceFingerprint current;
+            try
+            {
+                current = await _dispatcher.GetFingerprintAsync(contributingSource, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogDrift(contributingSource.FullPath, ex);
+                return Fail($"Source drift detected ({DiagnosticCode.SourceDriftDetected}): '{contributingSource.FullPath}' could not be re-read to confirm it is unchanged. Rescan sources and retry the build.");
+            }
+
+            if (!contributingSource.Fingerprint.Equals(current))
+            {
+                LogDrift(contributingSource.FullPath, exception: null);
+                return Fail($"Source drift detected ({DiagnosticCode.SourceDriftDetected}): '{contributingSource.FullPath}' changed since its last scan. Rescan sources and retry the build.");
+            }
+        }
+
+        // Preflight 2c: with fingerprints confirmed unchanged, read each occurrence to hash any payload
+        // that has no precomputed SHA-256 and materialize the build items.
+        foreach (var (asset, occ, src) in planEntries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
             string? sha256Hex = occ.Sha256 != null ? Convert.ToHexString(occ.Sha256).ToLowerInvariant() : null;
             if (string.IsNullOrEmpty(sha256Hex))
@@ -225,6 +294,16 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
                 $"Failed to delete build temp file '{path}'.",
                 ex);
         }
+    }
+
+    private void LogDrift(string sourcePath, Exception? exception)
+    {
+        _logger.Log(
+            LogLevel.Error,
+            nameof(BuildOrchestrator),
+            $"Source drift detected for '{sourcePath}'.",
+            exception,
+            new Dictionary<string, string> { ["code"] = nameof(DiagnosticCode.SourceDriftDetected) });
     }
 
     private static PublicationResult Fail(string message) =>

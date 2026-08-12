@@ -114,6 +114,168 @@ public class ProjectStoreTests
     }
 
     [Test]
+    public async Task Schema1_RoundTrip_PreservesSourceMode()
+    {
+        string fullPath = Path.Combine(_tempDir, "full.hak");
+        string refPath = Path.Combine(_tempDir, "reference.hak");
+        string hiddenPath = Path.Combine(_tempDir, "hidden.hak");
+        await File.WriteAllTextAsync(fullPath, "a");
+        await File.WriteAllTextAsync(refPath, "b");
+        await File.WriteAllTextAsync(hiddenPath, "c");
+
+        AssetSource full = AssetSource.CreateHak(fullPath, 0);
+        AssetSource reference = AssetSource.CreateHak(refPath, 1) with { Mode = SourceMode.Reference };
+        AssetSource hidden = AssetSource.CreateHak(hiddenPath, 2) with { Mode = SourceMode.Hidden };
+
+        WorkspaceState state = new WorkspaceState(
+            sources: new[] { full, reference, hidden },
+            snapshots: new Dictionary<Guid, SourceIndexSnapshot>(),
+            curatedAssets: Array.Empty<CuratedAsset>(),
+            selectionState: SelectionState.IncludeAll(),
+            pins: Array.Empty<WinnerPin>(),
+            preferences: new ProjectPreferences());
+
+        ProjectStore store = new ProjectStore(new MockIndexService(), new WorkspaceResolver(new DummyHashService(), new AssetHashCache()));
+        string projectPath = Path.Combine(_tempDir, "modes.srnccproj");
+        await store.SaveAsync(state, projectPath);
+
+        WorkspaceState loaded = await store.LoadAsync(projectPath);
+
+        loaded.Sources.Should().HaveCount(3);
+        loaded.Sources.Single(s => s.Id == full.Id).Mode.Should().Be(SourceMode.Full);
+        loaded.Sources.Single(s => s.Id == reference.Id).Mode.Should().Be(SourceMode.Reference);
+        loaded.Sources.Single(s => s.Id == hidden.Id).Mode.Should().Be(SourceMode.Hidden);
+    }
+
+    [Test]
+    public async Task Schema1_Load_AbsentModeField_DefaultsToFull()
+    {
+        string hakPath = Path.Combine(_tempDir, "legacy.hak");
+        await File.WriteAllTextAsync(hakPath, "x");
+        string projectPath = Path.Combine(_tempDir, "legacy.srnccproj");
+
+        // A project written by a build predating the mode field: the source object has no "mode".
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            { "id": "{{Guid.NewGuid()}}", "kind": "hak", "path": { "kind": "absolute", "value": "{{hakPath.Replace('\\', '/')}}" } }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        ProjectStore store = new ProjectStore(new MockIndexService(), new WorkspaceResolver(new DummyHashService(), new AssetHashCache()));
+        WorkspaceState loaded = await store.LoadAsync(projectPath);
+
+        loaded.Sources.Should().ContainSingle().Which.Mode.Should().Be(SourceMode.Full);
+    }
+
+    [Test]
+    public async Task Schema1_Load_InvalidModeField_ThrowsOnStrictPath()
+    {
+        string hakPath = Path.Combine(_tempDir, "bad.hak");
+        await File.WriteAllTextAsync(hakPath, "x");
+        string projectPath = Path.Combine(_tempDir, "bad.srnccproj");
+
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            { "id": "{{Guid.NewGuid()}}", "kind": "hak", "mode": "nonsense", "path": { "kind": "absolute", "value": "{{hakPath.Replace('\\', '/')}}" } }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        ProjectStore store = new ProjectStore(new MockIndexService(), new WorkspaceResolver(new DummyHashService(), new AssetHashCache()));
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Schema1_Load_NumericStringModeField_ThrowsOnStrictPath()
+    {
+        string hakPath = Path.Combine(_tempDir, "num.hak");
+        await File.WriteAllTextAsync(hakPath, "x");
+        string projectPath = Path.Combine(_tempDir, "num.srnccproj");
+
+        // Enum.TryParse accepts undefined numeric strings such as "3"; the strict load must still
+        // reject them so an out-of-range mode never quietly makes a source unpackageable.
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            { "id": "{{Guid.NewGuid()}}", "kind": "hak", "mode": "3", "path": { "kind": "absolute", "value": "{{hakPath.Replace('\\', '/')}}" } }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        ProjectStore store = new ProjectStore(new MockIndexService(), new WorkspaceResolver(new DummyHashService(), new AssetHashCache()));
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Schema1_Load_ExplicitNullModeField_ThrowsOnStrictPath()
+    {
+        string hakPath = Path.Combine(_tempDir, "null.hak");
+        await File.WriteAllTextAsync(hakPath, "x");
+        string projectPath = Path.Combine(_tempDir, "null.srnccproj");
+
+        // "mode": null is present-but-invalid. The JsonObject indexer returns null for both an absent
+        // key and an explicit null, so the strict load must test key presence, not just the value.
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            { "id": "{{Guid.NewGuid()}}", "kind": "hak", "mode": null, "path": { "kind": "absolute", "value": "{{hakPath.Replace('\\', '/')}}" } }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        ProjectStore store = new ProjectStore(new MockIndexService(), new WorkspaceResolver(new DummyHashService(), new AssetHashCache()));
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Schema1_Load_NonStringModeField_ThrowsOnStrictPath()
+    {
+        string hakPath = Path.Combine(_tempDir, "nonstr.hak");
+        await File.WriteAllTextAsync(hakPath, "x");
+        string projectPath = Path.Combine(_tempDir, "nonstr.srnccproj");
+
+        // A present-but-non-string mode (a JSON number here) is malformed; the strict load rejects it
+        // rather than silently defaulting to Full.
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            { "id": "{{Guid.NewGuid()}}", "kind": "hak", "mode": 3, "path": { "kind": "absolute", "value": "{{hakPath.Replace('\\', '/')}}" } }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        ProjectStore store = new ProjectStore(new MockIndexService(), new WorkspaceResolver(new DummyHashService(), new AssetHashCache()));
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
     public async Task NewerSchemaVersion_OpensReadOnly()
     {
         string projectPath = Path.Combine(_tempDir, "future.srnccproj");

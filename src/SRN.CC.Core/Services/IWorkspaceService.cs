@@ -32,8 +32,21 @@ public interface IWorkspaceService
         string newPath,
         CancellationToken cancellationToken = default);
 
+    Task<(WorkspaceState State, ChangedInputReport Report)> SetSourceModeAsync(
+        Guid sourceId,
+        SourceMode mode,
+        CancellationToken cancellationToken = default);
+
     Task<WorkspaceState> PinAsync(
         WinnerPin pin,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies a batch of pins in one re-resolve. Each pin replaces any existing pin on the same
+    /// identity. Used by bulk operations where a per-pin re-resolve would be prohibitively slow.
+    /// </summary>
+    Task<WorkspaceState> PinManyAsync(
+        IReadOnlyList<WinnerPin> pins,
         CancellationToken cancellationToken = default);
 
     Task<WorkspaceState> UnpinAsync(

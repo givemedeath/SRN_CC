@@ -55,6 +55,7 @@ public partial class MainWindowViewModel : ObservableObject
     private WorkspaceState? _workspaceState;
     private string? _currentProjectPath;
     private Task _pendingSelectionUpdate = Task.CompletedTask;
+    private Task _pendingModeUpdate = Task.CompletedTask;
     private ApplicationSettings _settings = new();
 
     [ObservableProperty]
@@ -89,6 +90,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     public SourceStackViewModel SourceStack { get; }
     public AssetTableViewModel AssetTable { get; }
+    public ConflictQueueViewModel ConflictQueue { get; }
     public ComparisonPanelViewModel ComparisonPanel { get; }
     public OperationLogViewModel OperationLog { get; }
     public StatusBarViewModel StatusBar { get; }
@@ -115,15 +117,18 @@ public partial class MainWindowViewModel : ObservableObject
             AddFolderSourceAsync,
             RescanSourcesAsync,
             CanMoveSources,
-            RemoveSourceAsync);
+            RemoveSourceAsync,
+            RelocateSourceAsync);
+        _registry = new FallbackResourceTypeRegistry();
         AssetTable = new AssetTableViewModel(
-            new FallbackResourceTypeRegistry(),
+            _registry,
             OnRowSelectionChanged,
             OnBatchSelectionChanged,
             OnSelectedRowChanged,
             OnSelectedRowsChanged,
             OnSearchTextChanged,
             OnSelectedFilterModeChanged);
+        ConflictQueue = new ConflictQueueViewModel(OnPinRequestedAsync, ResourceTypeNameFor, BulkPreferSourceAsync, ComputeRawHashAsync);
         ComparisonPanel = new ComparisonPanelViewModel(
             new PreviewEngine(new FallbackSourceReaderDispatcher(), new IPreviewProvider[] { }),
             OnPinRequestedAsync);
@@ -167,7 +172,8 @@ public partial class MainWindowViewModel : ObservableObject
             AddFolderSourceAsync,
             RescanSourcesAsync,
             CanMoveSources,
-            RemoveSourceAsync);
+            RemoveSourceAsync,
+            RelocateSourceAsync);
         AssetTable = new AssetTableViewModel(
             _registry,
             OnRowSelectionChanged,
@@ -176,6 +182,7 @@ public partial class MainWindowViewModel : ObservableObject
             OnSelectedRowsChanged,
             OnSearchTextChanged,
             OnSelectedFilterModeChanged);
+        ConflictQueue = new ConflictQueueViewModel(OnPinRequestedAsync, ResourceTypeNameFor, BulkPreferSourceAsync, ComputeRawHashAsync);
 
         ComparisonPanel = new ComparisonPanelViewModel(
             _previewEngine,
@@ -357,11 +364,13 @@ public partial class MainWindowViewModel : ObservableObject
             ? "SRN.CC Asset Curator — [Unsaved Project]"
             : $"SRN.CC Asset Curator — {Path.GetFileName(projectPath)}";
 
-        var sourceVMs = state.Sources.Select(s => new SourceItemViewModel(s));
+        bool canEditSources = !state.IsReadOnly;
+        var sourceVMs = state.Sources.Select(s => new SourceItemViewModel(s, canEditSources, OnSourceModeChanged));
         SourceStack.UpdateSources(sourceVMs);
 
         var sourceLabels = state.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(state.CuratedAssets, sourceLabels);
+        ConflictQueue.Load(state);
         ApplySavedFilterSettings(state.Preferences.Filters);
         ComparisonPanel.SetCanPin(!_workspaceState.IsReadOnly);
 
@@ -372,6 +381,7 @@ public partial class MainWindowViewModel : ObservableObject
         SourceStack.MoveUpCommand.NotifyCanExecuteChanged();
         SourceStack.MoveDownCommand.NotifyCanExecuteChanged();
         SourceStack.RemoveSourceCommand.NotifyCanExecuteChanged();
+        SourceStack.RelocateSourceCommand.NotifyCanExecuteChanged();
 
         // The source stack's own rescan button shares CanMoveSources with the toolbar's RescanCommand
         // above. Refreshing one without the other leaves two controls for the same action disagreeing
@@ -390,6 +400,7 @@ public partial class MainWindowViewModel : ObservableObject
             .Where(item => item.ResourceType.Contains(resourceType, StringComparison.OrdinalIgnoreCase)).ToArray();
 
     private readonly SemaphoreSlim _selectionLock = new(1, 1);
+    private readonly SemaphoreSlim _modeUpdateLock = new(1, 1);
 
     public Func<Task<string?>>? OpenFilePickerAsync { get; set; }
     public Func<Task<string?>>? SaveProjectFilePickerAsync { get; set; }
@@ -401,12 +412,21 @@ public partial class MainWindowViewModel : ObservableObject
     public Func<Task<IReadOnlyList<string>>>? HakFilePickerAsync { get; set; }
     public Func<Task<string?>>? FolderPickerAsync { get; set; }
 
+    /// <summary>Picks a single HAK file, used when relocating an existing HAK source.</summary>
+    public Func<Task<string?>>? SingleHakFilePickerAsync { get; set; }
+
     /// <summary>
     /// Shows the settings dialog and returns when it has closed. Set by the window; left null in
     /// headless contexts, where <see cref="OpenSettingsCommand"/> simply publishes the dialog view
     /// model on <see cref="SettingsDialog"/> for the caller to drive.
     /// </summary>
     public Func<SettingsDialogViewModel, Task>? ShowSettingsDialogAsync { get; set; }
+
+    /// <summary>
+    /// Host-provided presenter that shows the dependency-closure confirmation dialog modally and
+    /// returns when it closes. Null in headless contexts, where the closure is treated as canceled.
+    /// </summary>
+    public Func<ConfirmDependenciesDialogViewModel, Task>? ShowConfirmDependenciesDialogAsync { get; set; }
 
     [RelayCommand]
     private async Task NewProjectAsync()
@@ -463,7 +483,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSaveProject))]
     private async Task SaveProjectAsync()
     {
-        await _pendingSelectionUpdate.ConfigureAwait(true);
+        await DrainPendingWorkspaceMutationsAsync().ConfigureAwait(true);
         if (_workspaceState == null || _projectStore == null) return;
         if (_workspaceState.IsReadOnly)
         {
@@ -505,7 +525,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSaveProject))]
     private async Task SaveProjectAsAsync(string? targetProjectPath = null)
     {
-        await _pendingSelectionUpdate.ConfigureAwait(true);
+        await DrainPendingWorkspaceMutationsAsync().ConfigureAwait(true);
         if (_workspaceState == null || _projectStore == null) return;
         if (_workspaceState.IsReadOnly)
         {
@@ -595,6 +615,7 @@ public partial class MainWindowViewModel : ObservableObject
 
         var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+        ConflictQueue.Load(_workspaceState);
     }
 
     private void OnRowSelectionChanged(AssetRowViewModel row)
@@ -677,33 +698,30 @@ public partial class MainWindowViewModel : ObservableObject
         await ComparisonPanel.UpdateSelectionAsync(curatedAssets, sourceMap).ConfigureAwait(true);
     }
 
-    private async Task OnPinRequestedAsync(AssetOccurrence occurrence)
+    /// <summary>
+    /// Pins the given occurrence as the winner for its identity. Returns <c>true</c> only when a pin
+    /// was actually persisted; <c>false</c> when the request was refused (read-only) or aborted (the
+    /// payload could not be read). Callers must not present a pin as applied on a <c>false</c> result.
+    /// </summary>
+    private async Task<bool> OnPinRequestedAsync(AssetOccurrence occurrence)
     {
-        if (_workspaceService == null || _workspaceState == null) return;
+        if (_workspaceService == null || _workspaceState == null) return false;
         if (_workspaceState.IsReadOnly)
         {
             OperationLog.AddEntry("WARN", "Pinning is disabled for read-only workspaces.");
-            return;
+            return false;
         }
 
-        byte[]? pinHash = occurrence.Sha256;
-        if (pinHash == null || pinHash.Length == 0)
+        byte[]? raw = await ComputeRawHashAsync(occurrence, CancellationToken.None).ConfigureAwait(true);
+        if (raw is null)
         {
-            var source = _workspaceState.Sources.FirstOrDefault(s => s.Id == occurrence.SourceId);
-            if (source != null && _dispatcher != null)
-            {
-                await using var stream = await _dispatcher.OpenOccurrenceAsync(source, occurrence, CancellationToken.None).ConfigureAwait(true);
-                using var sha = SHA256.Create();
-                pinHash = await sha.ComputeHashAsync(stream, CancellationToken.None).ConfigureAwait(true);
-            }
+            // The source is unavailable or the payload could not be read. Pinning an all-zero hash here
+            // would persist a pin the resolver immediately marks invalid, leaving the conflict
+            // unresolved while the log falsely claims success. Abort and report the read failure.
+            OperationLog.AddEntry("WARN", $"Could not pin {occurrence.Identity.Resref}.{occurrence.Identity.ResourceType}: its payload could not be read from source {occurrence.SourceId}.");
+            return false;
         }
-
-        if (pinHash == null || pinHash.Length != 32)
-        {
-            byte[] padded = new byte[32];
-            if (pinHash != null) Array.Copy(pinHash, padded, Math.Min(pinHash.Length, 32));
-            pinHash = padded;
-        }
+        byte[] pinHash = NormalizeHash(raw);
 
         var pin = new WinnerPin(occurrence.Identity, occurrence.SourceId, occurrence.Locator, pinHash);
         _workspaceState = await _workspaceService.PinAsync(pin).ConfigureAwait(true);
@@ -711,13 +729,213 @@ public partial class MainWindowViewModel : ObservableObject
 
         var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+        ConflictQueue.Load(_workspaceState);
         OperationLog.AddEntry("INFO", $"Pinned occurrence {occurrence.Identity.Resref}.{occurrence.Identity.ResourceType} to source {occurrence.SourceId}.");
+        return true;
+    }
+
+    /// <summary>
+    /// Computes an occurrence's payload SHA-256 for pinning, or null if it cannot be read. Returns a
+    /// precomputed hash when present, otherwise streams the payload once through the dispatcher.
+    /// </summary>
+    private async Task<byte[]?> ComputeRawHashAsync(AssetOccurrence occurrence, CancellationToken cancellationToken)
+    {
+        if (occurrence.Sha256 is { Length: 32 })
+        {
+            return occurrence.Sha256;
+        }
+        if (_dispatcher == null || _workspaceState == null)
+        {
+            return null;
+        }
+        var source = _workspaceState.Sources.FirstOrDefault(s => s.Id == occurrence.SourceId);
+        if (source == null)
+        {
+            return null;
+        }
+        try
+        {
+            await using var stream = await _dispatcher.OpenOccurrenceAsync(source, occurrence, cancellationToken).ConfigureAwait(true);
+            using var sha = SHA256.Create();
+            return await sha.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static byte[] NormalizeHash(byte[]? hash)
+    {
+        if (hash is { Length: 32 })
+        {
+            return hash;
+        }
+        byte[] padded = new byte[32];
+        if (hash != null) Array.Copy(hash, padded, Math.Min(hash.Length, 32));
+        return padded;
+    }
+
+    /// <summary>
+    /// Pins the winner for every conflicted identity that has an occurrence in <paramref name="sourceId"/>,
+    /// in one batch. Identities absent from that source are skipped; same-source duplicates with
+    /// diverging or unreadable payloads are skipped as ambiguous. Reports the counts to the log.
+    /// </summary>
+    public async Task BulkPreferSourceAsync(Guid sourceId)
+    {
+        if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly)
+        {
+            return;
+        }
+
+        var conflicts = _workspaceState.CuratedAssets.Where(ConflictQueueViewModel.IsConflict).ToList();
+        if (conflicts.Count == 0)
+        {
+            return;
+        }
+
+        string sourceLabel = _workspaceState.Sources.FirstOrDefault(s => s.Id == sourceId) is { } src
+            ? Path.GetFileName(src.FullPath)
+            : sourceId.ToString();
+
+        CancellationTokenSource cts = StatusBar.BeginOperation($"Preferring source '{sourceLabel}' for conflicts...");
+        CancellationToken ct = cts.Token;
+
+        // 'prepared' counts pins built in the loop; they are only persisted once the single
+        // PinManyAsync batch at the end succeeds. 'committed' records that it did — the batch is
+        // atomic, so cancellation before it runs applies nothing at all.
+        int prepared = 0, absent = 0, ambiguous = 0;
+        bool committed = false;
+        List<WinnerPin> pins = new();
+
+        try
+        {
+            for (int i = 0; i < conflicts.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                CuratedAsset asset = conflicts[i];
+                StatusBar.ReportProgress($"Preferring source '{sourceLabel}'... ({i + 1}/{conflicts.Count})", (double)(i + 1) / conflicts.Count);
+
+                var candidates = asset.AllOccurrences.Where(o => o.SourceId == sourceId).ToList();
+                if (candidates.Count == 0)
+                {
+                    absent++;
+                    continue;
+                }
+
+                AssetOccurrence? chosen = await ChoosePreferredOccurrenceAsync(candidates, ct).ConfigureAwait(true);
+                if (chosen is null)
+                {
+                    ambiguous++;
+                    continue;
+                }
+
+                byte[]? raw = await ComputeRawHashAsync(chosen, ct).ConfigureAwait(true);
+                if (raw is null)
+                {
+                    ambiguous++;
+                    continue;
+                }
+
+                pins.Add(new WinnerPin(chosen.Identity, chosen.SourceId, chosen.Locator, NormalizeHash(raw)));
+                prepared++;
+            }
+
+            if (pins.Count > 0)
+            {
+                // Hashing may have taken seconds, during which the preferred source could have been
+                // hidden or removed and occurrences could have shifted. Revalidate the prepared pins
+                // against the CURRENT workspace before committing so we never persist decisions from a
+                // stale snapshot — resolution would store those as invalid pins, and a source removal
+                // that deliberately dropped pins could be silently undone.
+                AssetSource? liveSource = _workspaceState.Sources.FirstOrDefault(s => s.Id == sourceId);
+                if (liveSource is null || liveSource.Mode == SourceMode.Hidden)
+                {
+                    StatusBar.EndOperation("Prefer-source aborted.");
+                    OperationLog.AddEntry("WARN", $"Prefer-source for '{sourceLabel}' aborted: the source was removed or hidden during the operation; no pins were applied.");
+                    return;
+                }
+
+                var liveOccurrences = new HashSet<(AssetIdentity, Guid, OccurrenceLocator)>(
+                    _workspaceState.CuratedAssets
+                        .SelectMany(a => a.AllOccurrences)
+                        .Select(o => (o.Identity, o.SourceId, o.Locator)));
+                int stale = pins.RemoveAll(p => !liveOccurrences.Contains((p.Identity, p.SourceId, p.Locator)));
+                if (stale > 0)
+                {
+                    ambiguous += stale;
+                    prepared -= stale;
+                    OperationLog.AddEntry("WARN", $"Prefer-source for '{sourceLabel}': dropped {stale} prepared pin(s) whose occurrence changed during the operation.");
+                }
+            }
+
+            if (pins.Count > 0)
+            {
+                _workspaceState = await _workspaceService.PinManyAsync(pins, ct).ConfigureAwait(true);
+                committed = true;
+                RefreshTextureSource();
+                var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
+                AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+                ConflictQueue.Load(_workspaceState);
+            }
+
+            StatusBar.EndOperation("Prefer-source complete.");
+            OperationLog.AddEntry("INFO",
+                $"Preferred '{sourceLabel}': {prepared} pinned, {absent} skipped (no occurrence), {ambiguous} skipped (ambiguous payloads).");
+        }
+        catch (OperationCanceledException)
+        {
+            StatusBar.EndOperation("Prefer-source canceled.");
+            // The batch is atomic: if it had not been committed when cancellation fired, nothing was
+            // persisted. Report committed pins, not merely prepared ones, so the log is not misleading.
+            string outcome = committed
+                ? $"{prepared} pins were applied before cancellation"
+                : $"none of the {prepared} prepared pins were applied";
+            OperationLog.AddEntry("WARN", $"Prefer-source for '{sourceLabel}' was canceled; {outcome}.");
+        }
+    }
+
+    /// <summary>
+    /// Chooses which occurrence in the preferred source to pin. A single occurrence is used directly;
+    /// multiple occurrences must share an identical, readable payload (then the lowest deterministic
+    /// locator wins). Diverging or unreadable duplicates return null so the caller can skip as ambiguous.
+    /// </summary>
+    private async Task<AssetOccurrence?> ChoosePreferredOccurrenceAsync(IReadOnlyList<AssetOccurrence> candidates, CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 1)
+        {
+            return candidates[0];
+        }
+
+        byte[]? reference = null;
+        foreach (AssetOccurrence occ in candidates)
+        {
+            byte[]? hash = await ComputeRawHashAsync(occ, cancellationToken).ConfigureAwait(true);
+            if (hash is null)
+            {
+                return null; // unreadable duplicate -> ambiguous
+            }
+            if (reference is null)
+            {
+                reference = hash;
+            }
+            else if (!reference.AsSpan().SequenceEqual(hash))
+            {
+                return null; // diverging payloads -> ambiguous
+            }
+        }
+
+        return candidates.OrderBy(o => o.Locator.ToString(), StringComparer.Ordinal).First();
     }
 
     [RelayCommand(CanExecute = nameof(CanBuildHak))]
     private async Task BuildHakAsync()
     {
-        await _pendingSelectionUpdate.ConfigureAwait(true);
+        await DrainPendingWorkspaceMutationsAsync().ConfigureAwait(true);
         if (_workspaceState == null || _buildOrchestrator == null)
         {
             OperationLog.AddEntry("WARN", "No active workspace loaded for build.");
@@ -834,6 +1052,38 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Repoints an existing source at a new path (a moved HAK or folder), keeping its id, priority,
+    /// mode, pins, and selection. The workspace service re-indexes the candidate and throws if it
+    /// cannot be read; on failure the workspace is left untouched and the error is logged.
+    /// </summary>
+    private async Task RelocateSourceAsync(SourceItemViewModel item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly) return;
+
+        string? newPath = item.Source.Kind == AssetSourceKind.Hak
+            ? (SingleHakFilePickerAsync is null ? null : await SingleHakFilePickerAsync().ConfigureAwait(true))
+            : (FolderPickerAsync is null ? null : await FolderPickerAsync().ConfigureAwait(true));
+
+        if (string.IsNullOrWhiteSpace(newPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var (state, report) = await _workspaceService.RelocateSourceAsync(item.Source.Id, newPath).ConfigureAwait(true);
+            await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
+            ReportChangedInputs(report, "Source relocation");
+            OperationLog.AddEntry("INFO", $"Relocated source to '{newPath}'.");
+        }
+        catch (Exception ex)
+        {
+            OperationLog.AddEntry("ERROR", $"Relocation failed: {ex.Message}. The source was left unchanged.");
+        }
+    }
+
+    /// <summary>
     /// Drops a source from the workspace and rebuilds resolution without it.
     /// </summary>
     /// <remarks>
@@ -893,24 +1143,88 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Applies a new <see cref="SourceMode"/> to a source. Fired fire-and-forget from the source
+    /// stack's per-item mode picker; the workspace service serializes the change and re-resolves.
+    /// Mode-induced pin invalidations surface as WARN lines via <see cref="ReportChangedInputs"/>.
+    /// </summary>
+    /// <summary>
+    /// Synchronous entry point wired to the source-stack mode picker. It records the resulting async
+    /// work in <see cref="_pendingModeUpdate"/> so operations that consume workspace state (Save,
+    /// Build) can await it and never act on a pre-change snapshot.
+    /// </summary>
+    private void OnSourceModeChanged(SourceItemViewModel item, SourceMode mode)
+    {
+        _pendingModeUpdate = OnSourceModeChangedAsync(item, mode);
+    }
+
+    /// <summary>
+    /// Awaits every in-flight workspace mutation — selection edits and source-mode changes — and keeps
+    /// re-checking until no newer one has been appended. A single <c>await</c> of each field is not
+    /// enough: while an operation awaits edit A, the user can append edit B, and resuming after only A
+    /// would consume a state that omits B. Looping until both fields are stable across an await closes
+    /// that gap so Save/Build never act on a superseded snapshot.
+    /// </summary>
+    private async Task DrainPendingWorkspaceMutationsAsync()
+    {
+        Task selection, mode;
+        do
+        {
+            selection = _pendingSelectionUpdate;
+            mode = _pendingModeUpdate;
+            await selection.ConfigureAwait(true);
+            await mode.ConfigureAwait(true);
+        }
+        while (selection != _pendingSelectionUpdate || mode != _pendingModeUpdate);
+    }
+
+    private async Task OnSourceModeChangedAsync(SourceItemViewModel item, SourceMode mode)
+    {
+        if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly)
+        {
+            return;
+        }
+
+        // Serialize mode changes so rapid edits apply in submission order and the last one wins,
+        // rather than racing and leaving the workspace in an earlier, stale mode. The lock is distinct
+        // from _selectionLock, and LoadWorkspaceStateAsync (called below) only awaits selection work,
+        // so there is no cross-lock or self-await deadlock.
+        await _modeUpdateLock.WaitAsync().ConfigureAwait(true);
+        try
+        {
+            var (state, report) = await _workspaceService.SetSourceModeAsync(item.Source.Id, mode).ConfigureAwait(true);
+            await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
+            ReportChangedInputs(report, "Source mode change");
+        }
+        catch (Exception ex)
+        {
+            OperationLog.AddEntry("ERROR", $"Failed to change source mode: {ex.Message}");
+        }
+        finally
+        {
+            _modeUpdateLock.Release();
+        }
+    }
+
+    /// <summary>
     /// Renders a <see cref="ChangedInputReport"/> into the operation log. The rescan path already
     /// produced this report and threw it away, which is why a rescan that silently invalidated a pin
     /// looked identical to one that changed nothing.
     /// </summary>
-    private void ReportChangedInputs(ChangedInputReport report)
+    private void ReportChangedInputs(ChangedInputReport report, string contextLabel = "Rescan")
     {
         ArgumentNullException.ThrowIfNull(report);
 
         if (!report.HasChanges)
         {
-            OperationLog.AddEntry("INFO", "Rescan complete: no inputs changed.");
+            OperationLog.AddEntry("INFO", $"{contextLabel} complete: no inputs changed.");
             return;
         }
 
-        OperationLog.AddEntry("INFO", "Rescan complete. Changed inputs:");
+        OperationLog.AddEntry("INFO", $"{contextLabel} complete. Changed inputs:");
         Line("INFO", "sources added", report.AddedSources.Count);
         Line("INFO", "sources removed", report.RemovedSources.Count);
         Line("WARN", "source availability transitions", report.AvailabilityTransitions.Count);
+        Line("INFO", "source mode changes", report.ModeChanges.Count);
         Line("INFO", "source fingerprint changes", report.FingerprintChanges.Count);
         Line("INFO", "identities added", report.AddedIdentities.Count);
         Line("INFO", "identities removed", report.RemovedIdentities.Count);
@@ -927,6 +1241,12 @@ public partial class MainWindowViewModel : ObservableObject
             }
         }
     }
+
+    /// <summary>Resolves a resource type to its display extension (upper-case), or "UNKNOWN".</summary>
+    private string ResourceTypeNameFor(ushort resourceType) =>
+        _registry is not null && _registry.TryGetExtension(resourceType, out var name)
+            ? name.ToUpperInvariant()
+            : "UNKNOWN";
 
     private async Task AddSourcesAsync(IEnumerable<AssetSource> newSources)
     {
@@ -1185,8 +1505,9 @@ public partial class MainWindowViewModel : ObservableObject
                 return fallback;
             }
 
-            // Create resolver and command
-            var resolver = new DependencyLocator(_workspaceState, StreamOpener);
+            // Create resolver and command. The base-game catalog lets a dependency be satisfied by
+            // KEY/BIF resources for preview/traversal without ever packaging them.
+            var resolver = new DependencyLocator(_workspaceState, StreamOpener, _baseGameCatalog);
             var analyzer = new DependencyAnalyzer(_registry);
             var command = new Commands.AddAvailableDependenciesCommand(analyzer, _registry, resolver);
 
@@ -1196,14 +1517,46 @@ public partial class MainWindowViewModel : ObservableObject
                 .Cast<AssetOccurrence>()
                 .ToList();
 
-            var closure = await command.ExecuteAsync(occurrences, CancellationToken.None)
+            var rawClosure = await command.ExecuteAsync(occurrences, CancellationToken.None)
                 .ConfigureAwait(true);
 
-            OperationLog.AddEntry("INFO", $"Dependency analysis complete: {closure.Resolved.Count} resolved, {closure.UnresolvedGroups.Sum(g => g.Count)} unresolved.");
+            // Split base-game hits out of the packageable set: they satisfy previews but are never
+            // added to the build selection (PLAN.md:134). Count only base identities the traversal
+            // actually admitted as resolved — one whose BIF failed to open or parse lands in
+            // UnresolvedGroups, and intersecting with Resolved keeps it from being double-counted as
+            // both satisfied and unresolved.
+            var baseSatisfied = resolver.BaseGameSatisfied
+                .Where(id => rawClosure.Resolved.Contains(id))
+                .ToHashSet();
+            IReadOnlySet<AssetIdentity> workspaceResolved =
+                rawClosure.Resolved.Where(id => !baseSatisfied.Contains(id)).ToHashSet();
+            var closure = new ClosureSummary(
+                workspaceResolved,
+                rawClosure.UnresolvedGroups,
+                rawClosure.TotalBytes,
+                rawClosure.MaxDepth,
+                rawClosure.DuplicatesSuppressed,
+                rawClosure.LimitHit,
+                satisfiedByBaseGame: baseSatisfied);
 
-            // Show confirmation dialog and wait for user response
+            OperationLog.AddEntry("INFO",
+                $"Dependency analysis complete: {closure.Resolved.Count} resolved, {closure.SatisfiedByBaseGame.Count} satisfied by base game (not packaged), {closure.UnresolvedGroups.Sum(g => g.Count)} unresolved.");
+
+            // Show the confirmation dialog through the host presenter and wait for the response.
             var dialogVm = new ConfirmDependenciesDialogViewModel();
-            var confirmed = await dialogVm.ShowDialogAsync(closure).ConfigureAwait(true);
+            bool confirmed;
+            if (ShowConfirmDependenciesDialogAsync is not null)
+            {
+                var resultTask = dialogVm.ShowDialogAsync(closure);
+                await ShowConfirmDependenciesDialogAsync(dialogVm).ConfigureAwait(true);
+                // If the window closed without a button (e.g. the X), treat it as a cancel.
+                confirmed = resultTask.IsCompleted && await resultTask.ConfigureAwait(true);
+            }
+            else
+            {
+                OperationLog.AddEntry("WARN", "No dialog host available; treating dependency closure as canceled.");
+                confirmed = false;
+            }
 
             if (confirmed)
             {
@@ -1223,6 +1576,7 @@ public partial class MainWindowViewModel : ObservableObject
 
                         var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
                         AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+                        ConflictQueue.Load(_workspaceState);
                     }
                     finally
                     {

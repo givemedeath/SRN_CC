@@ -1,3 +1,4 @@
+using SRN.CC.Core.Fingerprints;
 using SRN.CC.Core.Occurrences;
 using SRN.CC.Core.Services;
 using SRN.CC.Core.Sources;
@@ -25,6 +26,18 @@ public sealed class SourceReaderDispatcher : ISourceReaderDispatcher
         {
             AssetSourceKind.Hak => _hakReader.OpenOccurrenceAsync(source, occurrence, cancellationToken),
             AssetSourceKind.Folder => _folderReader.OpenOccurrenceAsync(source, occurrence, cancellationToken),
+            _ => throw new NotSupportedException($"Source kind '{source.Kind}' is not supported.")
+        };
+    }
+
+    public Task<SourceFingerprint> GetFingerprintAsync(AssetSource source, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        return source.Kind switch
+        {
+            AssetSourceKind.Hak => _hakReader.GetFingerprintAsync(source, cancellationToken),
+            AssetSourceKind.Folder => _folderReader.GetFingerprintAsync(source, cancellationToken),
             _ => throw new NotSupportedException($"Source kind '{source.Kind}' is not supported.")
         };
     }

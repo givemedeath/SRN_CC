@@ -6,7 +6,7 @@
     <Grid RowDefinitions="Auto,*">
         <!-- Search and Filter Bar -->
         <Border Grid.Row="0" Background="#252526" Padding="8">
-            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                 <TextBox Grid.Column="0" Text="{Binding SearchText}" PlaceholderText="Search resref or type..." Margin="0,0,8,0"/>
                 <ComboBox Grid.Column="1"
                           ItemsSource="{Binding ResourceTypes}"
@@ -15,9 +15,12 @@
                           Margin="0,0,8,0"
                           ToolTip.Tip="Show only one resource type"/>
                 <ComboBox Grid.Column="2" ItemsSource="{Binding FilterModes}" SelectedItem="{Binding SelectedFilterMode}" Margin="0,0,8,0" ToolTip.Tip="Show only assets in this state"/>
-                <Button Grid.Column="3" Command="{Binding IncludeAllFilteredCommand}" Margin="0,0,4,0" ToolTip.Tip="Include All Filtered">Include All</Button>
-                <Button Grid.Column="4" Command="{Binding ExcludeAllFilteredCommand}" Margin="0,0,8,0" ToolTip.Tip="Exclude All Filtered">Exclude All</Button>
-                <TextBlock Grid.Column="5" Text="{Binding SelectedAssetCount, StringFormat='Selected: {0}'}" VerticalAlignment="Center" Foreground="#AAAAAA"/>
+                <ComboBox Grid.Column="3" ItemsSource="{Binding SortColumns}" SelectedItem="{Binding SortColumn}" MinWidth="90" Margin="0,0,4,0" ToolTip.Tip="Sort the asset list by a column"/>
+                <Button Grid.Column="4" Command="{Binding ToggleSortDirectionCommand}" Margin="0,0,8,0" ToolTip.Tip="Toggle ascending/descending"
+                        Content="{Binding SortDescending, Converter={x:Static vm:AssetTableConverters.SortDirectionGlyph}}"/>
+                <Button Grid.Column="5" Command="{Binding IncludeAllFilteredCommand}" Margin="0,0,4,0" ToolTip.Tip="Include All Filtered">Include All</Button>
+                <Button Grid.Column="6" Command="{Binding ExcludeAllFilteredCommand}" Margin="0,0,8,0" ToolTip.Tip="Exclude All Filtered">Exclude All</Button>
+                <TextBlock Grid.Column="7" Text="{Binding SelectedAssetCount, StringFormat='Selected: {0}'}" VerticalAlignment="Center" Foreground="#AAAAAA"/>
             </Grid>
         </Border>
 

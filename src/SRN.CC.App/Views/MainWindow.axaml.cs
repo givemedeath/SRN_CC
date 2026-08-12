@@ -103,6 +103,20 @@ public partial class MainWindow : Window
                 return folders.Count > 0 ? folders[0].Path.LocalPath : null;
             };
 
+            vm.SingleHakFilePickerAsync = async () =>
+            {
+                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Relocate HAK Source",
+                    AllowMultiple = false,
+                    FileTypeFilter = new[]
+                    {
+                        new FilePickerFileType("HAK Files (*.hak)") { Patterns = new[] { "*.hak" } }
+                    }
+                });
+                return files.Count > 0 ? files[0].Path.LocalPath : null;
+            };
+
             vm.ShowSettingsDialogAsync = async settingsViewModel =>
             {
                 var dialog = new SettingsDialog { DataContext = settingsViewModel };

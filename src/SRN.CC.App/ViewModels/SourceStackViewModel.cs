@@ -12,6 +12,7 @@ public partial class SourceStackViewModel : ObservableObject
     private readonly Func<Task> _onAddFolderSource;
     private readonly Func<Task> _onRescanSources;
     private readonly Func<SourceItemViewModel, Task> _onRemoveSource;
+    private readonly Func<SourceItemViewModel, Task> _onRelocateSource;
     private readonly Func<bool> _canMoveSources;
 
     [ObservableProperty]
@@ -26,7 +27,8 @@ public partial class SourceStackViewModel : ObservableObject
         Func<Task>? onAddFolderSource = null,
         Func<Task>? onRescanSources = null,
         Func<bool>? canMoveSources = null,
-        Func<SourceItemViewModel, Task>? onRemoveSource = null)
+        Func<SourceItemViewModel, Task>? onRemoveSource = null,
+        Func<SourceItemViewModel, Task>? onRelocateSource = null)
     {
         _onWorkspaceChanged = onWorkspaceChanged ?? throw new ArgumentNullException(nameof(onWorkspaceChanged));
         _onAddHakSource = onAddHakSource ?? (() => Task.CompletedTask);
@@ -34,6 +36,7 @@ public partial class SourceStackViewModel : ObservableObject
         _onRescanSources = onRescanSources ?? (() => Task.CompletedTask);
         _canMoveSources = canMoveSources ?? (() => true);
         _onRemoveSource = onRemoveSource ?? (_ => Task.CompletedTask);
+        _onRelocateSource = onRelocateSource ?? (_ => Task.CompletedTask);
     }
 
     /// <summary>
@@ -47,8 +50,18 @@ public partial class SourceStackViewModel : ObservableObject
 
     private bool CanRemoveSource() => SelectedSource is not null && _canMoveSources();
 
-    partial void OnSelectedSourceChanged(SourceItemViewModel? value) =>
+    /// <summary>Repoints the selected source at a new path (a moved HAK or folder).</summary>
+    [RelayCommand(CanExecute = nameof(CanRelocateSource))]
+    private Task RelocateSourceAsync() =>
+        SelectedSource is null ? Task.CompletedTask : _onRelocateSource(SelectedSource);
+
+    private bool CanRelocateSource() => SelectedSource is not null && _canMoveSources();
+
+    partial void OnSelectedSourceChanged(SourceItemViewModel? value)
+    {
         RemoveSourceCommand.NotifyCanExecuteChanged();
+        RelocateSourceCommand.NotifyCanExecuteChanged();
+    }
 
     [RelayCommand]
     private Task AddHakSourceAsync() => _onAddHakSource();

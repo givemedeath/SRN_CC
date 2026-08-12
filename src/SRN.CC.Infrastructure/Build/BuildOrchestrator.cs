@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using SRN.CC.Core.Build;
+using SRN.CC.Core.Diagnostics;
+using SRN.CC.Core.Fingerprints;
 using SRN.CC.Core.Logging;
 using SRN.CC.Core.Resolution;
 using SRN.CC.Core.Services;
@@ -122,6 +124,50 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
             ));
         }
 
+        // Preflight 2b: source drift. Recompute the fingerprint of every source that actually
+        // contributes a payload and compare it to the fingerprint recorded at its last scan. A
+        // mismatch means the source changed on disk since it was indexed, so the frozen locators,
+        // sizes, and hashes can no longer be trusted (PLAN.md:143). Scoped to contributing sources:
+        // drift in a source that ships nothing cannot corrupt the output, and folder fingerprints
+        // require a directory walk.
+        foreach (Guid contributingSourceId in buildItems.Select(i => i.SourceId).Distinct())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!sourceMap.TryGetValue(contributingSourceId, out var contributingSource))
+            {
+                continue;
+            }
+
+            // No recorded baseline means there is nothing to compare against; skip rather than block.
+            // A real workspace always records a fingerprint during indexing, so drift is still caught
+            // in production — this only spares hand-built workspaces that never carried one.
+            if (contributingSource.Fingerprint is null)
+            {
+                continue;
+            }
+
+            SourceFingerprint current;
+            try
+            {
+                current = await _dispatcher.GetFingerprintAsync(contributingSource, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogDrift(contributingSource.FullPath, ex);
+                return Fail($"Source drift detected ({DiagnosticCode.SourceDriftDetected}): '{contributingSource.FullPath}' could not be re-read to confirm it is unchanged. Rescan sources and retry the build.");
+            }
+
+            if (!contributingSource.Fingerprint.Equals(current))
+            {
+                LogDrift(contributingSource.FullPath, exception: null);
+                return Fail($"Source drift detected ({DiagnosticCode.SourceDriftDetected}): '{contributingSource.FullPath}' changed since its last scan. Rescan sources and retry the build.");
+            }
+        }
+
         // Preflight 3: Total estimated payload size < 2 GiB limit
         long totalPayloadSize = buildItems.Sum(i => i.ExpectedSizeBytes);
         long estimatedKeyListBytes = checked(buildItems.Count * 24L);
@@ -233,6 +279,16 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
                 $"Failed to delete build temp file '{path}'.",
                 ex);
         }
+    }
+
+    private void LogDrift(string sourcePath, Exception? exception)
+    {
+        _logger.Log(
+            LogLevel.Error,
+            nameof(BuildOrchestrator),
+            $"Source drift detected for '{sourcePath}'.",
+            exception,
+            new Dictionary<string, string> { ["code"] = nameof(DiagnosticCode.SourceDriftDetected) });
     }
 
     private static PublicationResult Fail(string message) =>

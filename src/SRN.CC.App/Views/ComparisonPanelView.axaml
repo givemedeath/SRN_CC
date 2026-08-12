@@ -54,20 +54,29 @@
                     <Border Margin="4" Padding="6" Background="#1E1E1E" BorderBrush="#333333" BorderThickness="1" CornerRadius="4">
                         <Grid RowDefinitions="Auto,*">
                             <!-- Slot Header -->
-                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto">
                                 <TextBlock Text="{Binding SlotTitle}" FontWeight="Bold" Foreground="#007ACC" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                <!-- Replace this slot with the next selected candidate not already
+                                     shown. Only visible when more than three items are selected. -->
+                                <Button Grid.Column="1"
+                                        Content="⇄"
+                                        Margin="0,0,4,0"
+                                        ToolTip.Tip="Replace this slot with the next selected item"
+                                        IsVisible="{Binding $parent[ItemsControl].((vm:ComparisonPanelViewModel)DataContext).HasOverflowCandidates}"
+                                        Command="{Binding $parent[ItemsControl].((vm:ComparisonPanelViewModel)DataContext).ReplaceSlotCommand}"
+                                        CommandParameter="{Binding SlotIndex}"/>
                                 <!-- One picker rather than seven buttons: the buttons consumed the
                                      whole slot header and pushed Pin off the panel edge. The
                                      selection is the slot's PreferredFamily, which auto-detection
                                      sets when an occurrence is assigned, so the picker also shows
                                      which rendering is currently on screen. -->
-                                <ComboBox Grid.Column="1"
+                                <ComboBox Grid.Column="2"
                                           MinWidth="104"
                                           FontSize="11"
                                           ItemsSource="{Binding Families}"
                                           SelectedItem="{Binding PreferredFamily, Mode=TwoWay}"
                                           ToolTip.Tip="Preview rendering for this slot"/>
-                                <Button Grid.Column="2" Command="{Binding PinThisOccurrenceCommand}" Margin="4,0,0,0" IsEnabled="{Binding IsPinEnabled}" ToolTip.Tip="Pin Occurrence" Content="📌 Pin" />
+                                <Button Grid.Column="3" Command="{Binding PinThisOccurrenceCommand}" Margin="4,0,0,0" IsEnabled="{Binding IsPinEnabled}" ToolTip.Tip="Pin Occurrence" Content="📌 Pin" />
                             </Grid>
 
                             <!-- Slot Content -->

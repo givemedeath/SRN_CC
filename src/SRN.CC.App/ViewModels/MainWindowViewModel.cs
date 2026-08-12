@@ -116,7 +116,8 @@ public partial class MainWindowViewModel : ObservableObject
             AddFolderSourceAsync,
             RescanSourcesAsync,
             CanMoveSources,
-            RemoveSourceAsync);
+            RemoveSourceAsync,
+            RelocateSourceAsync);
         _registry = new FallbackResourceTypeRegistry();
         AssetTable = new AssetTableViewModel(
             _registry,
@@ -170,7 +171,8 @@ public partial class MainWindowViewModel : ObservableObject
             AddFolderSourceAsync,
             RescanSourcesAsync,
             CanMoveSources,
-            RemoveSourceAsync);
+            RemoveSourceAsync,
+            RelocateSourceAsync);
         AssetTable = new AssetTableViewModel(
             _registry,
             OnRowSelectionChanged,
@@ -378,6 +380,7 @@ public partial class MainWindowViewModel : ObservableObject
         SourceStack.MoveUpCommand.NotifyCanExecuteChanged();
         SourceStack.MoveDownCommand.NotifyCanExecuteChanged();
         SourceStack.RemoveSourceCommand.NotifyCanExecuteChanged();
+        SourceStack.RelocateSourceCommand.NotifyCanExecuteChanged();
 
         // The source stack's own rescan button shares CanMoveSources with the toolbar's RescanCommand
         // above. Refreshing one without the other leaves two controls for the same action disagreeing
@@ -406,6 +409,9 @@ public partial class MainWindowViewModel : ObservableObject
     public Func<string, string?, Task<string?>>? BuildOutputFilePickerAsync { get; set; }
     public Func<Task<IReadOnlyList<string>>>? HakFilePickerAsync { get; set; }
     public Func<Task<string?>>? FolderPickerAsync { get; set; }
+
+    /// <summary>Picks a single HAK file, used when relocating an existing HAK source.</summary>
+    public Func<Task<string?>>? SingleHakFilePickerAsync { get; set; }
 
     /// <summary>
     /// Shows the settings dialog and returns when it has closed. Set by the window; left null in
@@ -988,6 +994,38 @@ public partial class MainWindowViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(path))
         {
             await AddSourcesAsync(new[] { AssetSource.CreateFolder(path) }).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Repoints an existing source at a new path (a moved HAK or folder), keeping its id, priority,
+    /// mode, pins, and selection. The workspace service re-indexes the candidate and throws if it
+    /// cannot be read; on failure the workspace is left untouched and the error is logged.
+    /// </summary>
+    private async Task RelocateSourceAsync(SourceItemViewModel item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly) return;
+
+        string? newPath = item.Source.Kind == AssetSourceKind.Hak
+            ? (SingleHakFilePickerAsync is null ? null : await SingleHakFilePickerAsync().ConfigureAwait(true))
+            : (FolderPickerAsync is null ? null : await FolderPickerAsync().ConfigureAwait(true));
+
+        if (string.IsNullOrWhiteSpace(newPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var (state, report) = await _workspaceService.RelocateSourceAsync(item.Source.Id, newPath).ConfigureAwait(true);
+            await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
+            ReportChangedInputs(report, "Source relocation");
+            OperationLog.AddEntry("INFO", $"Relocated source to '{newPath}'.");
+        }
+        catch (Exception ex)
+        {
+            OperationLog.AddEntry("ERROR", $"Relocation failed: {ex.Message}. The source was left unchanged.");
         }
     }
 

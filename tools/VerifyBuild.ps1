@@ -119,8 +119,8 @@ Write-Host "============================================================" -Foreg
 try {
     $sdkVersion = (dotnet --version).Trim()
     Write-Host "[1/11] Checking SDK version: $sdkVersion..." -ForegroundColor Cyan
-    if ($sdkVersion -ne "10.0.302") {
-        throw "SDK version mismatch. Expected 10.0.302, found '$sdkVersion'."
+    if ($sdkVersion -ne "10.0.303") {
+        throw "SDK version mismatch. Expected 10.0.303, found '$sdkVersion'."
     }
 
     Write-Host "[2/11] Verifying ignore rules and restoring the $targetRid graph..." -ForegroundColor Cyan

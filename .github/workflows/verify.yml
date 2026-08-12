@@ -25,7 +25,7 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@3951f0dfe7a07e2313ec93c75700083e2005cbab # v4.3.0
         with:
-          dotnet-version: '10.0.302'
+          dotnet-version: '10.0.303'
 
       - name: Run Master Verification Pass
         shell: powershell

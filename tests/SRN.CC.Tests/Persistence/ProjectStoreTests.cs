@@ -224,6 +224,32 @@ public class ProjectStoreTests
     }
 
     [Test]
+    public async Task Schema1_Load_ExplicitNullModeField_ThrowsOnStrictPath()
+    {
+        string hakPath = Path.Combine(_tempDir, "null.hak");
+        await File.WriteAllTextAsync(hakPath, "x");
+        string projectPath = Path.Combine(_tempDir, "null.srnccproj");
+
+        // "mode": null is present-but-invalid. The JsonObject indexer returns null for both an absent
+        // key and an explicit null, so the strict load must test key presence, not just the value.
+        string json = $$"""
+        {
+          "schemaVersion": 1,
+          "sources": [
+            { "id": "{{Guid.NewGuid()}}", "kind": "hak", "mode": null, "path": { "kind": "absolute", "value": "{{hakPath.Replace('\\', '/')}}" } }
+          ],
+          "selectionState": { "defaultSelected": true, "overrides": [] },
+          "pins": []
+        }
+        """;
+        await File.WriteAllTextAsync(projectPath, json);
+
+        ProjectStore store = new ProjectStore(new MockIndexService(), new WorkspaceResolver(new DummyHashService(), new AssetHashCache()));
+        Func<Task> act = async () => await store.LoadAsync(projectPath);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Test]
     public async Task Schema1_Load_NonStringModeField_ThrowsOnStrictPath()
     {
         string hakPath = Path.Combine(_tempDir, "nonstr.hak");

@@ -29,7 +29,7 @@ public class ConflictQueueTests
         WorkspaceState state = State(new[] { s1, s2 }, conflict, resolvedConflict, clean);
 
         var recorded = new List<AssetOccurrence>();
-        ConflictQueueViewModel queue = new(o => { recorded.Add(o); return Task.CompletedTask; }, _ => "TGA");
+        ConflictQueueViewModel queue = new(o => { recorded.Add(o); return Task.FromResult(true); }, _ => "TGA");
         queue.Load(state);
 
         queue.TotalCount.Should().Be(2, "only the two colliding identities are conflicts");
@@ -49,7 +49,7 @@ public class ConflictQueueTests
         WorkspaceState state = State(new[] { s1, s2 }, conflict);
 
         var recorded = new List<AssetOccurrence>();
-        ConflictQueueViewModel queue = new(o => { recorded.Add(o); return Task.CompletedTask; }, _ => "TGA");
+        ConflictQueueViewModel queue = new(o => { recorded.Add(o); return Task.FromResult(true); }, _ => "TGA");
         queue.Load(state);
 
         ConflictCandidateViewModel candidate = queue.Current!.Candidates.First(c => c.Priority == 1);
@@ -68,7 +68,7 @@ public class ConflictQueueTests
         CuratedAsset b = Collision("beta", s1, s2, pinned: false);
         WorkspaceState state = State(new[] { s1, s2 }, a, b);
 
-        ConflictQueueViewModel queue = new(_ => Task.CompletedTask, _ => "TGA");
+        ConflictQueueViewModel queue = new(_ => Task.FromResult(true), _ => "TGA");
         queue.Load(state);
         queue.Current!.Resref.Should().Be("alpha", "the first unresolved conflict is selected initially");
 
@@ -90,7 +90,7 @@ public class ConflictQueueTests
             Collision("beta", s1, s2, false),
             Collision("gamma", s1, s2, false));
 
-        ConflictQueueViewModel queue = new(_ => Task.CompletedTask, _ => "TGA");
+        ConflictQueueViewModel queue = new(_ => Task.FromResult(true), _ => "TGA");
         queue.Load(state);
 
         queue.Current!.Resref.Should().Be("alpha");
@@ -117,7 +117,7 @@ public class ConflictQueueTests
 
         ConflictCandidateViewModel candidate = new(
             occ, "src.hak", priority: 0, SourceMode.Full, isCurrentWinner: false,
-            onMakeWinner: _ => Task.CompletedTask,
+            onMakeWinner: _ => Task.FromResult(true),
             hashLoader: (_, _) => Task.FromResult<byte[]?>(full));
 
         candidate.HashText.Should().Be("—", "no hash is shown until the card is loaded");
@@ -137,7 +137,7 @@ public class ConflictQueueTests
 
         ConflictCandidateViewModel candidate = new(
             occ, "src.hak", 0, SourceMode.Full, false,
-            _ => Task.CompletedTask,
+            _ => Task.FromResult(true),
             (_, _) => { loaderCalled = true; return Task.FromResult<byte[]?>(null); });
 
         candidate.HashText.Should().Be("fffefdfc", "a precomputed hash shows immediately");
@@ -152,7 +152,7 @@ public class ConflictQueueTests
         AssetOccurrence occ = Occ(new("alpha", TgaType), Guid.NewGuid(), 0);
         ConflictCandidateViewModel candidate = new(
             occ, "src.hak", 0, SourceMode.Full, false,
-            _ => Task.CompletedTask,
+            _ => Task.FromResult(true),
             (_, _) => Task.FromResult<byte[]?>(null));
 
         await candidate.EnsureHashLoadedAsync();
@@ -170,7 +170,7 @@ public class ConflictQueueTests
         byte[] full = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
 
         ConflictQueueViewModel queue = new(
-            _ => Task.CompletedTask, _ => "TGA",
+            _ => Task.FromResult(true), _ => "TGA",
             onPreferSource: null,
             hashLoader: (_, _) => Task.FromResult<byte[]?>(full));
         queue.Load(state);

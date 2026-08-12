@@ -696,13 +696,18 @@ public partial class MainWindowViewModel : ObservableObject
         await ComparisonPanel.UpdateSelectionAsync(curatedAssets, sourceMap).ConfigureAwait(true);
     }
 
-    private async Task OnPinRequestedAsync(AssetOccurrence occurrence)
+    /// <summary>
+    /// Pins the given occurrence as the winner for its identity. Returns <c>true</c> only when a pin
+    /// was actually persisted; <c>false</c> when the request was refused (read-only) or aborted (the
+    /// payload could not be read). Callers must not present a pin as applied on a <c>false</c> result.
+    /// </summary>
+    private async Task<bool> OnPinRequestedAsync(AssetOccurrence occurrence)
     {
-        if (_workspaceService == null || _workspaceState == null) return;
+        if (_workspaceService == null || _workspaceState == null) return false;
         if (_workspaceState.IsReadOnly)
         {
             OperationLog.AddEntry("WARN", "Pinning is disabled for read-only workspaces.");
-            return;
+            return false;
         }
 
         byte[]? raw = await ComputeRawHashAsync(occurrence, CancellationToken.None).ConfigureAwait(true);
@@ -712,7 +717,7 @@ public partial class MainWindowViewModel : ObservableObject
             // would persist a pin the resolver immediately marks invalid, leaving the conflict
             // unresolved while the log falsely claims success. Abort and report the read failure.
             OperationLog.AddEntry("WARN", $"Could not pin {occurrence.Identity.Resref}.{occurrence.Identity.ResourceType}: its payload could not be read from source {occurrence.SourceId}.");
-            return;
+            return false;
         }
         byte[] pinHash = NormalizeHash(raw);
 
@@ -724,6 +729,7 @@ public partial class MainWindowViewModel : ObservableObject
         AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
         ConflictQueue.Load(_workspaceState);
         OperationLog.AddEntry("INFO", $"Pinned occurrence {occurrence.Identity.Resref}.{occurrence.Identity.ResourceType} to source {occurrence.SourceId}.");
+        return true;
     }
 
     /// <summary>
@@ -797,7 +803,11 @@ public partial class MainWindowViewModel : ObservableObject
         CancellationTokenSource cts = StatusBar.BeginOperation($"Preferring source '{sourceLabel}' for conflicts...");
         CancellationToken ct = cts.Token;
 
-        int pinned = 0, absent = 0, ambiguous = 0;
+        // 'prepared' counts pins built in the loop; they are only persisted once the single
+        // PinManyAsync batch at the end succeeds. 'committed' records that it did — the batch is
+        // atomic, so cancellation before it runs applies nothing at all.
+        int prepared = 0, absent = 0, ambiguous = 0;
+        bool committed = false;
         List<WinnerPin> pins = new();
 
         try
@@ -830,12 +840,13 @@ public partial class MainWindowViewModel : ObservableObject
                 }
 
                 pins.Add(new WinnerPin(chosen.Identity, chosen.SourceId, chosen.Locator, NormalizeHash(raw)));
-                pinned++;
+                prepared++;
             }
 
             if (pins.Count > 0)
             {
                 _workspaceState = await _workspaceService.PinManyAsync(pins, ct).ConfigureAwait(true);
+                committed = true;
                 RefreshTextureSource();
                 var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
                 AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
@@ -844,12 +855,17 @@ public partial class MainWindowViewModel : ObservableObject
 
             StatusBar.EndOperation("Prefer-source complete.");
             OperationLog.AddEntry("INFO",
-                $"Preferred '{sourceLabel}': {pinned} pinned, {absent} skipped (no occurrence), {ambiguous} skipped (ambiguous payloads).");
+                $"Preferred '{sourceLabel}': {prepared} pinned, {absent} skipped (no occurrence), {ambiguous} skipped (ambiguous payloads).");
         }
         catch (OperationCanceledException)
         {
             StatusBar.EndOperation("Prefer-source canceled.");
-            OperationLog.AddEntry("WARN", $"Prefer-source for '{sourceLabel}' was canceled after {pinned} pins.");
+            // The batch is atomic: if it had not been committed when cancellation fired, nothing was
+            // persisted. Report committed pins, not merely prepared ones, so the log is not misleading.
+            string outcome = committed
+                ? $"{prepared} pins were applied before cancellation"
+                : $"none of the {prepared} prepared pins were applied";
+            OperationLog.AddEntry("WARN", $"Prefer-source for '{sourceLabel}' was canceled; {outcome}.");
         }
     }
 

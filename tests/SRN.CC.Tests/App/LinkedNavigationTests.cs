@@ -307,7 +307,7 @@ public class LinkedNavigationTests
     private static ComparisonPanelViewModel CreatePanel()
     {
         var engine = new PreviewEngine(new FakeDispatcher(), Array.Empty<IPreviewProvider>());
-        return new ComparisonPanelViewModel(engine, static _ => Task.CompletedTask);
+        return new ComparisonPanelViewModel(engine, static _ => Task.FromResult(true));
     }
 
     /// <summary>

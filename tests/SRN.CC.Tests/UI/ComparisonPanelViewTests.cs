@@ -30,7 +30,7 @@ public class ComparisonPanelViewTests
     public void ComparisonPanelView_SlotWithTextContent_RendersFormattedContentThroughImplicitTemplate()
     {
         var engine = new PreviewEngine(new NoOpDispatcher(), Array.Empty<IPreviewProvider>());
-        var vm = new ComparisonPanelViewModel(engine, _ => Task.CompletedTask);
+        var vm = new ComparisonPanelViewModel(engine, _ => Task.FromResult(true));
         vm.Slots[0].Content = new TextContentViewModel(PreviewFamily.Text, "rendered via implicit template");
 
         var view = new ComparisonPanelView { DataContext = vm };

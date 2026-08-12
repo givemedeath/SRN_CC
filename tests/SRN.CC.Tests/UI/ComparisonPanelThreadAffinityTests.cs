@@ -86,7 +86,7 @@ public class ComparisonPanelThreadAffinityTests
         public Fixture()
         {
             PreviewEngine engine = new(new EmptyDispatcher(), Array.Empty<IPreviewProvider>());
-            Panel = new ComparisonPanelViewModel(engine, static _ => Task.CompletedTask);
+            Panel = new ComparisonPanelViewModel(engine, static _ => Task.FromResult(true));
             Assets = [CreateAsset("asset_a", 3), CreateAsset("asset_b", 2), CreateAsset("asset_c", 2)];
         }
 

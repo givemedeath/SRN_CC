@@ -91,7 +91,7 @@ public enum ComparisonMode
 public partial class ComparisonPanelViewModel : ObservableObject
 {
     private readonly PreviewEngine _previewEngine;
-    private readonly Func<AssetOccurrence, Task> _onPinRequested;
+    private readonly Func<AssetOccurrence, Task<bool>> _onPinRequested;
     private IReadOnlyList<CuratedAsset> _selectedAssets = Array.Empty<CuratedAsset>();
     private IReadOnlyDictionary<Guid, AssetSource> _sourceMap = new Dictionary<Guid, AssetSource>();
     private int _selectionUpdateGeneration;
@@ -136,7 +136,7 @@ public partial class ComparisonPanelViewModel : ObservableObject
 
     public ComparisonPanelViewModel(
         PreviewEngine previewEngine,
-        Func<AssetOccurrence, Task> onPinRequested)
+        Func<AssetOccurrence, Task<bool>> onPinRequested)
     {
         _previewEngine = previewEngine ?? throw new ArgumentNullException(nameof(previewEngine));
         _onPinRequested = onPinRequested ?? throw new ArgumentNullException(nameof(onPinRequested));

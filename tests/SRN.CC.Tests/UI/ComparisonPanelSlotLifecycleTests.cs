@@ -472,7 +472,7 @@ public class ComparisonPanelSlotLifecycleTests
         public Fixture()
         {
             PreviewEngine engine = new(new EmptyDispatcher(), Array.Empty<IPreviewProvider>());
-            Panel = new ComparisonPanelViewModel(engine, static _ => Task.CompletedTask);
+            Panel = new ComparisonPanelViewModel(engine, static _ => Task.FromResult(true));
         }
 
         public ComparisonPanelViewModel Panel { get; }

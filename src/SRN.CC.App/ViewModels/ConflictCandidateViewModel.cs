@@ -11,7 +11,7 @@ namespace SRN.CC.App.ViewModels;
 /// </summary>
 public partial class ConflictCandidateViewModel : ObservableObject
 {
-    private readonly Func<AssetOccurrence, Task> _onMakeWinner;
+    private readonly Func<AssetOccurrence, Task<bool>> _onMakeWinner;
     private readonly Func<AssetOccurrence, CancellationToken, Task<byte[]?>>? _hashLoader;
     private bool _hashRequested;
 
@@ -38,7 +38,7 @@ public partial class ConflictCandidateViewModel : ObservableObject
         int priority,
         SourceMode mode,
         bool isCurrentWinner,
-        Func<AssetOccurrence, Task> onMakeWinner,
+        Func<AssetOccurrence, Task<bool>> onMakeWinner,
         Func<AssetOccurrence, CancellationToken, Task<byte[]?>>? hashLoader = null)
     {
         Occurrence = occurrence ?? throw new ArgumentNullException(nameof(occurrence));
@@ -95,7 +95,7 @@ public partial class ConflictCandidateViewModel : ObservableObject
         Convert.ToHexString(hash).ToLowerInvariant()[..Math.Min(8, hash.Length * 2)];
 
     [RelayCommand]
-    private Task MakeWinner() => _onMakeWinner(Occurrence);
+    private async Task MakeWinner() => await _onMakeWinner(Occurrence).ConfigureAwait(true);
 }
 
 /// <summary>Shared human-readable byte-size formatting for asset/candidate rows.</summary>

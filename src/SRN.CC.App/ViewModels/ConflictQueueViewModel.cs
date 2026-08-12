@@ -17,7 +17,7 @@ namespace SRN.CC.App.ViewModels;
 /// </summary>
 public partial class ConflictQueueViewModel : ObservableObject
 {
-    private readonly Func<AssetOccurrence, Task> _onMakeWinner;
+    private readonly Func<AssetOccurrence, Task<bool>> _onMakeWinner;
     private readonly Func<ushort, string> _resourceTypeName;
     private readonly Func<Guid, Task>? _onPreferSource;
     private readonly Func<AssetOccurrence, CancellationToken, Task<byte[]?>>? _hashLoader;
@@ -41,7 +41,7 @@ public partial class ConflictQueueViewModel : ObservableObject
     private int _totalCount;
 
     public ConflictQueueViewModel(
-        Func<AssetOccurrence, Task> onMakeWinner,
+        Func<AssetOccurrence, Task<bool>> onMakeWinner,
         Func<ushort, string> resourceTypeName,
         Func<Guid, Task>? onPreferSource = null,
         Func<AssetOccurrence, CancellationToken, Task<byte[]?>>? hashLoader = null)

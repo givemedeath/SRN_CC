@@ -103,6 +103,42 @@ public class BulkPreferSourceTests
             "the read failure is reported instead of a false success");
     }
 
+    [Test]
+    public async Task BulkPreferSource_CanceledMidBatch_ReportsNoPinsApplied()
+    {
+        Guid s1 = Guid.NewGuid();
+        Guid s2 = Guid.NewGuid();
+        AssetSource src1 = new(s1, AssetSourceKind.Hak, "c:/one.hak", 0);
+        AssetSource src2 = new(s2, AssetSourceKind.Hak, "c:/two.hak", 1);
+
+        AssetIdentity alpha = new("alpha", TgaType);
+        AssetIdentity beta = new("beta", TgaType);
+
+        // Both identities collide across s1/s2 and have an occurrence in the preferred s2.
+        var index = new MockIndexService();
+        index.Register(src1, Occ(alpha, s1, 0), Occ(beta, s1, 0));
+        index.Register(src2, Occ(alpha, s2, 0), Occ(beta, s2, 0));
+
+        var cache = new AssetHashCache();
+        var resolver = new WorkspaceResolver(new ConstantHashService(), cache);
+        var workspace = new WorkspaceService(index, resolver, cache);
+        await workspace.InitializeAsync(new[] { src1, src2 });
+
+        var dispatcher = new ArmedCancelDispatcher();
+        MainWindowViewModel vm = BuildViewModel(workspace, index, resolver, dispatcher);
+        await vm.LoadWorkspaceStateAsync(workspace.CurrentState);
+
+        // Cancel after the first candidate has been hashed (prepared) but before the batch commits.
+        dispatcher.Armed = true;
+        await vm.BulkPreferSourceAsync(s2);
+
+        vm.OperationLog.Entries.Should().Contain(e => e.Message.Contains("none of the 1 prepared pins were applied"),
+            "the atomic batch never committed, so no pins were applied");
+        vm.OperationLog.Entries.Should().NotContain(e => e.Message.Contains("pins were applied before cancellation"));
+        workspace.CurrentState.CuratedAssets.Should().OnlyContain(a => a.Pin == null,
+            "a batch that never committed leaves no pins persisted");
+    }
+
     private static MainWindowViewModel BuildViewModel(IWorkspaceService workspace, IAssetIndexService index, WorkspaceResolver resolver, ISourceReaderDispatcher? dispatcher = null)
     {
         var registry = new ResourceTypeRegistry();
@@ -159,6 +195,22 @@ public class BulkPreferSourceTests
     {
         public Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default)
             => throw new IOException("payload unreadable");
+    }
+
+    /// <summary>Once armed, succeeds for the first open then throws cancellation on the next.</summary>
+    private sealed class ArmedCancelDispatcher : ISourceReaderDispatcher
+    {
+        private int _armedCalls;
+        public bool Armed { get; set; }
+
+        public Task<Stream> OpenOccurrenceAsync(AssetSource source, AssetOccurrence occurrence, CancellationToken cancellationToken = default)
+        {
+            if (Armed && ++_armedCalls >= 2)
+            {
+                throw new OperationCanceledException();
+            }
+            return Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes($"{source.Id}:{occurrence.Locator}")));
+        }
     }
 
     private sealed class UnusedBuildOrchestrator : IBuildOrchestrator

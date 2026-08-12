@@ -16,6 +16,7 @@ version control, and understand what a merge conflict is actually about.
     {
       "id": "3f1b0d92-6a5e-4f27-9d0a-2b7c8e5f1a44",
       "kind": "hak",
+      "mode": "full",
       "path": { "kind": "relative", "value": "haks/base_override.hak" },
       "fingerprint": {
         "kind": "hak",
@@ -65,6 +66,7 @@ version control, and understand what a merge conflict is actually about.
 |---|---|---|
 | `id` | GUID string | Stable identity of the source within this project. Pins refer to it |
 | `kind` | `"hak"` or `"folder"` | Written lower-case |
+| `mode` | `"full"`, `"reference"`, or `"hidden"` | Optional, written lower-case; defaults to `full`. See [Source modes](#source-modes) |
 | `path.kind` | `"relative"` or `"absolute"` | Written as `relative` when the source lies inside the project file's own directory, `absolute` otherwise |
 | `path.value` | string | Always written with forward slashes, even on Windows. Relative values are resolved against the directory containing the project file |
 | `fingerprint` | object, optional | Change detector for the source, not payload evidence |
@@ -75,6 +77,26 @@ version control, and understand what a merge conflict is actually about.
 A fingerprint tells the application whether a source changed since it was last indexed. It is
 deliberately *not* a hash of the contents, and it is never used as payload evidence — payload hashes
 are always recomputed at build time.
+
+#### Source modes
+
+Each source has a **mode** that controls how it participates in the workspace:
+
+| Mode | Rows in the asset list | Wins resolution automatically | Auto-selected for build | Valid pin target |
+|---|---|---|---|---|
+| `full` (default) | Visible | Yes, by priority | Yes | Yes |
+| `reference` | Visible | **No** — a lower-priority `full` source wins instead | **No** | Yes — pin an occurrence to include it |
+| `hidden` | **Hidden** | No — excluded entirely | No | No — a pin into a hidden source becomes invalid |
+
+`reference` is for sources you want available as pin-only export candidates without letting them win
+by priority or be swept into a build. `hidden` fully excludes a source: its assets leave the list,
+drop out of conflict detection, and any pin that named it is flagged invalid (never silently moved).
+
+> **Compatibility:** a build predating this feature does not understand `mode` and treats every
+> source as `full` — so it will resolve and select assets from sources you marked `reference` or
+> `hidden`. The field itself is preserved across an older build's save (see
+> [Unknown fields are preserved](#unknown-fields-are-preserved)); only its *effect* is lost. Keep this
+> in mind when sharing a project between application versions.
 
 ### `selectionState`
 

@@ -14,6 +14,7 @@ public enum ConflictFilterMode
     Conflicting,
     Pinned,
     InvalidPin,
+    ReferenceOnly,
     Selected,
     Unselected
 }
@@ -97,8 +98,21 @@ public partial class AssetTableViewModel : ObservableObject
     {
         _allRows = assets.Select(a =>
         {
-            string label = a.ResolvedOccurrence != null && sourceLabels.TryGetValue(a.ResolvedOccurrence.SourceId, out var l)
-                ? l : "Unknown";
+            string label;
+            if (a.ResolvedOccurrence != null && sourceLabels.TryGetValue(a.ResolvedOccurrence.SourceId, out var l))
+            {
+                label = l;
+            }
+            else if (a.Status == ResolutionStatus.ReferenceOnly)
+            {
+                // No automatic winner: the identity lives only in Reference sources. The operator
+                // must pin an occurrence to include it in a build.
+                label = "— reference only";
+            }
+            else
+            {
+                label = "Unknown";
+            }
             string typeName = _registry.TryGetExtension(a.Identity.ResourceType, out var name) ? name.ToUpperInvariant() : "UNKNOWN";
             return new AssetRowViewModel(a, typeName, label, OnRowIsSelectedChanged);
         }).ToList();
@@ -214,6 +228,7 @@ public partial class AssetTableViewModel : ObservableObject
             ConflictFilterMode.Conflicting => query.Where(r => r.CuratedAsset.HasDifferingPayloads),
             ConflictFilterMode.Pinned => query.Where(r => r.IsPinned),
             ConflictFilterMode.InvalidPin => query.Where(r => r.CuratedAsset.HasInvalidPin),
+            ConflictFilterMode.ReferenceOnly => query.Where(r => r.CuratedAsset.Status == ResolutionStatus.ReferenceOnly),
             ConflictFilterMode.Selected => query.Where(r => r.IsSelected),
             ConflictFilterMode.Unselected => query.Where(r => !r.IsSelected),
             _ => query

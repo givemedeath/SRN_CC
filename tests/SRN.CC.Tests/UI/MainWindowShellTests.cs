@@ -379,6 +379,10 @@ public class MainWindowShellTests
             Guid sourceId, string newPath, CancellationToken cancellationToken = default)
             => Task.FromResult((_state, new ChangedInputReport()));
 
+        public Task<(WorkspaceState State, ChangedInputReport Report)> SetSourceModeAsync(
+            Guid sourceId, SourceMode mode, CancellationToken cancellationToken = default)
+            => Task.FromResult((_state, new ChangedInputReport()));
+
         public Task<WorkspaceState> PinAsync(WinnerPin pin, CancellationToken cancellationToken = default)
             => Task.FromResult(_state);
 

@@ -48,6 +48,15 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
 
         foreach (AssetSource source in normalizedSources)
         {
+            // Hidden sources are excluded at this single choke point: their occurrences never
+            // enter identityGroupMap, so they drop out of diagnostic flags, automatic resolution,
+            // and the curated-asset row set. A pin into a Hidden source is rejected separately in
+            // ResolvePinnedIdentityAsync and surfaces as an InvalidPin row.
+            if (source.Mode == SourceMode.Hidden)
+            {
+                continue;
+            }
+
             if (snapshots.TryGetValue(source.Id, out SourceIndexSnapshot? snapshot) && snapshot is not null)
             {
                 foreach (AssetOccurrence occ in snapshot.Records.Where(r => r.Occurrence != null).Select(r => r.Occurrence!))
@@ -132,7 +141,11 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
                 resolvedSha256 = autoHash;
             }
 
-            // Selection evaluation
+            // Selection evaluation. Only Resolved identities can be selected, so ReferenceOnly
+            // identities are never auto-selected. The only way a Reference occurrence becomes a
+            // winner is an explicit pin, which yields Resolved and participates in selection
+            // normally (including default-selected) — a pinned reference winner is an ordinary
+            // selectable, buildable asset.
             bool isSelected = false;
             if (status == ResolutionStatus.Resolved && resolvedOccurrence is not null)
             {
@@ -182,7 +195,7 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
             AssetSource s = ordered[i];
             if (s.PriorityOrdinal != i)
             {
-                normalized.Add(new AssetSource(s.Id, s.Kind, s.FullPath, i, s.IsAvailable, s.Fingerprint));
+                normalized.Add(s with { PriorityOrdinal = i });
             }
             else
             {
@@ -199,7 +212,11 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
             Dictionary<Guid, AssetSource> sourceLookup,
             CancellationToken cancellationToken)
     {
-        if (!sourceLookup.TryGetValue(pin.SourceId, out AssetSource? pinnedSource) || !pinnedSource.IsAvailable)
+        // A pin is invalid if its source is missing, unavailable, or Hidden. Reference sources
+        // are valid pin targets: pinning is precisely how a reference occurrence becomes a winner.
+        if (!sourceLookup.TryGetValue(pin.SourceId, out AssetSource? pinnedSource)
+            || !pinnedSource.IsAvailable
+            || pinnedSource.Mode == SourceMode.Hidden)
         {
             return (null, pin, ResolutionStatus.InvalidPin, null, InvalidPin: true, Unreadable: false, PayloadConflict: false);
         }
@@ -266,12 +283,25 @@ public sealed class WorkspaceResolver : IWorkspaceResolver
             List<AssetSource> sortedSources,
             CancellationToken cancellationToken)
     {
-        // Find highest-priority available source containing occurrences for this identity
-        AssetSource? winningSource = sortedSources.FirstOrDefault(s => s.IsAvailable && occurrences.Any(o => o.SourceId == s.Id));
+        // Only Full sources win automatically. Because the source list is priority-sorted, a
+        // lower-priority Full source automatically beats any higher-priority Reference source.
+        // (Hidden occurrences are already absent from `occurrences`.)
+        AssetSource? winningSource = sortedSources.FirstOrDefault(
+            s => s.IsAvailable && s.Mode == SourceMode.Full && occurrences.Any(o => o.SourceId == s.Id));
 
         if (winningSource is null)
         {
-            // No available source has this identity. Check if any unavailable source has it.
+            // No available Full source has this identity. Status ladder, most-actionable first:
+            //  - an available Reference source has it -> ReferenceOnly (pin an occurrence to include it)
+            //  - else an unavailable source has it     -> Unavailable
+            //  - else                                  -> Unpackageable
+            bool inReferenceSource = sortedSources.Any(
+                s => s.IsAvailable && s.Mode == SourceMode.Reference && occurrences.Any(o => o.SourceId == s.Id));
+            if (inReferenceSource)
+            {
+                return (null, ResolutionStatus.ReferenceOnly, null, Unreadable: false, PayloadConflict: false);
+            }
+
             bool inUnavailableSource = sortedSources.Any(s => !s.IsAvailable && occurrences.Any(o => o.SourceId == s.Id));
             ResolutionStatus status = inUnavailableSource ? ResolutionStatus.Unavailable : ResolutionStatus.Unpackageable;
             return (null, status, null, Unreadable: false, PayloadConflict: false);

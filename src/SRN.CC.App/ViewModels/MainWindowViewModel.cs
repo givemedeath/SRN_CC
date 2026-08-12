@@ -357,7 +357,8 @@ public partial class MainWindowViewModel : ObservableObject
             ? "SRN.CC Asset Curator — [Unsaved Project]"
             : $"SRN.CC Asset Curator — {Path.GetFileName(projectPath)}";
 
-        var sourceVMs = state.Sources.Select(s => new SourceItemViewModel(s));
+        bool canEditSources = !state.IsReadOnly;
+        var sourceVMs = state.Sources.Select(s => new SourceItemViewModel(s, canEditSources, OnSourceModeChangedAsync));
         SourceStack.UpdateSources(sourceVMs);
 
         var sourceLabels = state.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
@@ -893,24 +894,49 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Applies a new <see cref="SourceMode"/> to a source. Fired fire-and-forget from the source
+    /// stack's per-item mode picker; the workspace service serializes the change and re-resolves.
+    /// Mode-induced pin invalidations surface as WARN lines via <see cref="ReportChangedInputs"/>.
+    /// </summary>
+    private async Task OnSourceModeChangedAsync(SourceItemViewModel item, SourceMode mode)
+    {
+        if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly)
+        {
+            return;
+        }
+
+        try
+        {
+            var (state, report) = await _workspaceService.SetSourceModeAsync(item.Source.Id, mode).ConfigureAwait(true);
+            await LoadWorkspaceStateAsync(state, _currentProjectPath).ConfigureAwait(true);
+            ReportChangedInputs(report, "Source mode change");
+        }
+        catch (Exception ex)
+        {
+            OperationLog.AddEntry("ERROR", $"Failed to change source mode: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Renders a <see cref="ChangedInputReport"/> into the operation log. The rescan path already
     /// produced this report and threw it away, which is why a rescan that silently invalidated a pin
     /// looked identical to one that changed nothing.
     /// </summary>
-    private void ReportChangedInputs(ChangedInputReport report)
+    private void ReportChangedInputs(ChangedInputReport report, string contextLabel = "Rescan")
     {
         ArgumentNullException.ThrowIfNull(report);
 
         if (!report.HasChanges)
         {
-            OperationLog.AddEntry("INFO", "Rescan complete: no inputs changed.");
+            OperationLog.AddEntry("INFO", $"{contextLabel} complete: no inputs changed.");
             return;
         }
 
-        OperationLog.AddEntry("INFO", "Rescan complete. Changed inputs:");
+        OperationLog.AddEntry("INFO", $"{contextLabel} complete. Changed inputs:");
         Line("INFO", "sources added", report.AddedSources.Count);
         Line("INFO", "sources removed", report.RemovedSources.Count);
         Line("WARN", "source availability transitions", report.AvailabilityTransitions.Count);
+        Line("INFO", "source mode changes", report.ModeChanges.Count);
         Line("INFO", "source fingerprint changes", report.FingerprintChanges.Count);
         Line("INFO", "identities added", report.AddedIdentities.Count);
         Line("INFO", "identities removed", report.RemovedIdentities.Count);

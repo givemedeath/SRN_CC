@@ -10,6 +10,7 @@ public sealed record AssetSource
     public int PriorityOrdinal { get; init; }
     public bool IsAvailable { get; init; }
     public SourceFingerprint? Fingerprint { get; init; }
+    public SourceMode Mode { get; init; }
 
     public AssetSource(
         Guid id,
@@ -17,7 +18,8 @@ public sealed record AssetSource
         string fullPath,
         int priorityOrdinal = 0,
         bool isAvailable = true,
-        SourceFingerprint? fingerprint = null)
+        SourceFingerprint? fingerprint = null,
+        SourceMode mode = SourceMode.Full)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fullPath);
 
@@ -27,6 +29,7 @@ public sealed record AssetSource
         PriorityOrdinal = priorityOrdinal;
         IsAvailable = isAvailable;
         Fingerprint = fingerprint;
+        Mode = mode;
     }
 
     public static AssetSource CreateHak(string fullPath, int priorityOrdinal = 0, Guid? id = null)

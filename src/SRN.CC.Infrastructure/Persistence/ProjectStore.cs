@@ -273,8 +273,24 @@ public sealed class ProjectStore : IProjectStore
                     throw new InvalidOperationException($"Project file '{fullProjectPath}' fingerprint must be a JSON object.");
                 }
 
+                // Per-source mode is an additive, optional field (default Full). Absent -> Full;
+                // present-but-unparseable throws on the strict path, tolerated as Full read-only.
+                SourceMode mode = SourceMode.Full;
+                string? modeStr = TryGetString(sourceObj["mode"]);
+                if (!string.IsNullOrEmpty(modeStr))
+                {
+                    if (Enum.TryParse<SourceMode>(modeStr, ignoreCase: true, out SourceMode parsedMode))
+                    {
+                        mode = parsedMode;
+                    }
+                    else if (!isReadOnly)
+                    {
+                        throw new InvalidOperationException($"Project file '{fullProjectPath}' contains invalid source mode '{modeStr}'.");
+                    }
+                }
+
                 bool isAvailable = File.Exists(resolvedPath) || Directory.Exists(resolvedPath);
-                AssetSource source = new AssetSource(id, kind, resolvedPath, priorityOrdinal++, isAvailable, fingerprint);
+                AssetSource source = new AssetSource(id, kind, resolvedPath, priorityOrdinal++, isAvailable, fingerprint, mode);
                 sources.Add(source);
             }
         }
@@ -469,12 +485,12 @@ public sealed class ProjectStore : IProjectStore
                 SourceIndexSnapshot snapshot = await _indexService.IndexAsync(s, progress: null, cancellationToken).ConfigureAwait(false);
                 if (!snapshot.Source.IsAvailable)
                 {
-                    AssetSource unavailable = new AssetSource(s.Id, s.Kind, s.FullPath, s.PriorityOrdinal, isAvailable: false, s.Fingerprint);
+                    AssetSource unavailable = s with { IsAvailable = false };
                     scannedSources.Add(unavailable);
                 }
                 else
                 {
-                    AssetSource updatedSource = new AssetSource(s.Id, s.Kind, s.FullPath, s.PriorityOrdinal, isAvailable: true, snapshot.Fingerprint);
+                    AssetSource updatedSource = s with { IsAvailable = true, Fingerprint = snapshot.Fingerprint };
                     scannedSources.Add(updatedSource);
                     snapshots[updatedSource.Id] = snapshot;
                 }
@@ -485,7 +501,7 @@ public sealed class ProjectStore : IProjectStore
             }
             catch
             {
-                AssetSource unavailable = new AssetSource(s.Id, s.Kind, s.FullPath, s.PriorityOrdinal, isAvailable: false, s.Fingerprint);
+                AssetSource unavailable = s with { IsAvailable = false };
                 scannedSources.Add(unavailable);
             }
         }
@@ -578,6 +594,7 @@ public sealed class ProjectStore : IProjectStore
 
             sourceObj["id"] = s.Id.ToString();
             sourceObj["kind"] = s.Kind.ToString().ToLowerInvariant();
+            sourceObj["mode"] = s.Mode.ToString().ToLowerInvariant();
 
             JsonObject pathObj = sourceObj["path"]?.AsObject().DeepClone().AsObject() ?? new JsonObject();
             string relPath = GetRelativePathIfContained(projectDir, s.FullPath);

@@ -8,6 +8,7 @@ public sealed record ChangedInputReport
     public IReadOnlyList<AssetSource> AddedSources { get; }
     public IReadOnlyList<AssetSource> RemovedSources { get; }
     public IReadOnlyList<Guid> AvailabilityTransitions { get; }
+    public IReadOnlyList<Guid> ModeChanges { get; }
     public IReadOnlyList<Guid> FingerprintChanges { get; }
     public IReadOnlyList<AssetIdentity> AddedIdentities { get; }
     public IReadOnlyList<AssetIdentity> RemovedIdentities { get; }
@@ -20,6 +21,7 @@ public sealed record ChangedInputReport
         AddedSources.Count > 0 ||
         RemovedSources.Count > 0 ||
         AvailabilityTransitions.Count > 0 ||
+        ModeChanges.Count > 0 ||
         FingerprintChanges.Count > 0 ||
         AddedIdentities.Count > 0 ||
         RemovedIdentities.Count > 0 ||
@@ -32,6 +34,7 @@ public sealed record ChangedInputReport
         IReadOnlyList<AssetSource>? addedSources = null,
         IReadOnlyList<AssetSource>? removedSources = null,
         IReadOnlyList<Guid>? availabilityTransitions = null,
+        IReadOnlyList<Guid>? modeChanges = null,
         IReadOnlyList<Guid>? fingerprintChanges = null,
         IReadOnlyList<AssetIdentity>? addedIdentities = null,
         IReadOnlyList<AssetIdentity>? removedIdentities = null,
@@ -43,6 +46,7 @@ public sealed record ChangedInputReport
         AddedSources = (addedSources ?? Array.Empty<AssetSource>()).ToList().AsReadOnly();
         RemovedSources = (removedSources ?? Array.Empty<AssetSource>()).ToList().AsReadOnly();
         AvailabilityTransitions = (availabilityTransitions ?? Array.Empty<Guid>()).ToList().AsReadOnly();
+        ModeChanges = (modeChanges ?? Array.Empty<Guid>()).ToList().AsReadOnly();
         FingerprintChanges = (fingerprintChanges ?? Array.Empty<Guid>()).ToList().AsReadOnly();
         AddedIdentities = (addedIdentities ?? Array.Empty<AssetIdentity>()).ToList().AsReadOnly();
         RemovedIdentities = (removedIdentities ?? Array.Empty<AssetIdentity>()).ToList().AsReadOnly();

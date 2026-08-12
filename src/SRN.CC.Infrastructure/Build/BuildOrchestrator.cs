@@ -95,6 +95,14 @@ public sealed class BuildOrchestrator : IBuildOrchestrator
                 return Fail($"Source for asset '{asset.Identity}' is unavailable.");
             }
 
+            // Defensive guard: the resolver never produces a winner from a Hidden source, so a
+            // Hidden winning source here means the plan was built from stale state. Fail rather
+            // than silently packaging content the user has switched off.
+            if (src.Mode == SourceMode.Hidden)
+            {
+                return Fail($"Source for asset '{asset.Identity}' is hidden and cannot contribute to a build. Rescan or re-resolve before building.");
+            }
+
             string? sha256Hex = occ.Sha256 != null ? Convert.ToHexString(occ.Sha256).ToLowerInvariant() : null;
             if (string.IsNullOrEmpty(sha256Hex))
             {

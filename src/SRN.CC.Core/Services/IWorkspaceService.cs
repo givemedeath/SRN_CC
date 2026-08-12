@@ -32,6 +32,11 @@ public interface IWorkspaceService
         string newPath,
         CancellationToken cancellationToken = default);
 
+    Task<(WorkspaceState State, ChangedInputReport Report)> SetSourceModeAsync(
+        Guid sourceId,
+        SourceMode mode,
+        CancellationToken cancellationToken = default);
+
     Task<WorkspaceState> PinAsync(
         WinnerPin pin,
         CancellationToken cancellationToken = default);

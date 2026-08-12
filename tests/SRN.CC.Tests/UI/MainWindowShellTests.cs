@@ -386,6 +386,9 @@ public class MainWindowShellTests
         public Task<WorkspaceState> PinAsync(WinnerPin pin, CancellationToken cancellationToken = default)
             => Task.FromResult(_state);
 
+        public Task<WorkspaceState> PinManyAsync(IReadOnlyList<WinnerPin> pins, CancellationToken cancellationToken = default)
+            => Task.FromResult(_state);
+
         public Task<WorkspaceState> UnpinAsync(AssetIdentity identity, CancellationToken cancellationToken = default)
             => Task.FromResult(_state);
 

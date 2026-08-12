@@ -144,6 +144,49 @@ public class WorkspaceServiceTests
     }
 
     [Test]
+    public async Task PinMany_ReplacesExistingPinsAndAddsNew_InOneResolve()
+    {
+        Guid id1 = Guid.NewGuid();
+        Guid id2 = Guid.NewGuid();
+        AssetSource s1 = new AssetSource(id1, AssetSourceKind.Hak, "c:/a.hak", 0);
+        AssetSource s2 = new AssetSource(id2, AssetSourceKind.Hak, "c:/b.hak", 1);
+
+        AssetIdentity alpha = new("alpha", 2000);
+        AssetIdentity beta = new("beta", 2000);
+        // Both identities live in both sources so a pin to either is a legitimate winner.
+        AssetOccurrence a1 = new(alpha, id1, new HakEntryLocator(0), "alpha.tga", 100);
+        AssetOccurrence a2 = new(alpha, id2, new HakEntryLocator(0), "alpha.tga", 100);
+        AssetOccurrence b1 = new(beta, id1, new HakEntryLocator(1), "beta.tga", 100);
+        AssetOccurrence b2 = new(beta, id2, new HakEntryLocator(1), "beta.tga", 100);
+
+        MockIndexService indexService = new();
+        indexService.IndexResults[id1] = CreateSnapshot(s1, a1, b1);
+        indexService.IndexResults[id2] = CreateSnapshot(s2, a2, b2);
+
+        AssetHashCache cache = new AssetHashCache();
+        DummyHashService hasher = new();
+        WorkspaceResolver resolver = new WorkspaceResolver(hasher, cache);
+        WorkspaceService svc = new WorkspaceService(indexService, resolver, cache);
+        await svc.InitializeAsync(new[] { s1, s2 });
+
+        // Pre-pin alpha to s1, then batch: move alpha to s2 and add a beta pin to s2.
+        byte[] alphaHashS1 = await hasher.ComputeSha256Async(s1, a1);
+        await svc.PinAsync(new WinnerPin(alpha, id1, a1.Locator, alphaHashS1));
+
+        byte[] alphaHashS2 = await hasher.ComputeSha256Async(s2, a2);
+        byte[] betaHashS2 = await hasher.ComputeSha256Async(s2, b2);
+        WorkspaceState state = await svc.PinManyAsync(new[]
+        {
+            new WinnerPin(alpha, id2, a2.Locator, alphaHashS2),
+            new WinnerPin(beta, id2, b2.Locator, betaHashS2),
+        });
+
+        state.Pins.Should().HaveCount(2, "the alpha pin is replaced in place, the beta pin is added");
+        state.CuratedAssets.Single(a => a.Identity.Equals(alpha)).ResolvedOccurrence!.SourceId.Should().Be(id2);
+        state.CuratedAssets.Single(a => a.Identity.Equals(beta)).ResolvedOccurrence!.SourceId.Should().Be(id2);
+    }
+
+    [Test]
     public async Task SetSourceMode_OnReadOnlyWorkspace_Throws()
     {
         MockIndexService indexService = new();

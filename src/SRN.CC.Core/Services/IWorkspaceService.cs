@@ -41,6 +41,14 @@ public interface IWorkspaceService
         WinnerPin pin,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Applies a batch of pins in one re-resolve. Each pin replaces any existing pin on the same
+    /// identity. Used by bulk operations where a per-pin re-resolve would be prohibitively slow.
+    /// </summary>
+    Task<WorkspaceState> PinManyAsync(
+        IReadOnlyList<WinnerPin> pins,
+        CancellationToken cancellationToken = default);
+
     Task<WorkspaceState> UnpinAsync(
         AssetIdentity identity,
         CancellationToken cancellationToken = default);

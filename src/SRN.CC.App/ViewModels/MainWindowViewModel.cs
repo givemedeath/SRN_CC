@@ -89,6 +89,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     public SourceStackViewModel SourceStack { get; }
     public AssetTableViewModel AssetTable { get; }
+    public ConflictQueueViewModel ConflictQueue { get; }
     public ComparisonPanelViewModel ComparisonPanel { get; }
     public OperationLogViewModel OperationLog { get; }
     public StatusBarViewModel StatusBar { get; }
@@ -116,14 +117,16 @@ public partial class MainWindowViewModel : ObservableObject
             RescanSourcesAsync,
             CanMoveSources,
             RemoveSourceAsync);
+        _registry = new FallbackResourceTypeRegistry();
         AssetTable = new AssetTableViewModel(
-            new FallbackResourceTypeRegistry(),
+            _registry,
             OnRowSelectionChanged,
             OnBatchSelectionChanged,
             OnSelectedRowChanged,
             OnSelectedRowsChanged,
             OnSearchTextChanged,
             OnSelectedFilterModeChanged);
+        ConflictQueue = new ConflictQueueViewModel(OnPinRequestedAsync, ResourceTypeNameFor, BulkPreferSourceAsync);
         ComparisonPanel = new ComparisonPanelViewModel(
             new PreviewEngine(new FallbackSourceReaderDispatcher(), new IPreviewProvider[] { }),
             OnPinRequestedAsync);
@@ -176,6 +179,7 @@ public partial class MainWindowViewModel : ObservableObject
             OnSelectedRowsChanged,
             OnSearchTextChanged,
             OnSelectedFilterModeChanged);
+        ConflictQueue = new ConflictQueueViewModel(OnPinRequestedAsync, ResourceTypeNameFor, BulkPreferSourceAsync);
 
         ComparisonPanel = new ComparisonPanelViewModel(
             _previewEngine,
@@ -363,6 +367,7 @@ public partial class MainWindowViewModel : ObservableObject
 
         var sourceLabels = state.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(state.CuratedAssets, sourceLabels);
+        ConflictQueue.Load(state);
         ApplySavedFilterSettings(state.Preferences.Filters);
         ComparisonPanel.SetCanPin(!_workspaceState.IsReadOnly);
 
@@ -596,6 +601,7 @@ public partial class MainWindowViewModel : ObservableObject
 
         var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+        ConflictQueue.Load(_workspaceState);
     }
 
     private void OnRowSelectionChanged(AssetRowViewModel row)
@@ -687,24 +693,8 @@ public partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        byte[]? pinHash = occurrence.Sha256;
-        if (pinHash == null || pinHash.Length == 0)
-        {
-            var source = _workspaceState.Sources.FirstOrDefault(s => s.Id == occurrence.SourceId);
-            if (source != null && _dispatcher != null)
-            {
-                await using var stream = await _dispatcher.OpenOccurrenceAsync(source, occurrence, CancellationToken.None).ConfigureAwait(true);
-                using var sha = SHA256.Create();
-                pinHash = await sha.ComputeHashAsync(stream, CancellationToken.None).ConfigureAwait(true);
-            }
-        }
-
-        if (pinHash == null || pinHash.Length != 32)
-        {
-            byte[] padded = new byte[32];
-            if (pinHash != null) Array.Copy(pinHash, padded, Math.Min(pinHash.Length, 32));
-            pinHash = padded;
-        }
+        byte[]? raw = await ComputeRawHashAsync(occurrence, CancellationToken.None).ConfigureAwait(true);
+        byte[] pinHash = NormalizeHash(raw);
 
         var pin = new WinnerPin(occurrence.Identity, occurrence.SourceId, occurrence.Locator, pinHash);
         _workspaceState = await _workspaceService.PinAsync(pin).ConfigureAwait(true);
@@ -712,7 +702,168 @@ public partial class MainWindowViewModel : ObservableObject
 
         var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
         AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+        ConflictQueue.Load(_workspaceState);
         OperationLog.AddEntry("INFO", $"Pinned occurrence {occurrence.Identity.Resref}.{occurrence.Identity.ResourceType} to source {occurrence.SourceId}.");
+    }
+
+    /// <summary>
+    /// Computes an occurrence's payload SHA-256 for pinning, or null if it cannot be read. Returns a
+    /// precomputed hash when present, otherwise streams the payload once through the dispatcher.
+    /// </summary>
+    private async Task<byte[]?> ComputeRawHashAsync(AssetOccurrence occurrence, CancellationToken cancellationToken)
+    {
+        if (occurrence.Sha256 is { Length: 32 })
+        {
+            return occurrence.Sha256;
+        }
+        if (_dispatcher == null || _workspaceState == null)
+        {
+            return null;
+        }
+        var source = _workspaceState.Sources.FirstOrDefault(s => s.Id == occurrence.SourceId);
+        if (source == null)
+        {
+            return null;
+        }
+        try
+        {
+            await using var stream = await _dispatcher.OpenOccurrenceAsync(source, occurrence, cancellationToken).ConfigureAwait(true);
+            using var sha = SHA256.Create();
+            return await sha.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static byte[] NormalizeHash(byte[]? hash)
+    {
+        if (hash is { Length: 32 })
+        {
+            return hash;
+        }
+        byte[] padded = new byte[32];
+        if (hash != null) Array.Copy(hash, padded, Math.Min(hash.Length, 32));
+        return padded;
+    }
+
+    /// <summary>
+    /// Pins the winner for every conflicted identity that has an occurrence in <paramref name="sourceId"/>,
+    /// in one batch. Identities absent from that source are skipped; same-source duplicates with
+    /// diverging or unreadable payloads are skipped as ambiguous. Reports the counts to the log.
+    /// </summary>
+    public async Task BulkPreferSourceAsync(Guid sourceId)
+    {
+        if (_workspaceService == null || _workspaceState == null || _workspaceState.IsReadOnly)
+        {
+            return;
+        }
+
+        var conflicts = _workspaceState.CuratedAssets.Where(ConflictQueueViewModel.IsConflict).ToList();
+        if (conflicts.Count == 0)
+        {
+            return;
+        }
+
+        string sourceLabel = _workspaceState.Sources.FirstOrDefault(s => s.Id == sourceId) is { } src
+            ? Path.GetFileName(src.FullPath)
+            : sourceId.ToString();
+
+        CancellationTokenSource cts = StatusBar.BeginOperation($"Preferring source '{sourceLabel}' for conflicts...");
+        CancellationToken ct = cts.Token;
+
+        int pinned = 0, absent = 0, ambiguous = 0;
+        List<WinnerPin> pins = new();
+
+        try
+        {
+            for (int i = 0; i < conflicts.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                CuratedAsset asset = conflicts[i];
+                StatusBar.ReportProgress($"Preferring source '{sourceLabel}'... ({i + 1}/{conflicts.Count})", (double)(i + 1) / conflicts.Count);
+
+                var candidates = asset.AllOccurrences.Where(o => o.SourceId == sourceId).ToList();
+                if (candidates.Count == 0)
+                {
+                    absent++;
+                    continue;
+                }
+
+                AssetOccurrence? chosen = await ChoosePreferredOccurrenceAsync(candidates, ct).ConfigureAwait(true);
+                if (chosen is null)
+                {
+                    ambiguous++;
+                    continue;
+                }
+
+                byte[]? raw = await ComputeRawHashAsync(chosen, ct).ConfigureAwait(true);
+                if (raw is null)
+                {
+                    ambiguous++;
+                    continue;
+                }
+
+                pins.Add(new WinnerPin(chosen.Identity, chosen.SourceId, chosen.Locator, NormalizeHash(raw)));
+                pinned++;
+            }
+
+            if (pins.Count > 0)
+            {
+                _workspaceState = await _workspaceService.PinManyAsync(pins, ct).ConfigureAwait(true);
+                RefreshTextureSource();
+                var sourceLabels = _workspaceState.Sources.ToDictionary(s => s.Id, s => Path.GetFileName(s.FullPath));
+                AssetTable.LoadAssets(_workspaceState.CuratedAssets, sourceLabels);
+                ConflictQueue.Load(_workspaceState);
+            }
+
+            StatusBar.EndOperation("Prefer-source complete.");
+            OperationLog.AddEntry("INFO",
+                $"Preferred '{sourceLabel}': {pinned} pinned, {absent} skipped (no occurrence), {ambiguous} skipped (ambiguous payloads).");
+        }
+        catch (OperationCanceledException)
+        {
+            StatusBar.EndOperation("Prefer-source canceled.");
+            OperationLog.AddEntry("WARN", $"Prefer-source for '{sourceLabel}' was canceled after {pinned} pins.");
+        }
+    }
+
+    /// <summary>
+    /// Chooses which occurrence in the preferred source to pin. A single occurrence is used directly;
+    /// multiple occurrences must share an identical, readable payload (then the lowest deterministic
+    /// locator wins). Diverging or unreadable duplicates return null so the caller can skip as ambiguous.
+    /// </summary>
+    private async Task<AssetOccurrence?> ChoosePreferredOccurrenceAsync(IReadOnlyList<AssetOccurrence> candidates, CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 1)
+        {
+            return candidates[0];
+        }
+
+        byte[]? reference = null;
+        foreach (AssetOccurrence occ in candidates)
+        {
+            byte[]? hash = await ComputeRawHashAsync(occ, cancellationToken).ConfigureAwait(true);
+            if (hash is null)
+            {
+                return null; // unreadable duplicate -> ambiguous
+            }
+            if (reference is null)
+            {
+                reference = hash;
+            }
+            else if (!reference.AsSpan().SequenceEqual(hash))
+            {
+                return null; // diverging payloads -> ambiguous
+            }
+        }
+
+        return candidates.OrderBy(o => o.Locator.ToString(), StringComparer.Ordinal).First();
     }
 
     [RelayCommand(CanExecute = nameof(CanBuildHak))]
@@ -953,6 +1104,12 @@ public partial class MainWindowViewModel : ObservableObject
             }
         }
     }
+
+    /// <summary>Resolves a resource type to its display extension (upper-case), or "UNKNOWN".</summary>
+    private string ResourceTypeNameFor(ushort resourceType) =>
+        _registry is not null && _registry.TryGetExtension(resourceType, out var name)
+            ? name.ToUpperInvariant()
+            : "UNKNOWN";
 
     private async Task AddSourcesAsync(IEnumerable<AssetSource> newSources)
     {

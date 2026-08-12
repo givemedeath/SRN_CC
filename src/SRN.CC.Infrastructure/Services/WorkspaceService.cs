@@ -327,6 +327,43 @@ public sealed class WorkspaceService : IWorkspaceService
         }
     }
 
+    public async Task<WorkspaceState> PinManyAsync(IReadOnlyList<WinnerPin> pins, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pins);
+        if (pins.Count == 0)
+        {
+            return _currentState;
+        }
+
+        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            EnsureWritable();
+            WorkspaceState previous = _currentState;
+
+            // Each incoming pin replaces any existing pin on the same identity; then resolve once.
+            HashSet<AssetIdentity> incoming = pins.Select(p => p.Identity).ToHashSet();
+            List<WinnerPin> updatedPins = previous.Pins.Where(p => !incoming.Contains(p.Identity)).ToList();
+            updatedPins.AddRange(pins);
+
+            WorkspaceState newState = await _resolver.ResolveAsync(
+                previous.Sources,
+                previous.Snapshots,
+                updatedPins,
+                previous.SelectionState,
+                previous.Preferences,
+                previous.IsReadOnly,
+                cancellationToken).ConfigureAwait(false);
+
+            _currentState = newState;
+            return newState;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
     public async Task<WorkspaceState> UnpinAsync(AssetIdentity identity, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(identity);

@@ -35,8 +35,15 @@
 
             <GridSplitter Grid.Column="1" Width="4" Background="#333333"/>
 
-            <!-- Center: Asset Grid Table -->
-            <views:AssetTableView Grid.Column="2" DataContext="{Binding AssetTable}"/>
+            <!-- Center: Assets table and the conflict-resolution queue as tabs. -->
+            <TabControl Grid.Column="2">
+                <TabItem Header="Assets">
+                    <views:AssetTableView DataContext="{Binding AssetTable}"/>
+                </TabItem>
+                <TabItem Header="{Binding ConflictQueue.HeaderText}">
+                    <views:ConflictQueueView DataContext="{Binding ConflictQueue}"/>
+                </TabItem>
+            </TabControl>
 
             <GridSplitter Grid.Column="3" Width="4" Background="#333333"/>
 
